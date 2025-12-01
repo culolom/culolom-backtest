@@ -1,62 +1,66 @@
-"""Utility to download price CSV files with a unified schema.
-
-Usage:
-    python update_csv.py 0050.TW 00631L.TW --start 2010-01-01
-
-Outputs ``data/{symbol}.csv`` with date index and columns:
-Open, High, Low, Close, Volume.
 """
-from __future__ import annotations
+Auto-download CSV files for all symbols listed in symbols.txt.
+Outputs unified price CSVs to data/{symbol}.csv
+"""
 
-import argparse
 from pathlib import Path
-
 import pandas as pd
 import yfinance as yf
+from datetime import datetime, timedelta
 
 DATA_DIR = Path("data")
+SYMBOL_FILE = Path("symbols.txt")
 REQUIRED_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
 
 
-def download_symbol(symbol: str, start: str | None, end: str | None) -> pd.DataFrame:
+def load_symbols():
+    """Read symbols from symbols.txt"""
+    if not SYMBOL_FILE.exists():
+        raise FileNotFoundError("symbols.txt not found!")
+    with open(SYMBOL_FILE, "r") as f:
+        return [s.strip() for s in f.readlines() if s.strip()]
+
+
+def download_symbol(symbol: str, start: str | None, end: str | None):
     df = yf.download(symbol, start=start, end=end, auto_adjust=False)
     if df.empty:
-        raise ValueError(f"No data downloaded for {symbol}")
+        print(f"❌ {symbol} 無資料")
+        return None
 
+    # 清理 multi-index
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
+    # 確保欄位完整
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise ValueError(f"Downloaded data for {symbol} missing columns: {', '.join(missing)}")
+        print(f"❌ {symbol} 缺少欄位：{missing}")
+        return None
 
-    df = df[REQUIRED_COLUMNS].copy()
-    df = df.sort_index()
+    df = df[REQUIRED_COLUMNS].sort_index()
     df = df[~df.index.duplicated(keep="first")]
     return df
 
 
-def save_csv(symbol: str, df: pd.DataFrame):
+def save_csv(symbol, df):
     DATA_DIR.mkdir(exist_ok=True)
-    csv_path = DATA_DIR / f"{symbol}.csv"
-    df.to_csv(csv_path)
-    return csv_path
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Download unified price CSV files")
-    parser.add_argument("symbols", nargs="+", help="Symbols accepted by yfinance (e.g., 0050.TW)")
-    parser.add_argument("--start", help="Start date YYYY-MM-DD", default=None)
-    parser.add_argument("--end", help="End date YYYY-MM-DD", default=None)
-    return parser.parse_args()
+    path = DATA_DIR / f"{symbol}.csv"
+    df.to_csv(path)
+    print(f"✅ Saved {path} ({len(df)} rows)")
 
 
 def main():
-    args = parse_args()
-    for sym in args.symbols:
-        df = download_symbol(sym, start=args.start, end=args.end)
-        csv_path = save_csv(sym, df)
-        print(f"Saved {csv_path} ({len(df)} rows)")
+    symbols = load_symbols()
+
+    end = datetime.today()
+    start = end - timedelta(days=365 * 15)
+
+    print("📌 Updating symbols:", symbols)
+
+    for sym in symbols:
+        df = download_symbol(sym, start=start.strftime("%Y-%m-%d"), end=end.strftime("%Y-%m-%d"))
+        if df is not None:
+            save_csv(sym, df)
 
 
 if __name__ == "__main__":
