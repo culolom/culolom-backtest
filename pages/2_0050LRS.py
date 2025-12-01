@@ -85,34 +85,47 @@ if not lev_choices:
     st.stop()
 
 ###############################################################
-# ETF 選擇介面
+# 介面：ETF 選擇與日期範圍（簡化後版本）
 ###############################################################
 
-# 主選單（選槓桿）
-symbol_display = st.selectbox("選擇 ETF（槓桿標的）", lev_choices)
-symbol = display_to_symbol(symbol_display)
+symbols = list_symbols()
+existing_display = [s.replace(".TW", "") for s in symbols]
 
-st.markdown(f"### 目前使用的 symbol：{symbol_display}")
+# 固定可選清單
+BASE_DISPLAY = ["0050", "006208"]
+LEV_DISPLAY = ["00631L", "00663L", "00675L", "00685L"]
 
-# 原型 / 槓桿子選單
+base_choices = [c for c in BASE_DISPLAY if c in existing_display]
+lev_choices = [c for c in LEV_DISPLAY if c in existing_display]
+
+if not base_choices:
+    st.error("⚠️ 找不到原型 ETF（0050 / 006208）的資料！")
+    st.stop()
+
+if not lev_choices:
+    st.error("⚠️ 找不到槓桿 ETF（00631L / 00663L / 00675L / 00685L）的資料！")
+    st.stop()
+
+
+def to_symbol(x):   # 用來讀檔
+    return f"{x}.TW"
+
+
+# -------------------------
+# 減少 UI：只保留原型 + 槓桿
+# -------------------------
 col1, col2 = st.columns(2)
 
 with col1:
     base_display = st.selectbox("原型 ETF（訊號來源）", base_choices)
-    base_symbol = display_to_symbol(base_display)
+    base_symbol = to_symbol(base_display)
 
 with col2:
-    default_index = lev_choices.index(symbol_display)
-    lev_display = st.selectbox(
-        "槓桿 ETF（實際進出場標的）",
-        lev_choices,
-        index=default_index,
-    )
-    lev_symbol = display_to_symbol(lev_display)
+    lev_display = st.selectbox("槓桿 ETF（實際進出場標的）", lev_choices)
+    lev_symbol = to_symbol(lev_display)
 
-# 紀錄 session 避免閃動
-if "last_selection" not in st.session_state or st.session_state.last_selection != (base_symbol, lev_symbol):
-    st.session_state.last_selection = (base_symbol, lev_symbol)
+st.markdown(f"### 使用原型：{base_display}　槓桿：{lev_display}")
+
 
 ###############################################################
 # 載入資料
