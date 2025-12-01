@@ -1,12 +1,12 @@
 ###############################################################
-# app.py — 0050LRS 回測（0050 / 006208 + 正2 槓桿 ETF）
+# 0050LRS 回測（0050 / 006208 + 正2 槓桿 ETF）
 ###############################################################
 
 import os
+from pathlib import Path
 import datetime as dt
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import streamlit as st
 import matplotlib
 import matplotlib.font_manager as fm
@@ -48,32 +48,22 @@ st.markdown(
 1️⃣ 原型 ETF Buy & Hold（0050 / 006208）<br>
 2️⃣ 槓桿 ETF Buy & Hold（00631L / 00663L / 00675L / 00685L）<br>
 3️⃣ 槓桿 ETF LRS（訊號來自原型 ETF 的 200 日 SMA，實際進出槓桿 ETF）<br>
-<small>（價格已採用 yfinance 調整後收盤價，含拆股與股利再投資效果）</small>
+<small>（價格改以 data/ 資料夾中的 CSV 為來源）</small>
 """,
     unsafe_allow_html=True,
 )
 
 ###############################################################
-# ETF 名稱清單
+# 基本設定
 ###############################################################
 
-BASE_ETFS = {
-    "0050 元大台灣50": "0050.TW",
-    "006208 富邦台50": "006208.TW",
-}
-
-LEV_ETFS = {
-    "00631L 元大台灣50正2": "00631L.TW",
-    "00663L 國泰台灣加權正2": "00663L.TW",
-    "00675L 富邦台灣加權正2": "00675L.TW",
-    "00685L 群益台灣加權正2": "00685L.TW",
-}
-
+DATA_DIR = Path("data")
 WINDOW = 200  # 固定 200 日 SMA
 
 ###############################################################
-# 工具函式（新增格式化函式）
+# 通用函式
 ###############################################################
+
 
 def calc_metrics(series: pd.Series):
     """計算年化波動率、Sharpe、Sortino"""
@@ -88,115 +78,170 @@ def calc_metrics(series: pd.Series):
     sortino = (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
     return vol, sharpe, sortino
 
+
 def fmt_money(v):
     try:
         return f"{v:,.0f} 元"
-    except:
+    except Exception:
         return "—"
+
 
 def fmt_pct(v, d=2):
     try:
         return f"{v:.{d}%}"
-    except:
+    except Exception:
         return "—"
+
 
 def fmt_num(v, d=2):
     try:
         return f"{v:.{d}f}"
-    except:
+    except Exception:
         return "—"
+
 
 def fmt_int(v):
     try:
         return f"{int(v):,}"
-    except:
+    except Exception:
         return "—"
+
 
 def nz(x, default=0.0):
     return float(np.nan_to_num(x, nan=default))
+
 
 # 🔥 新增：KPI 使用的格式化函式
 def format_currency(v):
     try:
         return f"{v:,.0f} 元"
-    except:
+    except Exception:
         return "—"
+
 
 def format_percent(v, d=2):
     try:
         return f"{v*100:.{d}f}%"
-    except:
+    except Exception:
         return "—"
+
 
 def format_number(v, d=2):
     try:
         return f"{v:.{d}f}"
-    except:
+    except Exception:
         return "—"
 
-###############################################################
-# yfinance 下載資料
-###############################################################
 
 @st.cache_data(show_spinner=False)
-def fetch_history(symbol: str, start: dt.date, end: dt.date):
-    df = yf.download(symbol, start=start, end=end, auto_adjust=True)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+def list_etfs():
+    """掃描 data/ 下的 CSV 清單。"""
+    if not DATA_DIR.exists():
+        return []
+    return sorted([p.stem for p in DATA_DIR.glob("*.csv") if p.is_file()])
+
+
+@st.cache_data(show_spinner=False)
+def load_price(symbol: str):
+    """從 data/{symbol}.csv 讀取價格資料，並確保 Price 欄位存在。"""
+    csv_path = DATA_DIR / f"{symbol}.csv"
+    if not csv_path.exists():
+        st.error(f"⚠️ 找不到資料檔案：{csv_path}")
+        return pd.DataFrame()
+
+    try:
+        df = pd.read_csv(csv_path, encoding="utf-8", index_col=0, parse_dates=True)
+    except Exception as exc:
+        st.error(f"⚠️ 讀取 CSV 失敗：{exc}")
+        return pd.DataFrame()
+
     if df.empty:
-        return df
+        st.error("CSV 無資料")
+        return pd.DataFrame()
+
+    if not isinstance(df.index, pd.DatetimeIndex):
+        try:
+            df.index = pd.to_datetime(df.index)
+        except Exception:
+            st.error("⚠️ 日期欄位解析失敗")
+            return pd.DataFrame()
+
     df = df.sort_index()
-    df = df[~df.index.duplicated()]
 
-    if "Close" in df.columns:
-        df["Price"] = df["Close"]
-    elif "Adj Close" in df.columns:
-        df["Price"] = df["Adj Close"]
-    else:
-        df["Price"] = df[df.columns[0]]
+    price_col = None
+    for col in ["Price", "Close", "Adj Close"]:
+        if col in df.columns:
+            price_col = col
+            break
 
+    if price_col is None:
+        st.error("⚠️ CSV 缺少價格欄位（需包含 Price/Close/Adj Close）")
+        return pd.DataFrame()
+
+    df["Price"] = df[price_col]
     return df[["Price"]]
 
-@st.cache_data(show_spinner=False)
-def load_price(symbol: str, start: dt.date, end: dt.date):
-    df = fetch_history(symbol, start, end)
-    return df[["Price"]] if not df.empty else df
-
-@st.cache_data(show_spinner=False)
-def get_full_range(base_symbol: str, lev_symbol: str):
-    b = yf.Ticker(base_symbol).history(period="max", auto_adjust=True)
-    l = yf.Ticker(lev_symbol).history(period="max", auto_adjust=True)
-    if b.empty or l.empty:
-        return dt.date(2012, 1, 1), dt.date.today()
-    b = b.sort_index()
-    l = l.sort_index()
-    return max(b.index.min().date(), l.index.min().date()), min(b.index.max().date(), l.index.max().date())
 
 ###############################################################
-# UI 輸入
+# 介面：ETF 選擇與日期範圍
 ###############################################################
+
+symbols = list_etfs()
+if not symbols:
+    st.error("⚠️ data/ 資料夾中沒有可用的 CSV，請先放入資料檔。")
+    st.stop()
+
+symbol = st.selectbox("選擇 ETF", symbols)
+
+st.markdown(f"### 目前使用的 symbol：{symbol}")
 
 col1, col2 = st.columns(2)
 with col1:
-    base_label = st.selectbox("原型 ETF（訊號來源）", list(BASE_ETFS.keys()))
-    base_symbol = BASE_ETFS[base_label]
+    base_symbol = st.selectbox("原型 ETF（訊號來源）", symbols, index=symbols.index(symbol))
 with col2:
-    lev_label = st.selectbox("槓桿 ETF（實際進出場標的）", list(LEV_ETFS.keys()))
-    lev_symbol = LEV_ETFS[lev_label]
+    lev_symbol = st.selectbox(
+        "槓桿 ETF（實際進出場標的）",
+        symbols,
+        index=min(1, len(symbols) - 1) if len(symbols) > 1 else 0,
+    )
 
-s_min, s_max = get_full_range(base_symbol, lev_symbol)
-st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
+# 若使用者更換 ETF，讓頁面重新運行
+if "last_selection" not in st.session_state or st.session_state.last_selection != (base_symbol, lev_symbol):
+    st.session_state.last_selection = (base_symbol, lev_symbol)
+
+# 載入原始資料（最完整區間）
+df_base_full = load_price(base_symbol)
+df_lev_full = load_price(lev_symbol)
+
+if df_base_full.empty or df_lev_full.empty:
+    st.stop()
+
+combined = pd.DataFrame(index=df_base_full.index)
+combined["Price_base"] = df_base_full["Price"]
+combined = combined.join(df_lev_full["Price"].rename("Price_lev"), how="inner")
+combined = combined[~combined.index.duplicated(keep="first")]
+combined = combined.sort_index()
+
+if combined.empty:
+    st.error("⚠️ 兩檔 ETF 沒有重疊日期，無法回測。")
+    st.stop()
+
+available_start = combined.index.min().date()
+available_end = combined.index.max().date()
+
+st.info(f"📌 可回測區間：{available_start} ~ {available_end}")
 
 col3, col4, col5 = st.columns(3)
 with col3:
+    default_start = max(available_start, available_end - dt.timedelta(days=5 * 365))
     start = st.date_input(
         "開始日期",
-        value=max(s_min, s_max - dt.timedelta(days=5 * 365)),
-        min_value=s_min,
-        max_value=s_max,
+        value=default_start,
+        min_value=available_start,
+        max_value=available_end,
     )
 with col4:
-    end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
+    end = st.date_input("結束日期", value=available_end, min_value=available_start, max_value=available_end)
 with col5:
     capital = st.number_input(
         "投入本金（元）",
@@ -224,19 +269,16 @@ if st.button("開始回測 🚀"):
 
     start_early = start - dt.timedelta(days=365)
 
-    with st.spinner("下載資料中…"):
-        df_base_raw = load_price(base_symbol, start_early, end)
-        df_lev_raw = load_price(lev_symbol, start_early, end)
+    df = combined.copy()
+    df = df[(df.index >= pd.to_datetime(start_early)) & (df.index <= pd.to_datetime(end))]
 
-    if df_base_raw.empty or df_lev_raw.empty:
-        st.error("⚠️ ETF 資料抓取失敗")
+    if df.empty:
+        st.error("⚠️ 有效回測區間不足")
         st.stop()
 
-    df = pd.DataFrame(index=df_base_raw.index)
-    df["Price_base"] = df_base_raw["Price"]
-    df = df.join(df_lev_raw["Price"].rename("Price_lev"), how="inner")
-    df = df.sort_index()
-    df = df[(df.index >= pd.to_datetime(start_early)) & (df.index <= pd.to_datetime(end))]
+    if len(df) < WINDOW:
+        st.error(f"⚠️ 資料筆數不足以計算 {WINDOW} 日 SMA")
+        st.stop()
 
     # 200 SMA
     df["MA_200"] = df["Price_base"].rolling(WINDOW).mean()
@@ -352,7 +394,7 @@ if st.button("開始回測 🚀"):
         go.Scatter(
             x=df.index,
             y=df["Price_base"],
-            name=f"{base_label} 收盤價",
+            name=f"{base_symbol} 收盤價",
             mode="lines",
             line=dict(color="#1f77b4", width=2),
         )
@@ -381,8 +423,8 @@ if st.button("開始回測 🚀"):
                 hovertemplate=(
                     "📈 <b>買進訊號</b><br>"
                     "日期: %{x|%Y-%m-%d}<br>"
-                    + base_label + ": %{y:.2f}<br>"
-                    + lev_label + ": %{customdata:.2f}<br>"
+                    + base_symbol + ": %{y:.2f}<br>"
+                    + lev_symbol + ": %{customdata:.2f}<br>"
                     "<extra></extra>"
                 ),
             )
@@ -401,8 +443,8 @@ if st.button("開始回測 🚀"):
                 hovertemplate=(
                     "📉 <b>賣出訊號</b><br>"
                     "日期: %{x|%Y-%m-%d}<br>"
-                    + base_label + ": %{y:.2f}<br>"
-                    + lev_label + ": %{customdata:.2f}<br>"
+                    + base_symbol + ": %{y:.2f}<br>"
+                    + lev_symbol + ": %{customdata:.2f}<br>"
                     "<extra></extra>"
                 ),
             )
@@ -430,9 +472,9 @@ if st.button("開始回測 🚀"):
     # ============================
     with tab_equity:
         fig_equity = go.Figure()
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name=f"{base_label} BH（原型）"))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name=f"{lev_label} BH（槓桿）"))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name=f"{lev_label} LRS 槓桿策略"))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name=f"{base_symbol} BH（原型）"))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name=f"{lev_symbol} BH（槓桿）"))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name=f"{lev_symbol} LRS 槓桿策略"))
 
         fig_equity.update_layout(
             template="plotly_white",
@@ -452,13 +494,13 @@ if st.button("開始回測 🚀"):
         dd_lrs = (df["Equity_LRS"] / df["Equity_LRS"].cummax() - 1) * 100
 
         fig_dd = go.Figure()
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_base, name=f"{base_label} BH（原型）"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lev, name=f"{lev_label} BH（槓桿）"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_base, name=f"{base_symbol} BH（原型）"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lev, name=f"{lev_symbol} BH（槓桿）"))
         fig_dd.add_trace(
             go.Scatter(
                 x=df.index,
                 y=dd_lrs,
-                name=f"{lev_label} LRS 槓桿策略",
+                name=f"{lev_symbol} LRS 槓桿策略",
                 fill="tozeroy",
                 fillcolor="rgba(231, 126, 34, 0.08)",
             )
@@ -513,47 +555,69 @@ if st.button("開始回測 🚀"):
     row1 = st.columns(4)
     with row1[0]:
         st.metric(
-            label=f"期末資產（{lev_label} LRS）",
+            label=f"期末資產（{lev_symbol} LRS）",
             value=format_currency(capital_lrs_final),
             delta=f"較 槓桿BH {asset_gap_lrs_vs_lev:+.2f}%",
         )
 
     with row1[1]:
         st.metric(
-            label="年化報酬（CAGR, LRS）",
-            value=format_percent(cagr_lrs),
-            delta=f"較 槓桿BH {cagr_gap_lrs_vs_lev:+.2f}%",
+            label=f"期末資產（{lev_symbol} BH）",
+            value=format_currency(capital_lev_final),
+            delta=f"較 原型BH {(capital_lev_final / capital_base_final - 1) * 100:+.2f}%",
         )
 
     with row1[2]:
         st.metric(
-            label="年化波動（LRS）",
-            value=format_percent(vol_lrs),
-            delta=f"較 槓桿BH {vol_gap_lrs_vs_lev:+.2f}%",
-            delta_color="inverse",
+            label=f"CAGR — {lev_symbol} LRS",
+            value=format_percent(cagr_lrs),
+            delta=f"與 槓桿BH 比 {cagr_gap_lrs_vs_lev:+.2f}pp",
         )
 
     with row1[3]:
         st.metric(
-            label="最大回撤（LRS）",
+            label=f"最大回撤 — {lev_symbol} LRS",
             value=format_percent(mdd_lrs),
-            delta=f"較 槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%",
-            delta_color="inverse",
+            delta=f"與 槓桿BH 比 {mdd_gap_lrs_vs_lev:+.2f}pp",
         )
 
+    row2 = st.columns(4)
+    with row2[0]:
+        st.metric(
+            label=f"Sharpe — {lev_symbol} LRS",
+            value=format_number(sharpe_lrs),
+            delta=f"相較 槓桿BH {sharpe_lrs - sharpe_lev:+.2f}",
+        )
 
+    with row2[1]:
+        st.metric(
+            label=f"Sortino — {lev_symbol} LRS",
+            value=format_number(sortino_lrs),
+            delta=f"相較 槓桿BH {sortino_lrs - sortino_lev:+.2f}",
+        )
 
+    with row2[2]:
+        st.metric(
+            label=f"波動率 — {lev_symbol} LRS",
+            value=format_percent(vol_lrs),
+            delta=f"相較 槓桿BH {vol_gap_lrs_vs_lev:+.2f}pp",
+        )
+
+    with row2[3]:
+        st.metric(
+            label=f"交易次數 — {lev_symbol} LRS",
+            value=f"{trade_count_lrs} 次",
+            delta="含所有訊號",
+        )
 
     ###############################################################
-    # 表格（策略完整比較）
+    # 文字版績效表格
     ###############################################################
-
-
 
     metrics_table = pd.DataFrame(
         [
             {
-                "策略": f"{lev_label} LRS 槓桿策略",
+                "策略": f"{lev_symbol} LRS 槓桿策略",
                 "期末資產": capital_lrs_final,
                 "總報酬率": final_ret_lrs,
                 "CAGR（年化）": cagr_lrs,
@@ -565,7 +629,7 @@ if st.button("開始回測 🚀"):
                 "交易次數": trade_count_lrs,
             },
             {
-                "策略": f"{lev_label} BH（槓桿）",
+                "策略": f"{lev_symbol} BH（槓桿）",
                 "期末資產": capital_lev_final,
                 "總報酬率": final_ret_lev,
                 "CAGR（年化）": cagr_lev,
@@ -574,10 +638,10 @@ if st.button("開始回測 🚀"):
                 "年化波動": vol_lev,
                 "Sharpe": sharpe_lev,
                 "Sortino": sortino_lev,
-                "交易次數": np.nan,
+                "交易數": np.nan,
             },
             {
-                "策略": f"{base_label} BH（原型）",
+                "策略": f"{base_symbol} BH（原型）",
                 "期末資產": capital_base_final,
                 "總報酬率": final_ret_base,
                 "CAGR（年化）": cagr_base,
@@ -664,12 +728,8 @@ if st.button("開始回測 🚀"):
 
 
 
-
-
 </div>
         """,
         unsafe_allow_html=True,
     )
-
-
 
