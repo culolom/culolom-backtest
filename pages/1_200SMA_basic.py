@@ -1,17 +1,17 @@
-# app.py — LRS 回測系統（台股+美股統一使用 yfinance，含拆股調整 + 美化報表）
+# 200 SMA 回測（統一使用本地 CSV 資料）
 
 import os
-import re
 import datetime as dt
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 import streamlit as st
 import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+from hamster_data.loader import load_price, list_symbols
 
 # === 字型設定 ===
 font_path = "./NotoSansTC-Bold.ttf"
@@ -23,208 +23,127 @@ else:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 # === Streamlit 頁面設定 ===
-st.set_page_config(page_title="LRS 回測系統", page_icon="📈", layout="wide")
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 Leverage Rotation Strategy — SMA/EMA 回測系統</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="200SMA 回測系統", page_icon="📈", layout="wide")
+st.markdown(
+    "<h1 style='margin-bottom:0.5em;'>📊 200SMA 回測系統（本地 CSV 資料）</h1>",
+    unsafe_allow_html=True,
+)
 
 
 # ---------------------------------------------------------------------
 # 公用工具
 # ---------------------------------------------------------------------
-def is_taiwan_stock(raw_symbol: str) -> bool:
-    """
-    判斷是否當成台股處理：
-    - 純數字或「數字+字母」(0050, 2330, 00878, 00631L...) 視為台股
-    - 其它 (QQQ, SPY...) 視為海外商品
-    """
-    s = raw_symbol.strip().upper()
-    return bool(re.match(r"^\d+[A-Z]*$", s))
-
-
-def normalize_for_yfinance(raw_symbol: str) -> str:
-    """
-    給 yfinance 用的代號：
-    - 台股：0050 -> 0050.TW
-    - 其它：原樣回傳（QQQ, SPY...）
-    """
-    s = raw_symbol.strip().upper()
-    if is_taiwan_stock(s):
-        return s + ".TW"
-    return s
-
-
-# ---------------------------------------------------------------------
-# yfinance 歷史資料（台股+美股統一）
-# ---------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def fetch_yf_history(yf_symbol: str, start: dt.date, end: dt.date) -> pd.DataFrame:
-    """
-    從 yfinance 下載歷史資料，保留常見欄位，並移除重複日期。
-    優先使用 auto_adjust=True 的價格（含拆股與股利調整）。
-    """
-    df_raw = yf.download(yf_symbol, start=start, end=end, auto_adjust=True)
-    # auto_adjust=True 時，回傳欄位通常是：Open, High, Low, Close, Volume
-    if isinstance(df_raw.columns, pd.MultiIndex):
-        df_raw.columns = df_raw.columns.get_level_values(0)
-
-    if df_raw.empty:
-        return df_raw
-
-    df_raw = df_raw.sort_index()
-    df_raw = df_raw[~df_raw.index.duplicated(keep="first")]
-
-    # 為了和舊版邏輯一致，建一個 'Adj Close' 欄位 = Close
-    if "Close" in df_raw.columns and "Adj Close" not in df_raw.columns:
-        df_raw["Adj Close"] = df_raw["Close"]
-
-    return df_raw
-
-
-# ---------------------------------------------------------------------
-# 額外的「拆股/斷崖」偵測與平滑（在 yfinance auto_adjust 之上再保險一次）
-# ---------------------------------------------------------------------
-def adjust_for_splits(df: pd.DataFrame, price_col: str = "Adj Close", threshold: float = 0.3) -> pd.DataFrame:
-    """
-    即使 yfinance 已做 auto_adjust，仍保留這一層：
-    - 若某天價格單日變動幅度 |r| >= threshold 且是「大跌」（ratio < 1）
-      則視為拆股 / 價格重算，往前所有價格乘上 ratio，讓曲線連續。
-    threshold 預設 0.3（單日跌 >30%）
-    """
-    if df.empty or price_col not in df.columns:
-        return df
-
-    df = df.copy()
-    df["Price_raw"] = df[price_col].astype(float)
-    df["Price_adj"] = df["Price_raw"].copy()
-
-    pct = df["Price_raw"].pct_change()
-    candidates = pct[abs(pct) >= threshold].dropna()
-
-    for date, r in candidates.sort_index().items():
-        ratio = 1.0 + r
-        # 只處理「價格向下跳水」且 ratio > 0
-        if ratio <= 0 or ratio >= 1:
-            continue
-        mask = df.index < date
-        df.loc[mask, "Price_adj"] *= ratio
-
-    # 若完全沒有異常，就直接把 Price_adj=Price_raw
-    if "Price_adj" not in df.columns:
-        df["Price_adj"] = df["Price_raw"]
-
-    return df
-
-
-# ---------------------------------------------------------------------
-# 統一的價格載入函式（全部用 yfinance）
-# ---------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def load_price_data(raw_symbol: str, yf_symbol: str, start: dt.date, end: dt.date) -> pd.DataFrame:
-    """
-    回傳欄位至少包含：Price_raw / Price_adj
-    """
-    df_src = fetch_yf_history(yf_symbol, start, end)
-    if df_src.empty:
-        return df_src
-
-    # 優先用 Adj Close，如果沒有就用 Close
-    price_col = "Adj Close" if "Adj Close" in df_src.columns else "Close"
-    df_adj = adjust_for_splits(df_src, price_col=price_col, threshold=0.3)
-
-    return df_adj
-
-
-# ---------------------------------------------------------------------
-# 取得可用日期區間（全部以 yfinance 真實最早日期為準）
-# ---------------------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def get_available_range(yf_symbol: str):
-    """
-    從 yfinance 抓最完整歷史，回傳起訖日期。
-    例：0050.TW 可從 2003-06 開始。
-    """
-    hist = yf.Ticker(yf_symbol).history(period="max", auto_adjust=True)
-    if hist.empty:
-        return pd.to_datetime("1990-01-01").date(), dt.date.today()
-    hist = hist.sort_index()
-    hist = hist[~hist.index.duplicated(keep="first")]
-    return hist.index.min().date(), hist.index.max().date()
+def select_price_column(df: pd.DataFrame) -> pd.Series:
+    """Pick a usable price series from the dataframe."""
+    for col in ["Adj Close", "Close", "Price"]:
+        if col in df.columns:
+            return df[col]
+    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if numeric_cols:
+        return df[numeric_cols[0]]
+    raise ValueError("缺少價格欄位（需包含 Adj Close/Close/Price）")
 
 
 # ---------------------------------------------------------------------
 # 介面：使用者輸入
 # ---------------------------------------------------------------------
+etf_list = list_symbols()
+if not etf_list:
+    st.error("⚠️ data/ 資料夾中沒有 CSV，請先匯入價格檔案。")
+    st.stop()
+
+symbol = st.selectbox("選擇 ETF", etf_list)
+
+try:
+    df_full = load_price(symbol)
+except FileNotFoundError:
+    st.error("⚠️ 找不到對應的 CSV 檔案，請確認 data/ 目錄。")
+    st.stop()
+except ValueError as exc:
+    st.error(f"⚠️ 資料檔案異常：{exc}")
+    st.stop()
+except Exception as exc:  # pragma: no cover - 防呆
+    st.error(f"⚠️ 載入資料時發生錯誤：{exc}")
+    st.stop()
+
+if df_full.empty:
+    st.error("該 ETF 無資料")
+    st.stop()
+
+try:
+    select_price_column(df_full)
+except ValueError as exc:
+    st.error(str(exc))
+    st.stop()
+
+available_start = df_full.index.min().date()
+available_end = df_full.index.max().date()
+st.info(f"📌 可回測區間：{available_start} ~ {available_end}")
+
 col1, col2, col3 = st.columns(3)
 with col1:
-    raw_symbol = st.text_input("輸入代號（例：0050, 2330, 00878, QQQ）", "0050")
-
-yf_symbol = normalize_for_yfinance(raw_symbol)
-
-# 若使用者更換代號，自動偵測日期範圍
-if "last_yf_symbol" not in st.session_state or st.session_state.last_yf_symbol != yf_symbol:
-    st.session_state.last_yf_symbol = yf_symbol
-    min_start, max_end = get_available_range(yf_symbol)
-    st.session_state.min_start = min_start
-    st.session_state.max_end = max_end
-else:
-    min_start = st.session_state.min_start
-    max_end = st.session_state.max_end
-
-st.info(f"🔎 {yf_symbol} 可用資料區間：{min_start} ~ {max_end}")
-
-with col2:
+    start_default = max(available_start, available_end - dt.timedelta(days=5 * 365))
     start = st.date_input(
         "開始日期",
-        value=max(min_start, pd.to_datetime("2013-01-01").date()),
-        min_value=min_start,
-        max_value=max_end,
+        value=start_default,
+        min_value=available_start,
+        max_value=available_end,
+        format="YYYY/MM/DD",
+    )
+with col2:
+    end = st.date_input(
+        "結束日期",
+        value=available_end,
+        min_value=available_start,
+        max_value=available_end,
         format="YYYY/MM/DD",
     )
 with col3:
-    end = st.date_input(
-        "結束日期",
-        value=max_end,
-        min_value=min_start,
-        max_value=max_end,
-        format="YYYY/MM/DD",
-    )
+    initial_capital = st.number_input("投入本金（元）", 1000, 1_000_000, 10000, step=1000)
 
-col4, col5, col6 = st.columns(3)
+col4, col5 = st.columns(2)
 with col4:
     ma_type = st.selectbox("均線種類", ["SMA", "EMA"])
 with col5:
     window = st.slider("均線天數", 10, 200, 200, 10)
-with col6:
-    initial_capital = st.number_input("投入本金（元）", 1000, 1_000_000, 10000, step=1000)
 
 
 # ---------------------------------------------------------------------
 # 主程式：回測 + 視覺化
 # ---------------------------------------------------------------------
 if st.button("開始回測 🚀"):
-    start_early = pd.to_datetime(start) - pd.Timedelta(days=365)
-
-    with st.spinner("資料下載與整理中…（自動多抓一年暖機資料 + 拆股調整）"):
-        df_all = load_price_data(raw_symbol, yf_symbol, start_early.date(), end)
-
-    if df_all.empty:
-        st.error(f"⚠️ 無法取得 {yf_symbol} 的歷史資料，請確認代號或時間區間。")
+    if start >= end:
+        st.error("⚠️ 開始日期需早於結束日期")
         st.stop()
 
-    # 用拆股調整後價格當作「策略判斷與績效」的基礎價格
-    df = df_all.copy()
-    df = df[(df.index >= pd.to_datetime(start_early)) & (df.index <= pd.to_datetime(end))]
-    df = df.sort_index()
+    start_early = pd.to_datetime(start) - pd.Timedelta(days=365)
 
-    df["Price"] = df["Price_adj"]
+    df = df_full.copy()
+    df = df[(df.index >= start_early) & (df.index <= pd.to_datetime(end))]
 
-    # === 均線 ===
+    if df.empty:
+        st.error("該 ETF 無資料")
+        st.stop()
+
+    try:
+        df["Price"] = select_price_column(df)
+    except ValueError as exc:
+        st.error(str(exc))
+        st.stop()
+
+    if len(df) < window:
+        st.error(f"資料筆數不足以計算 {window} 日均線，請縮短均線天數或延長日期。")
+        st.stop()
+
     if ma_type == "SMA":
         df["MA"] = df["Price"].rolling(window=window).mean()
     else:
         df["MA"] = df["Price"].ewm(span=window, adjust=False).mean()
 
-    # 若暖機區間不足導致前面都是 NaN，就直接丟掉
     df = df.dropna(subset=["MA"])
+    if df.empty:
+        st.error("資料不足以產生均線，請調整參數。")
+        st.stop()
 
     # === 生成訊號（第一天強制買入） ===
     df["Signal"] = 0
@@ -251,7 +170,7 @@ if st.button("開始回測 🚀"):
         position.append(current)
     df["Position"] = position
 
-    # === 報酬（用拆股調整後價格） ===
+    # === 報酬 ===
     df["Return"] = df["Price"].pct_change().fillna(0)
     df["Strategy_Return"] = df["Return"] * df["Position"]
 
@@ -374,7 +293,8 @@ if st.button("開始回測 🚀"):
     .custom-table td { text-align:center; padding:10px; border-bottom:1px solid #eee; font-size:15px; }
     .custom-table tr:nth-child(even) td { background-color:#fafbfc; }
     .custom-table tr:hover td { background-color:#f1f9ff; }
-    .section-title td { background:#eef4ff; color:#1a237e; font-weight:700; font-size:16px; text-align:left; padding:10px 15px; }
+    .section-title td { background:#eef4ff; color:#1a237e; font-weight:700; font-size:16px; text-align:left; padding:10px 15px;
+}
     </style>
     """,
         unsafe_allow_html=True,
@@ -397,4 +317,4 @@ if st.button("開始回測 🚀"):
     </tbody></table>
     """
     st.markdown(html_table, unsafe_allow_html=True)
-    st.success("✅ 回測完成！（台股＋美股統一使用 yfinance，自動拆股調整）")
+    st.success("✅ 回測完成！（已使用統一資料層）")

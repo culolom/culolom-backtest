@@ -3,7 +3,6 @@
 ###############################################################
 
 import os
-from pathlib import Path
 import datetime as dt
 import numpy as np
 import pandas as pd
@@ -11,6 +10,8 @@ import streamlit as st
 import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
+
+from hamster_data.loader import load_price, list_symbols
 
 ###############################################################
 # 字型設定
@@ -57,7 +58,6 @@ st.markdown(
 # 基本設定
 ###############################################################
 
-DATA_DIR = Path("data")
 WINDOW = 200  # 固定 200 日 SMA
 
 ###############################################################
@@ -132,61 +132,49 @@ def format_number(v, d=2):
     except Exception:
         return "—"
 
+def select_price_column(df: pd.DataFrame) -> pd.Series:
+    for col in ["Adj Close", "Close", "Price"]:
+        if col in df.columns:
+            return df[col]
+    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if numeric_cols:
+        return df[numeric_cols[0]]
+    raise ValueError("缺少價格欄位（需包含 Adj Close/Close/Price）")
 
-@st.cache_data(show_spinner=False)
-def list_etfs():
-    """掃描 data/ 下的 CSV 清單。"""
-    if not DATA_DIR.exists():
-        return []
-    return sorted([p.stem for p in DATA_DIR.glob("*.csv") if p.is_file()])
 
-
-@st.cache_data(show_spinner=False)
-def load_price(symbol: str):
-    """從 data/{symbol}.csv 讀取價格資料，並確保 Price 欄位存在。"""
-    csv_path = DATA_DIR / f"{symbol}.csv"
-    if not csv_path.exists():
-        st.error(f"⚠️ 找不到資料檔案：{csv_path}")
-        return pd.DataFrame()
-
+def load_price_series(symbol: str) -> pd.DataFrame:
     try:
-        df = pd.read_csv(csv_path, encoding="utf-8", index_col=0, parse_dates=True)
-    except Exception as exc:
-        st.error(f"⚠️ 讀取 CSV 失敗：{exc}")
-        return pd.DataFrame()
+        df = load_price(symbol)
+    except FileNotFoundError:
+        st.error(f"⚠️ 找不到資料檔案 data/{symbol}.csv")
+        st.stop()
+    except ValueError as exc:
+        st.error(f"⚠️ 資料檔案異常：{exc}")
+        st.stop()
+    except Exception as exc:  # pragma: no cover - 防呆
+        st.error(f"⚠️ 載入資料時發生錯誤：{exc}")
+        st.stop()
 
     if df.empty:
-        st.error("CSV 無資料")
-        return pd.DataFrame()
+        st.error("該 ETF 無資料")
+        st.stop()
 
-    if not isinstance(df.index, pd.DatetimeIndex):
-        try:
-            df.index = pd.to_datetime(df.index)
-        except Exception:
-            st.error("⚠️ 日期欄位解析失敗")
-            return pd.DataFrame()
+    try:
+        price_series = select_price_column(df)
+    except ValueError as exc:
+        st.error(str(exc))
+        st.stop()
 
-    df = df.sort_index()
-
-    price_col = None
-    for col in ["Price", "Close", "Adj Close"]:
-        if col in df.columns:
-            price_col = col
-            break
-
-    if price_col is None:
-        st.error("⚠️ CSV 缺少價格欄位（需包含 Price/Close/Adj Close）")
-        return pd.DataFrame()
-
-    df["Price"] = df[price_col]
-    return df[["Price"]]
+    out = pd.DataFrame({"Price": price_series})
+    out = out.sort_index()
+    return out
 
 
 ###############################################################
 # 介面：ETF 選擇與日期範圍
 ###############################################################
 
-symbols = list_etfs()
+symbols = list_symbols()
 if not symbols:
     st.error("⚠️ data/ 資料夾中沒有可用的 CSV，請先放入資料檔。")
     st.stop()
@@ -210,11 +198,8 @@ if "last_selection" not in st.session_state or st.session_state.last_selection !
     st.session_state.last_selection = (base_symbol, lev_symbol)
 
 # 載入原始資料（最完整區間）
-df_base_full = load_price(base_symbol)
-df_lev_full = load_price(lev_symbol)
-
-if df_base_full.empty or df_lev_full.empty:
-    st.stop()
+df_base_full = load_price_series(base_symbol)
+df_lev_full = load_price_series(lev_symbol)
 
 combined = pd.DataFrame(index=df_base_full.index)
 combined["Price_base"] = df_base_full["Price"]
