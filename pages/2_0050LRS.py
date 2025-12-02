@@ -494,7 +494,7 @@ if st.button("開始回測 🚀"):
     ])
     
     # --- 隱藏 index（確保不顯示 0/1/2） ---
-    styled = styled.hide_index()
+    styled = styled.hide(axis="index")
     
     # --- 輸出 ---
     st.write(styled.to_html(), unsafe_allow_html=True)
