@@ -412,7 +412,7 @@ if st.button("開始回測 🚀"):
                   f"較槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
 
     ###############################################################
-    # 完整比較表格（移除 index ＋ 置中）
+    # 完整比較表格（Heatmap + Hover + 無 index + 置中）
     ###############################################################
     
     # --- 產生原始 DataFrame ---
@@ -459,7 +459,7 @@ if st.button("開始回測 🚀"):
     metrics_table = metrics_table.reset_index(drop=True)
     raw_table = metrics_table.copy()
     
-    # --- 格式化數值 ---
+    # --- 格式化 ---
     formatted = metrics_table.copy()
     formatted["期末資產"] = formatted["期末資產"].apply(fmt_money)
     formatted["總報酬率"] = formatted["總報酬率"].apply(fmt_pct)
@@ -471,57 +471,33 @@ if st.button("開始回測 🚀"):
     formatted["Sortino"] = formatted["Sortino"].apply(fmt_num)
     formatted["交易次數"] = formatted["交易次數"].apply(fmt_int)
     
-    # --- Styler 基礎設定 ---
-    styled = formatted.style.set_properties(
-        subset=["策略"], **{"font-weight": "bold", "color": "#2c7be5"}
+    # --- 建立 Styler ---
+    styled = formatted.style
+    
+    # 文字置中 + 第一欄變藍色 + 粗體
+    styled = styled.set_properties(**{"text-align": "center"})
+    styled = styled.set_properties(subset=["策略"], **{"font-weight": "bold", "color": "#2c7be5"})
+    
+    # --- 🌈 Heatmap（綠 → 黃 → 紅） ---
+    heat_cols = ["期末資產", "總報酬率", "CAGR（年化）", "Calmar Ratio", "最大回撤（MDD）", "年化波動", "Sharpe", "Sortino"]
+    
+    styled = styled.background_gradient(
+        subset=heat_cols,
+        cmap="RdYlGn",        # 綠 黃 紅 colormap
+        low=0.2, high=0.2     # 調整對比
     )
     
-    # 欄位置中
-    styled = styled.set_table_styles(
-        [
-            {"selector": "th", "props": [("text-align", "center")]},
-            {"selector": "td", "props": [("text-align", "center")]},
-        ]
-    )
+    # --- 🖱 Hover 效果：滑過變亮 ---
+    styled = styled.set_table_styles([
+        {"selector": "tbody tr:hover", "props": [("background-color", "#f0f8ff")]},  # hover 淺藍
+        {"selector": "th", "props": [("text-align", "center")]},
+    ])
     
-    # --- highlight 規則（一定要放前面）---
-    highlight_rules = {
-        "期末資產": "high",
-        "總報酬率": "high",
-        "CAGR（年化）": "high",
-        "Calmar Ratio": "high",
-        "最大回撤（MDD）": "low",
-        "年化波動": "low",
-        "Sharpe": "high",
-        "Sortino": "high",
-    }
+    # --- 隱藏 index（確保不顯示 0/1/2） ---
+    styled = styled.hide_index()
     
-    # --- 套用 highlight ---
-    for col, direction in highlight_rules.items():
-        valid = raw_table[col].dropna()
-        if valid.empty:
-            continue
-        best = valid.max() if direction == "high" else valid.min()
-    
-        def style_col(_):
-            styles = []
-            for idx in raw_table.index:
-                val = raw_table.loc[idx, col]
-                is_best = (not np.isnan(val)) and (val == best)
-                styles.append(
-                    "color: #28a745; font-weight: bold;" if is_best else "color: #d9534f;"
-                )
-            return styles
-    
-        styled = styled.apply(style_col, subset=[col], axis=0)
-    
-    # --- 隱藏 index ---
-    styled = styled.hide(axis="index")
-    
-    # --- 輸出 HTML ---
+    # --- 輸出 ---
     st.write(styled.to_html(), unsafe_allow_html=True)
-
-    
 
 
     ###############################################################
