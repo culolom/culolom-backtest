@@ -412,11 +412,11 @@ if st.button("開始回測 🚀"):
                   f"較槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
 
     ###############################################################
-    # 完整比較表格（Heatmap + Hover + 無 index + 置中）
+    # 完整比較表格（Heatmap 正確版）
     ###############################################################
     
-    # --- 產生原始 DataFrame ---
-    metrics_table = pd.DataFrame([
+    # --- 產生 raw_table（純數字） ---
+    raw_table = pd.DataFrame([
         {
             "策略": f"{lev_label} LRS 槓桿策略",
             "期末資產": capital_lrs_final,
@@ -453,14 +453,10 @@ if st.button("開始回測 🚀"):
             "Sortino": sortino_base,
             "交易次數": np.nan,
         },
-    ])
+    ]).reset_index(drop=True)
     
-    # --- 移除 index ---
-    metrics_table = metrics_table.reset_index(drop=True)
-    raw_table = metrics_table.copy()
-    
-    # --- 格式化 ---
-    formatted = metrics_table.copy()
+    # --- 格式化表格（顯示用） ---
+    formatted = raw_table.copy()
     formatted["期末資產"] = formatted["期末資產"].apply(fmt_money)
     formatted["總報酬率"] = formatted["總報酬率"].apply(fmt_pct)
     formatted["CAGR（年化）"] = formatted["CAGR（年化）"].apply(fmt_pct)
@@ -471,34 +467,41 @@ if st.button("開始回測 🚀"):
     formatted["Sortino"] = formatted["Sortino"].apply(fmt_num)
     formatted["交易次數"] = formatted["交易次數"].apply(fmt_int)
     
-    # --- 建立 Styler ---
+    # --- Styler（套用在 formatted） ---
     styled = formatted.style
     
-    # 文字置中 + 第一欄變藍色 + 粗體
+    # 置中樣式
     styled = styled.set_properties(**{"text-align": "center"})
-    styled = styled.set_properties(subset=["策略"], **{"font-weight": "bold", "color": "#2c7be5"})
+    styled = styled.set_properties(
+        subset=["策略"],
+        **{"font-weight": "bold", "color": "#2c7be5"}
+    )
     
-    # --- 🌈 Heatmap（綠 → 黃 → 紅） ---
-    heat_cols = ["期末資產", "總報酬率", "CAGR（年化）", "Calmar Ratio", "最大回撤（MDD）", "年化波動", "Sharpe", "Sortino"]
+    # --- Heatmap（來源用 raw_table，非 formatted！） ---
+    heat_cols = [
+        "期末資產", "總報酬率", "CAGR（年化）", "Calmar Ratio",
+        "最大回撤（MDD）", "年化波動", "Sharpe", "Sortino"
+    ]
     
     styled = styled.background_gradient(
         subset=heat_cols,
-        cmap="RdYlGn",        # 綠 黃 紅 colormap
-        low=0.2, high=0.2     # 調整對比
+        cmap="RdYlGn",
+        gmap=raw_table[heat_cols],   # ⭐ 這行就是關鍵：用純數字的 raw_table
+        low=0.2,
+        high=0.2
     )
     
-    # --- 🖱 Hover 效果：滑過變亮 ---
+    # --- Hover 效果 ---
     styled = styled.set_table_styles([
-        {"selector": "tbody tr:hover", "props": [("background-color", "#f0f8ff")]},  # hover 淺藍
-        {"selector": "th", "props": [("text-align", "center")]},
+        {"selector": "tbody tr:hover", "props": [("background-color", "#f0f8ff")]},
+        {"selector": "th", "props": [("text-align", "center")]}
     ])
     
-    # --- 隱藏 index（確保不顯示 0/1/2） ---
+    # --- 隱藏 index ---
     styled = styled.hide(axis="index")
     
-    # --- 輸出 ---
     st.write(styled.to_html(), unsafe_allow_html=True)
-
+    
 
     ###############################################################
     # Footer
