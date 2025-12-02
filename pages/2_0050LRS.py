@@ -37,6 +37,13 @@ st.set_page_config(
     page_icon="📈",
     layout="wide",
 )
+with st.sidebar:
+    st.page_link("Home.py", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 st.markdown(
     "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 槓桿策略回測（CSV 版）</h1>",
     unsafe_allow_html=True,
