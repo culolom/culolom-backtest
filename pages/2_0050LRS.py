@@ -411,8 +411,6 @@ if st.button("開始回測 🚀"):
         st.metric("最大回撤（LRS）", format_percent(mdd_lrs),
                   f"較槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
 
-
-    
     ###############################################################
     # 完整比較表格（移除 index ＋ 置中）
     ###############################################################
@@ -457,13 +455,11 @@ if st.button("開始回測 🚀"):
         },
     ])
     
-    # -------------------------------
-    # ❗❗ 在這裡移除 index
-    # -------------------------------
+    # --- 移除 index ---
     metrics_table = metrics_table.reset_index(drop=True)
     raw_table = metrics_table.copy()
     
-    # 格式化數值
+    # --- 格式化數值 ---
     formatted = metrics_table.copy()
     formatted["期末資產"] = formatted["期末資產"].apply(fmt_money)
     formatted["總報酬率"] = formatted["總報酬率"].apply(fmt_pct)
@@ -475,9 +471,7 @@ if st.button("開始回測 🚀"):
     formatted["Sortino"] = formatted["Sortino"].apply(fmt_num)
     formatted["交易次數"] = formatted["交易次數"].apply(fmt_int)
     
-    # -------------------------------
-    # ❗❗ 現在才能開始轉成 Styler
-    # -------------------------------
+    # --- Styler 基礎設定 ---
     styled = formatted.style.set_properties(
         subset=["策略"], **{"font-weight": "bold", "color": "#2c7be5"}
     )
@@ -490,33 +484,7 @@ if st.button("開始回測 🚀"):
         ]
     )
     
-    # 顯示最佳值（你的 highlight 邏輯）
-    
-    for col, direction in highlight_rules.items():
-        valid = raw_table[col].dropna()
-        if valid.empty:
-            continue
-        best = valid.max() if direction == "high" else valid.min()
-    
-        def style_col(_):
-            styles = []
-            for idx in raw_table.index:
-                val = raw_table.loc[idx, col]
-                is_best = (not np.isnan(val)) and (val == best)
-                styles.append(
-                    "color: #28a745; font-weight: bold;" if is_best else "color: #d9534f;"
-                )
-            return styles
-    
-        styled = styled.apply(style_col, subset=[col], axis=0)
-    
-    # ❗❗ 最重要的：隱藏 index
-    styled = styled.hide_index()
-    
-    # 輸出 HTML
-    st.write(styled.to_html(), unsafe_allow_html=True)
-    
-    # highlight
+    # --- highlight 規則（一定要放前面）---
     highlight_rules = {
         "期末資產": "high",
         "總報酬率": "high",
@@ -528,6 +496,7 @@ if st.button("開始回測 🚀"):
         "Sortino": "high",
     }
     
+    # --- 套用 highlight ---
     for col, direction in highlight_rules.items():
         valid = raw_table[col].dropna()
         if valid.empty:
@@ -546,7 +515,14 @@ if st.button("開始回測 🚀"):
     
         styled = styled.apply(style_col, subset=[col], axis=0)
     
+    # --- 隱藏 index ---
+    styled = styled.hide_index()
+    
+    # --- 輸出 HTML ---
     st.write(styled.to_html(), unsafe_allow_html=True)
+
+    
+
 
     ###############################################################
     # Footer
