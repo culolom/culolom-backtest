@@ -516,7 +516,7 @@ if st.button("開始回測 🚀"):
         styled = styled.apply(style_col, subset=[col], axis=0)
     
     # --- 隱藏 index ---
-    styled = styled.hide_index()
+    styled = styled.hide(axis="index")
     
     # --- 輸出 HTML ---
     st.write(styled.to_html(), unsafe_allow_html=True)
