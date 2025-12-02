@@ -388,29 +388,42 @@ if st.button("開始回測 🚀"):
 
         st.plotly_chart(fig_hist, use_container_width=True)
 
-    ###############################################################
-    # KPI Summary
-    ###############################################################
-
-    asset_gap_lrs_vs_lev = ((capital_lrs_final / capital_lev_final) - 1) * 100
-    cagr_gap_lrs_vs_lev = (cagr_lrs - cagr_lev) * 100
-    vol_gap_lrs_vs_lev = (vol_lrs - vol_lev) * 100
-    mdd_gap_lrs_vs_lev = (mdd_lrs - mdd_lev) * 100
-
-    row1 = st.columns(4)
-    with row1[0]:
-        st.metric("期末資產（LRS）", format_currency(capital_lrs_final),
-                  f"較槓桿BH {asset_gap_lrs_vs_lev:+.2f}%")
-    with row1[1]:
-        st.metric("CAGR（LRS）", format_percent(cagr_lrs),
-                  f"較槓桿BH {cagr_gap_lrs_vs_lev:+.2f}%")
-    with row1[2]:
-        st.metric("年化波動（LRS）", format_percent(vol_lrs),
-                  f"較槓桿BH {vol_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
-    with row1[3]:
-        st.metric("最大回撤（LRS）", format_percent(mdd_lrs),
-                  f"較槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
-
+    # ================================
+    # 🔵 KPI Cards（專業卡片美化版）
+    # ================================
+    import streamlit as st
+    
+    def kpi_card(label, value, sublabel=None, color="#2563eb"):
+        st.markdown(f"""
+        <div style="
+            padding: 18px 20px;
+            border-radius: 14px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        ">
+            <div style="font-size: 16px; color: #6b7280; margin-bottom: 6px;">{label}</div>
+            <div style="font-size: 36px; font-weight: bold; color: {color};">{value}</div>
+            {f'<div style="margin-top:6px; font-size:14px; color:{color};">{sublabel}</div>' if sublabel else ""}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # --- 使用方式（範例） ---
+    c1, c2, c3, c4 = st.columns(4)
+    
+    with c1:
+        kpi_card("期末資產（LRS）", f"{equity_lrs:,.0f} 元", f"↑ 較BH +{diff_equity:.2%}", "#16a34a")
+    
+    with c2:
+        kpi_card("CAGR（LRS）", f"{cagr_lrs:.2%}", f"↑ 較BH +{diff_cagr:.2%}", "#16a34a")
+    
+    with c3:
+        kpi_card("年化波動（LRS）", f"{vol_lrs:.2%}", f"↓ 較BH -{diff_vol:.2%}", "#dc2626")
+    
+    with c4:
+        kpi_card("最大回撤（LRS）", f"{mdd_lrs:.2%}", f"↑ 較BH +{diff_mdd:.2%}", "#dc2626")
+    
 
     ###############################################################
     # 完整比較表格
