@@ -1,50 +1,96 @@
 """
 HamrLab Backtest Platform main entry.
-Main page: shows strategy list and navigation; backtests implemented on sub-pages.
+Main page: Dashboard style layout for strategies.
 """
 
 import streamlit as st
 
-st.set_page_config(page_title="倉鼠回測平台", page_icon="🐹", layout="wide")
+# 1. 頁面設定
+st.set_page_config(
+    page_title="倉鼠回測平台 | 會員專屬",
+    page_icon="🐹",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("🐹 倉鼠回測平台")
-st.caption("左側為策略清單，右側顯示所選策略介紹；回測功能請至各策略頁面操作。")
-
-# Strategy definitions
-strategies = {
-    "200SMA 回測基礎版": {
-        "description": "以 200 日 SMA 產生進出場訊號，對單一標的回測並提供價格/均線與資金曲線圖。",
-        "page": "pages/1_200SMA_basic.py",
-    },
-    "0050 LRS 槓桿策略": {
-        "description": "以 0050/006208 為訊號來源，實際進出正2 槓桿 ETF，提供三種策略績效比較。",
-        "page": "pages/2_LRS_leveraged.py",
-    },
-}
-
-left, right = st.columns([1, 2])
-
-with left:
-    choice = st.radio("策略清單", list(strategies.keys()))
-    st.markdown("""
-    **提示**
-    - 點選策略後於右側查看說明。
-    - 進入策略頁面後再執行回測，方便未來增減策略。""")
-
-with right:
-    info = strategies[choice]
-    st.subheader(choice)
-    st.write(info["description"])
-    st.markdown(
-        "在策略頁面中可設定回測區間、本金與參數，並觀看圖表與績效指標。"
-    )
+# 2. 側邊欄：品牌與外部連結
+with st.sidebar:
+    st.image("https://hamr-lab.com/wp-content/uploads/2025/01/cropped-hamr-logo.png", width=100) # 建議換成您網站的 Logo URL 或本地路徑
+    st.title("🐹 倉鼠實驗室")
+    st.caption("v1.0.0 Beta | 白銀會員限定")
     
+    st.divider()
+    
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@HamrLab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+    
+    st.divider()
+    st.info("💡 **提示**\n本平台僅供策略研究與回測驗證，不代表投資建議。")
+
+# 3. 主畫面：歡迎語 (Hero Section)
+st.title("🚀 量化戰情室")
+st.markdown("""
+歡迎來到 **倉鼠回測平台**！這裡是鼠叔為白銀會員打造的專屬軍火庫。
+不需要寫程式，直接點擊下方策略卡片，輸入參數即可驗證你的交易想法。
+""")
 
 st.divider()
-st.markdown(
-    """
-    🧭 **使用方式**
-    1. 在左側選擇策略並點擊右側的「前往策略頁面」。
-    2. 於策略頁面輸入回測參數並執行回測。
-    3. 圖表與績效報表均位於策略頁面，主畫面僅負責策略列表與說明。"""
-)
+
+# 4. 策略定義 (資料結構)
+strategies = [
+    {
+        "name": "200SMA 趨勢策略 (基礎版)",
+        "icon": "📈",
+        "description": "經典的趨勢跟隨策略。使用 200 日移動平均線 (SMA) 判斷牛熊分界，適合用來測試大盤指數的長期持有績效。",
+        "tags": ["趨勢", "均線", "長期"],
+        "page_path": "pages/1_200SMA_basic.py", 
+        "btn_label": "進入 SMA 回測"
+    },
+    {
+        "name": "0050 LRS 動態槓桿策略",
+        "icon": "⚡",
+        "description": "進階的資金控管策略。以 0050/006208 為訊號，動態調整正2槓桿 ETF 的曝險比例，追求比大盤更高的報酬風險比。",
+        "tags": ["槓桿", "動態調整", "波段"],
+        "page_path": "pages/2_LRS_leveraged.py",
+        "btn_label": "進入 LRS 回測"
+    },
+]
+
+# 5. 策略展示區 (卡片式佈局)
+st.subheader("🛠️ 選擇你的實驗策略")
+
+# 使用 columns 排版，每行放 2 個策略，看起來比較不擁擠
+cols = st.columns(2)
+
+for index, strategy in enumerate(strategies):
+    # 根據索引決定放在左欄還是右欄
+    col = cols[index % 2]
+    
+    with col:
+        # 使用 container 加上 border 形成卡片效果
+        with st.container(border=True):
+            st.markdown(f"### {strategy['icon']} {strategy['name']}")
+            
+            # 顯示標籤 (Tags)
+            st.markdown(
+                " ".join([f"`{tag}`" for tag in strategy['tags']])
+            )
+            
+            st.write(strategy['description'])
+            
+            # 使用空行增加一點間距
+            st.write("") 
+            
+            # 導航按鈕 (Streamlit原生支援)
+            st.page_link(
+                strategy['page_path'], 
+                label=strategy['btn_label'], 
+                icon="👉", 
+                use_container_width=True
+            )
+
+# 6. 未來展望 / 預告區塊 (增加期待感)
+st.markdown("---")
+st.caption("🚧 更多策略正在開發中 (MACD 動能、RSI 逆勢交易...)，敬請期待！")
