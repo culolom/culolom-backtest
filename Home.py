@@ -15,9 +15,6 @@ st.set_page_config(
 
 # 2. 側邊欄：品牌與外部連結
 with st.sidebar:
-
-    
-    st.divider()
     
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
