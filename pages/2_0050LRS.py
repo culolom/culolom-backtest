@@ -415,7 +415,6 @@ if st.button("開始回測 🚀"):
     # 完整比較表格（Heatmap 正確版）
     ###############################################################
     
-    # --- 產生 raw_table（純數字） ---
     raw_table = pd.DataFrame([
         {
             "策略": f"{lev_label} LRS 槓桿策略",
@@ -454,7 +453,7 @@ if st.button("開始回測 🚀"):
             "交易次數": np.nan,
         },
     ]).reset_index(drop=True)
-    
+
     # --- 格式化表格（顯示用） ---
     formatted = raw_table.copy()
     formatted["期末資產"] = formatted["期末資產"].apply(fmt_money)
@@ -466,26 +465,26 @@ if st.button("開始回測 🚀"):
     formatted["Sharpe"] = formatted["Sharpe"].apply(fmt_num)
     formatted["Sortino"] = formatted["Sortino"].apply(fmt_num)
     formatted["交易次數"] = formatted["交易次數"].apply(fmt_int)
-    
+
     # --- Styler（套用在 formatted） ---
     styled = formatted.style
-    
+
     # 置中樣式
     styled = styled.set_properties(**{"text-align": "center"})
     styled = styled.set_properties(
         subset=["策略"],
         **{"font-weight": "bold", "color": "#2c7be5"}
     )
-    
+
     # --- Heatmap 欄位 ---
     heat_cols = [
         "期末資產", "總報酬率", "CAGR（年化）", "Calmar Ratio",
         "最大回撤（MDD）", "年化波動", "Sharpe", "Sortino"
     ]
-    
+
     # --- 逐欄 Heatmap（最穩定版本）---
     from matplotlib import cm
-    
+
     def colormap(series, cmap_name="RdYlGn"):
         """把數字欄轉成 0~1，再映射到顏色"""
         s = series.astype(float).fillna(0.0)
@@ -494,35 +493,23 @@ if st.button("開始回測 🚀"):
         else:
             norm = (s - s.min()) / (s.max() - s.min())
         cmap = cm.get_cmap(cmap_name)
-        return norm.map(lambda x: f"background-color: rgba{cmap(x)}")
-    
+        return norm.map(
+            lambda x: f"background-color: rgba{cmap(x)}"
+        )
+
     # 套用在 styled（這裡 styled 來自 formatted.style）
     for col in heat_cols:
         styled = styled.apply(lambda s: colormap(raw_table[col]), subset=[col])
-    
+
     # --- Hover、對齊、隱藏 index ---
     styled = styled.set_table_styles([
         {"selector": "tbody tr:hover", "props": [("background-color", "#f0f8ff")]},
         {"selector": "th", "props": [("text-align", "center")]},
     ])
-    
-    styled = styled.hide(axis="index")
-    
-    st.write(styled.to_html(), unsafe_allow_html=True)
-    
-        
-        # --- Hover 效果 ---
-        styled = styled.set_table_styles([
-            {"selector": "tbody tr:hover", "props": [("background-color", "#f0f8ff")]},
-            {"selector": "th", "props": [("text-align", "center")]}
-        ])
-        
-        # --- 隱藏 index ---
-        styled = styled.hide(axis="index")
-        
-        st.write(styled.to_html(), unsafe_allow_html=True)
-    
 
+    styled = styled.hide(axis="index")
+
+    st.write(styled.to_html(), unsafe_allow_html=True)
     ###############################################################
     # Footer
     ###############################################################
