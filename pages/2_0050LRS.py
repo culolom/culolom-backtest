@@ -485,44 +485,21 @@ if st.button("開始回測 🚀"):
     # --- 逐欄 Heatmap（最穩定版本）---
     from matplotlib import cm
 
-    # 各欄位的方向性（True = 越大越好 → 綠 / False = 越小越好 → 綠）
-    metric_direction = {
-        "期末資產": True,
-        "總報酬率": True,
-        "CAGR（年化）": True,
-        "Calmar Ratio": True,
-        "Sharpe": True,
-        "Sortino": True,
-        "最大回撤（MDD）": False,   # 越小越好（風險）
-        "年化波動": False,          # 越小越好（風險）
-    }
-    
-    def finance_colormap(series, is_positive, cmap_name="RdYlGn"):
-        """
-        財金 Heatmap：根據方向性調整顏色
-        is_positive = True  → 越大越綠（報酬）
-        is_positive = False → 越小越綠（風險）
-        """
+    def colormap(series, cmap_name="RdYlGn"):
+        """把數字欄轉成 0~1，再映射到顏色"""
         s = series.astype(float).fillna(0.0)
-    
         if s.max() - s.min() < 1e-9:
-            norm = s - s.min()
+            norm = (s - s.min())
         else:
             norm = (s - s.min()) / (s.max() - s.min())
-    
-        # 風險指標 → 顛倒（越小越綠）
-        if not is_positive:
-            norm = 1 - norm
-    
         cmap = cm.get_cmap(cmap_name)
-        return norm.map(lambda x: f"background-color: rgba{cmap(x)}")
-    
-    # 套用在每一欄（專業版）
-    for col in heat_cols:
-        styled = styled.apply(
-            lambda s, col=col: finance_colormap(raw_table[col], metric_direction[col]),
-            subset=[col]
+        return norm.map(
+            lambda x: f"background-color: rgba{cmap(x)}"
         )
+
+    # 套用在 styled（這裡 styled 來自 formatted.style）
+    for col in heat_cols:
+        styled = styled.apply(lambda s: colormap(raw_table[col]), subset=[col])
 
     # --- Hover、對齊、隱藏 index ---
     styled = styled.set_table_styles([
