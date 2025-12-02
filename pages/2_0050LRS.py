@@ -483,13 +483,16 @@ if st.button("開始回測 🚀"):
         "最大回撤（MDD）", "年化波動", "Sharpe", "Sortino"
     ]
     
+    # --- Heatmap（修正版）---
+    gmap = raw_table[heat_cols].astype(float).fillna(0.0)
+    gmap = (gmap - gmap.min()) / (gmap.max() - gmap.min() + 1e-9)
+    
     styled = styled.background_gradient(
         subset=heat_cols,
         cmap="RdYlGn",
-        gmap=raw_table[heat_cols],   # ⭐ 這行就是關鍵：用純數字的 raw_table
-        low=0.2,
-        high=0.2
+        gmap=gmap,
     )
+
     
     # --- Hover 效果 ---
     styled = styled.set_table_styles([
