@@ -477,21 +477,41 @@ if st.button("開始回測 🚀"):
         **{"font-weight": "bold", "color": "#2c7be5"}
     )
     
-    # --- Heatmap（來源用 raw_table，非 formatted！） ---
-    heat_cols = [
-        "期末資產", "總報酬率", "CAGR（年化）", "Calmar Ratio",
-        "最大回撤（MDD）", "年化波動", "Sharpe", "Sortino"
-    ]
+    # --- Heatmap（最穩定寫法：逐欄上色）---
+    from matplotlib import cm
     
-    # --- Heatmap（修正版）---
-    gmap = raw_table[heat_cols].astype(float).fillna(0.0)
-    gmap = (gmap - gmap.min()) / (gmap.max() - gmap.min() + 1e-9)
+    def colormap(series, cmap_name="RdYlGn"):
+        """把數字欄轉成 0~1，再映射到顏色"""
+        s = series.astype(float).fillna(0.0)
+        if s.max() - s.min() < 1e-9:
+            norm = (s - s.min())  # 避免除以 0
+        else:
+            norm = (s - s.min()) / (s.max() - s.min())
+        cmap = cm.get_cmap(cmap_name)
+        return norm.map(lambda x: f"background-color: rgba{cmap(x)}")
     
-    styled = styled.background_gradient(
-        subset=heat_cols,
-        cmap="RdYlGn",
-        gmap=gmap,
+    styled = formatted.style
+    
+    # 置中樣式
+    styled = styled.set_properties(**{"text-align": "center"})
+    styled = styled.set_properties(
+        subset=["策略"],
+        **{"font-weight": "bold", "color": "#2c7be5"}
     )
+    
+    # --- 套用每一欄 heatmap ---
+    for col in heat_cols:
+        styled = styled.apply(lambda s: colormap(raw_table[col]), subset=[col])
+    
+    # --- Hover 效果 + 隱藏 index ---
+    styled = styled.set_table_styles([
+        {"selector": "tbody tr:hover", "props": [("background-color", "#f0f8ff")]},
+        {"selector": "th", "props": [("text-align", "center")]},
+    ])
+    styled = styled.hide(axis="index")
+    
+    st.write(styled.to_html(), unsafe_allow_html=True)
+    
 
     
     # --- Hover 效果 ---
