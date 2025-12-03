@@ -139,8 +139,8 @@ with m1:
 
 # 2. 顯示 0050 狀態
 with m2:
-    # 這裡會去讀取 data/0050.csv (請確認您的檔名是否正確，或是 006208.csv)
-    price, ma, status, color = get_signal_status("0050.csv") 
+    # 這裡會去讀取 data/0050.TW.csv (請確認您的檔名是否正確，或是 006208.csv)
+    price, ma, status, color = get_signal_status("0050.TW.csv") 
     
     if price:
         st.metric(
