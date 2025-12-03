@@ -30,7 +30,7 @@ with st.sidebar:
         st.title("🐹") 
         
     st.title("倉鼠實驗室")
-    st.caption("v1.3.0 Beta | 白銀會員限定")
+    st.caption("v1.4.0 Beta | 白銀會員限定")
     
     st.divider()
     
@@ -191,6 +191,9 @@ def get_momentum_ranking(data_dir="data"):
                 df["Date"] = pd.to_datetime(df["Date"])
                 df = df.set_index("Date").sort_index()
 
+                # 計算 200 SMA (供稍後使用)
+                df["MA_200"] = df[col_price].rolling(window=200).mean()
+
                 # 確保在截止日有資料 (或是最接近的一天)
                 # 使用 slicing 取得截止日(含)之前的資料
                 hist_window = df.loc[:end_date]
@@ -202,6 +205,7 @@ def get_momentum_ranking(data_dir="data"):
                 if (end_date - last_valid_date).days > 15: continue
                 
                 p_end = hist_window[col_price].iloc[-1]
+                ma_end = df.loc[last_valid_date, "MA_200"] # 取得當天的 200SMA
 
                 # 取得起始日價格 (12個月前)
                 start_window = df.loc[:start_date]
@@ -213,8 +217,9 @@ def get_momentum_ranking(data_dir="data"):
                 
                 results.append({
                     "代號": symbol,
-                    "12月累積報酬": ret,
-                    "收盤價": p_end
+                    "12月累積報酬": ret * 100, # ✅ 乘上 100 以顯示正確百分比 (58.0%)
+                    "收盤價": p_end,
+                    "200SMA": ma_end # ✅ 新增 200SMA
                 })
             except:
                 continue
@@ -243,13 +248,18 @@ if rank_df is not None:
             "12月累積報酬": st.column_config.ProgressColumn(
                 "12月累積報酬 (Momentum)",
                 help="過去 12 個月的漲跌幅",
-                format="%.2f%%",
-                min_value=-0.5, # 設定進度條範圍，可依需求調整
-                max_value=1.0,
+                format="%.2f%%", # Streamlit 會在數字後加上 %，所以我們給 58.0 會顯示 58.00%
+                min_value=-50,   # 設定範圍為 -50% ~ 100%
+                max_value=100,
             ),
             "收盤價": st.column_config.NumberColumn(
                 "收盤價 (Price)",
                 format="$%.2f"
+            ),
+            "200SMA": st.column_config.NumberColumn(
+                "200SMA 均線",
+                format="$%.2f",
+                help="200日移動平均線價格，可用於輔助判斷是否過熱或剛站上趨勢"
             )
         },
         use_container_width=True
