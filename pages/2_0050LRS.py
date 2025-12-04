@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS 回測系統 (Ultimate Pro: Dark Mode & UX Enhanced)
+# app.py — 0050LRS 回測系統 (Sidebar + Dark Mode 完美整合版)
 ###############################################################
 
 import os
@@ -33,7 +33,7 @@ else:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 ###############################################################
-# 1. Streamlit 頁面與全域 CSS 設定 (核心美化)
+# 1. Streamlit 頁面與全域 CSS 設定
 ###############################################################
 
 st.set_page_config(
@@ -46,7 +46,7 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-        /* A. 全域字體優化 */
+        /* A. 全域字體與間距優化 */
         .main .block-container {
             padding-top: 2rem;
             padding-bottom: 4rem;
@@ -112,6 +112,11 @@ st.markdown(
         /* 修正表格內的字體顏色適應 */
         th, td {
             color: var(--text-color) !important;
+        }
+        
+        /* 側邊欄美化 */
+        section[data-testid="stSidebar"] {
+            background-color: var(--secondary-background-color);
         }
     </style>
     """,
@@ -197,31 +202,65 @@ def fmt_int(v): return f"{int(v):,}" if pd.notnull(v) else "—"
 def nz(x): return float(np.nan_to_num(x, nan=0.0))
 
 ###############################################################
-# 4. UI 輸入區
+# 4. UI 輸入區 (側邊欄 Sidebar)
 ###############################################################
 
-col1, col2 = st.columns(2)
-with col1:
+with st.sidebar:
+    st.header("⚙️ 參數設定")
+    
+    # 1. ETF 選擇
+    st.subheader("1. 標的選擇")
     base_label = st.selectbox("原型 ETF (訊號來源)", list(BASE_ETFS.keys()))
     base_symbol = BASE_ETFS[base_label]
-with col2:
+    
     lev_label = st.selectbox("槓桿 ETF (交易標的)", list(LEV_ETFS.keys()))
     lev_symbol = LEV_ETFS[lev_label]
+    
+    # 取得資料範圍
+    s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
+    
+    st.markdown("---")
 
-s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
-
-with st.expander("⚙️ 進階回測設定 (日期與本金)", expanded=True):
-    c3, c4, c5 = st.columns(3)
-    start = c3.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5*365)), min_value=s_min, max_value=s_max)
-    end = c4.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
-    capital = c5.number_input("投入本金", 1000, 50_000_000, 100_000, step=10_000)
-    position_mode = st.radio("策略初始狀態", ["空手起跑 (標準)", "若在均線上則持有"], index=0, horizontal=True)
-
+    # 2. 回測參數
+    st.subheader("2. 回測參數")
+    
+    # 日期選擇
+    start = st.date_input(
+        "開始日期", 
+        value=max(s_min, s_max - dt.timedelta(days=5*365)), 
+        min_value=s_min, 
+        max_value=s_max
+    )
+    end = st.date_input(
+        "結束日期", 
+        value=s_max, 
+        min_value=s_min, 
+        max_value=s_max
+    )
+    
+    # 資金與模式
+    capital = st.number_input("投入本金", 1000, 50_000_000, 100_000, step=10_000)
+    position_mode = st.radio(
+        "策略初始狀態", 
+        ["空手起跑 (標準)", "若在均線上則持有"], 
+        index=0
+    )
+    
+    st.markdown("---")
+    
+    # 3. 執行按鈕 (使用 Session State 防止切換 Tab 時重置)
+    if st.button("🚀 開始分析", type="primary", use_container_width=True):
+        st.session_state.run_analysis = True
+    
 ###############################################################
 # 5. 主程式運算
 ###############################################################
 
-if st.button("🚀 開始分析", type="primary", use_container_width=True):
+# 初始化 session state
+if 'run_analysis' not in st.session_state:
+    st.session_state.run_analysis = False
+
+if st.session_state.run_analysis:
     start_early = start - dt.timedelta(days=365)
     
     with st.spinner("正在讀取數據並模擬交易..."):
@@ -414,7 +453,6 @@ if st.button("🚀 開始分析", type="primary", use_container_width=True):
 
     with tab3:
         cats = ["年化報酬 (CAGR)", "夏普值 (Sharpe)", "索提諾 (Sortino)", "抗回撤能力 (Inv-MDD)", "穩定度 (Inv-Vol)"]
-        # Normalize logic just for radar visualization (not precise math, just relative)
         v_lrs = [nz(stats_lrs[2]), nz(stats_lrs[5]), nz(stats_lrs[6]), nz(-stats_lrs[3]), nz(-stats_lrs[4])]
         v_lev = [nz(stats_lev[2]), nz(stats_lev[5]), nz(stats_lev[6]), nz(-stats_lev[3]), nz(-stats_lev[4])]
         v_base = [nz(stats_base[2]), nz(stats_base[5]), nz(stats_base[6]), nz(-stats_base[3]), nz(-stats_base[4])]
@@ -542,3 +580,7 @@ if st.button("🚀 開始分析", type="primary", use_container_width=True):
     st.markdown('<div class="table-container">', unsafe_allow_html=True)
     st.write(styled.to_html(), unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
+
+# 當還沒按開始時的提示
+elif not st.session_state.run_analysis:
+    st.info("👈 請在左側側邊欄設定參數，並點擊「🚀 開始分析」按鈕。")
