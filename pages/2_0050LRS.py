@@ -577,39 +577,41 @@ if st.button("開始回測 🚀"):
     # Heat Square（一定要放在 columns 外）
     ###############################################################
 
-    st.markdown("### 🔥 Heat Square 強弱矩陣（策略雷達）")
+    st.markdown("### 🔥 Heat Square 強弱矩陣（策略雷達）", unsafe_allow_html=True)
+    
+    # ====== Heat Square（這裡不要放在 columns / tabs 裡） ======
+    metrics = {
+        f"{lev_label} LRS 槓桿策略": {
+            "final": capital_lrs_final,
+            "cagr": cagr_lrs,
+            "sharpe": sharpe_lrs,
+            "sortino": sortino_lrs,
+            "mdd": mdd_lrs,
+            "vol": vol_lrs,
+        },
+        f"{lev_label} BH（槓桿）": {
+            "final": capital_lev_final,
+            "cagr": cagr_lev,
+            "sharpe": sharpe_lev,
+            "sortino": sortino_lev,
+            "mdd": mdd_lev,
+            "vol": vol_lev,
+        },
+        f"{base_label} BH（原型）": {
+            "final": capital_base_final,
+            "cagr": cagr_base,
+            "sharpe": sharpe_base,
+            "sortino": sortino_base,
+            "mdd": mdd_base,
+            "vol": vol_base,
+        },
+    }
+    
+    heat_html = render_heat_square(metrics)
+    
+    # 🔥 必須外面再包一層 <div>，Streamlit 才不會 escape HTML
+    st.markdown(f"<div>{heat_html}</div>", unsafe_allow_html=True)
 
-    hs_container = st.container()
-    with hs_container:
-        heat_html = render_heat_square(
-            {
-                f"{lev_label} LRS 槓桿策略": {
-                    "final": capital_lrs_final,
-                    "cagr": cagr_lrs,
-                    "sharpe": sharpe_lrs,
-                    "sortino": sortino_lrs,
-                    "mdd": mdd_lrs,
-                    "vol": vol_lrs,
-                },
-                f"{lev_label} BH（槓桿）": {
-                    "final": capital_lev_final,
-                    "cagr": cagr_lev,
-                    "sharpe": sharpe_lev,
-                    "sortino": sortino_lev,
-                    "mdd": mdd_lev,
-                    "vol": vol_lev,
-                },
-                f"{base_label} BH（原型）": {
-                    "final": capital_base_final,
-                    "cagr": cagr_base,
-                    "sharpe": sharpe_base,
-                    "sortino": sortino_base,
-                    "mdd": mdd_base,
-                    "vol": vol_base,
-                },
-            }
-        )
-        st.markdown(heat_html, unsafe_allow_html=True)
 
     ###############################################################
     # 轉置表格 + highlight + heatmap
