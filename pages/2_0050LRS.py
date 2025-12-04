@@ -421,6 +421,43 @@ if st.button("開始回測 🚀"):
                   f"較槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
     
     ###############################################################
+    # Heat Square（策略熱力矩陣）
+    ###############################################################
+    
+    st.markdown("## 🔥 Heat Square — 三策略強弱矩陣")
+    
+    metrics = {
+        "LRS 槓桿策略": {
+            "final": capital_lrs_final,
+            "cagr": cagr_lrs,
+            "sharpe": sharpe_lrs,
+            "sortino": sortino_lrs,
+            "mdd": mdd_lrs,
+            "vol": vol_lrs,
+        },
+        "槓桿BH": {
+            "final": capital_lev_final,
+            "cagr": cagr_lev,
+            "sharpe": sharpe_lev,
+            "sortino": sortino_lev,
+            "mdd": mdd_lev,
+            "vol": vol_lev,
+        },
+        "原型BH": {
+            "final": capital_base_final,
+            "cagr": cagr_base,
+            "sharpe": sharpe_base,
+            "sortino": sortino_base,
+            "mdd": mdd_base,
+            "vol": vol_base,
+        },
+    }
+    
+    render_heat_square(metrics)
+    
+        
+        
+    ###############################################################
     #  強化版：轉置表格 + highlight_best + heatmap（深色/亮色OK）
     ###############################################################
     
