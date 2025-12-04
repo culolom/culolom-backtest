@@ -419,7 +419,7 @@ if st.button("開始回測 🚀"):
                   f"較槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
 
     ###############################################################
-    # 完整比較表格（Heatmap 正確版）
+    # 完整比較表格（轉置 + Heatmap 正確版）
     ###############################################################
     
     raw_table = pd.DataFrame([
@@ -459,9 +459,10 @@ if st.button("開始回測 🚀"):
             "Sortino": sortino_base,
             "交易次數": np.nan,
         },
-    ]).reset_index(drop=True)
-
-    # --- 格式化表格（顯示用） ---
+    ]).set_index("策略")
+    
+    
+    # ---- 格式化顯示版本 ----
     formatted = raw_table.copy()
     formatted["期末資產"] = formatted["期末資產"].apply(fmt_money)
     formatted["總報酬率"] = formatted["總報酬率"].apply(fmt_pct)
@@ -472,78 +473,44 @@ if st.button("開始回測 🚀"):
     formatted["Sharpe"] = formatted["Sharpe"].apply(fmt_num)
     formatted["Sortino"] = formatted["Sortino"].apply(fmt_num)
     formatted["交易次數"] = formatted["交易次數"].apply(fmt_int)
-
-    # --- Styler（套用在 formatted） ---
-    styled = formatted.style
-
-    # 置中樣式
-    styled = styled.set_properties(**{"text-align": "center"})
-    styled = styled.set_properties(
-        subset=["策略"],
-        **{"font-weight": "bold", "color": "#2c7be5"}
-    )
-
-    # --- Heatmap 欄位 ---
-    heat_cols = [
-        "期末資產", "總報酬率", "CAGR（年化）", "Calmar Ratio",
-        "最大回撤（MDD）", "年化波動", "Sharpe", "Sortino"
-    ]
-
-    # --- 逐欄 Heatmap（最穩定版本）---
+    
+    # ---- 轉置（Transpose）----
+    t_raw = raw_table.T              # 計算 heatmap 用
+    t_fmt = formatted.T              # 顯示用
+    t_fmt.index.name = "指標"
+    
+    
+    # ---- Heatmap 套色 ----
     from matplotlib import cm
-
+    
     def colormap(series, cmap_name="RdYlGn"):
-        """把數字欄轉成 0~1，再映射到顏色"""
         s = series.astype(float).fillna(0.0)
         if s.max() - s.min() < 1e-9:
             norm = (s - s.min())
         else:
             norm = (s - s.min()) / (s.max() - s.min())
         cmap = cm.get_cmap(cmap_name)
-        return norm.map(
-            lambda x: f"background-color: rgba{cmap(x)}"
-        )
-
-    # 套用在 styled（這裡 styled 來自 formatted.style）
-    for col in heat_cols:
-        styled = styled.apply(lambda s: colormap(raw_table[col]), subset=[col])
-
-    # --- Hover、對齊、隱藏 index ---
+        return norm.map(lambda x: f"background-color: rgba{cmap(x)}")
+    
+    
+    # Styler
+    styled = t_fmt.style
+    
+    # 置中
+    styled = styled.set_properties(**{"text-align": "center"})
     styled = styled.set_table_styles([
         {"selector": "tbody tr:hover", "props": [("background-color", "#f0f8ff")]},
-        {"selector": "th", "props": [("text-align", "center")]},
+        {"selector": "th", "props": [("text-align", "center")]}
     ])
-
-    styled = styled.hide(axis="index")
-
+    
+    # Heatmap（逐欄）
+    for col in t_raw.columns:
+        styled = styled.apply(lambda s: colormap(t_raw[col]), subset=[col])
+    
+    # 套用格式 + 隱藏 index
+    styled = styled.hide(axis="columns")   # 不顯示欄名
+    styled = styled.set_properties(subset=t_fmt.columns, **{"min-width": "120px"})
+    
+    # 輸出
+    st.markdown("### 📊 策略比較（轉置表格）")
     st.write(styled.to_html(), unsafe_allow_html=True)
-    ###############################################################
-    # Footer
-    ###############################################################
-
-    st.markdown(
-        """
-<div style="
-    margin-top: 20px;
-    padding: 18px 22px;
-    border-left: 4px solid #4A90E2;
-    background: rgba(0,0,0,0.03);
-    border-radius: 6px;
-    font-size: 15px;
-    line-height: 1.7;
-">
-
-<h4>📘 指標怎麼看？（快速理解版）</h4>
-
-<b>CAGR（年化報酬）</b>：一年平均賺多少，是長期投資最重要的指標。<br>
-<b>總報酬率</b>：整段時間一共賺多少。<br>
-<b>Sharpe Ratio</b>：承受一單位波動，能換到多少報酬。越高越穩定。<br>
-<b>Sortino Ratio</b>：只看「跌」的波動，越高越抗跌。<br>
-<b>最大回撤（MDD）</b>：最慘跌到多深。越小越好。<br>
-<b>年化波動</b>：每天跳來跳去的程度。越低越舒服。<br>
-<b>Calmar Ratio</b>：把報酬和回撤放一起看，越高代表越有效率。<br>
-
-</div>
-        """,
-        unsafe_allow_html=True,
-    )
