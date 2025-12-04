@@ -414,6 +414,8 @@ if st.button("開始回測 🚀", type="primary", use_container_width=True):
     st.markdown("#### 🔥 策略強弱矩陣 (藍=優 / 橘=風險)")
     st.markdown(render_heat_square(metrics_bundle), unsafe_allow_html=True)
     
+
+
     st.markdown("#### 📋 詳細數據表")
     
     table_data = []
@@ -433,9 +435,14 @@ if st.button("開始回測 🚀", type="primary", use_container_width=True):
     
     df_table = pd.DataFrame(table_data).set_index("策略")
     
-    # 使用 Column Config 隱藏多餘小數點並加入 Emoji 標題
+    # 修正步驟 1：先對 DataFrame 應用顏色樣式 (建立 Styler)
+    styler = df_table.style\
+        .background_gradient(cmap="Blues", subset=["💰 期末資產", "📈 CAGR", "⚖️ Sharpe", "🛡️ Sortino", "🌊 Calmar"])\
+        .background_gradient(cmap="Oranges", subset=["📉 MDD", "⚡ 波動率"])
+
+    # 修正步驟 2：再將 Styler 物件傳入 st.dataframe 進行格式化顯示
     st.dataframe(
-        df_table,
+        styler,
         use_container_width=True,
         column_config={
             "💰 期末資產": st.column_config.NumberColumn(format="$%d"),
@@ -447,5 +454,4 @@ if st.button("開始回測 🚀", type="primary", use_container_width=True):
             "🛡️ Sortino": st.column_config.NumberColumn(format="%.2f"),
             "🌊 Calmar": st.column_config.NumberColumn(format="%.2f"),
         }
-    ).style.background_gradient(cmap="Blues", subset=["💰 期末資產", "📈 CAGR", "⚖️ Sharpe", "🛡️ Sortino", "🌊 Calmar"])\
-           .background_gradient(cmap="Oranges", subset=["📉 MDD", "⚡ 波動率"])
+    )
