@@ -16,50 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ------------------------------------------------------
-# 🔒 會員驗證守門員 (Password Protection)
-# ------------------------------------------------------
-def check_password():
-    """Returns `True` if the user had the correct password."""
 
-    def password_entered():
-        """Checks whether a password entered by the user is correct."""
-        if st.session_state["password"] == st.secrets["password"]:
-            st.session_state["password_correct"] = True
-            del st.session_state["password"]  # 不在 session 裡留密碼
-        else:
-            st.session_state["password_correct"] = False
-
-    # 如果已經驗證過，直接回傳 True
-    if st.session_state.get("password_correct", False):
-        return True
-
-    # 顯示輸入框介面
-    st.title("🔒 倉鼠回測平台 - 會員登入")
-    st.markdown("""
-    本平台僅開放 **YT 白銀小倉鼠** 以上會員使用。
-    
-    請輸入您在 **[YouTube 會員專屬社群貼文]** 中取得的 **本月通行密碼**。
-    """)
-
-    st.text_input(
-        "請輸入密碼 (Password)",
-        type="password",
-        on_change=password_entered,
-        key="password"
-    )
-
-    # 錯誤提示
-    if "password_correct" in st.session_state and not st.session_state["password_correct"]:
-        st.error("😕 密碼錯誤，請確認大小寫，或前往 YT 社群貼文查看最新密碼。")
-        st.markdown("[👉 前往 YouTube 頻道查看密碼](https://www.youtube.com/@HamrLab/community)")
-
-    return False
-
-
-# 若驗證沒過，程式停在這裡
-if not check_password():
-    st.stop()
 
 # ------------------------------------------------------
 # ✅ 正式內容開始
