@@ -223,44 +223,74 @@ def _hs_square(title, value, vmin, vmax, reverse=False, fmt=lambda x: x):
     """
 
 
-def render_heat_square(metrics_dict):
+def render_heat_square(metrics):
     """
-    metrics_dict = {
-        "LRS 槓桿策略": {
-            "final": ...,
-            "cagr": ...,
-            "sharpe": ...,
-            "sortino": ...,
-            "mdd": ...,
-            "vol": ...,
-        },
-        ...
+    metrics = {
+        "策略A": {"final":123, "cagr":0.12, ...},
+        "策略B": {...},
+        "策略C": {...},
     }
     """
-    st.markdown("## 🔥 Heat Square — 三策略強弱矩陣")
 
-    items = [
-        ("期末資產", "final", False, lambda x: f"{x:,.0f} 元"),
-        ("年化報酬 CAGR", "cagr", False, lambda x: f"{x:.2%}"),
-        ("Sharpe Ratio", "sharpe", False, lambda x: f"{x:.2f}"),
-        ("Sortino Ratio", "sortino", False, lambda x: f"{x:.2f}"),
-        ("最大回撤 MDD", "mdd", True, lambda x: f"{x:.2%}"),
-        ("年化波動 Volatility", "vol", True, lambda x: f"{x:.2%}"),
-    ]
+    # 取出三組策略名稱
+    names = list(metrics.keys())
 
-    df = pd.DataFrame(metrics_dict).T  # index = 策略
+    # 取出各指標
+    final_values = [metrics[n]["final"] for n in names]
+    cagr_values = [metrics[n]["cagr"] for n in names]
+    sharpe_values = [metrics[n]["sharpe"] for n in names]
+    sortino_values = [metrics[n]["sortino"] for n in names]
+    mdd_values = [metrics[n]["mdd"] for n in names]
+    vol_values = [metrics[n]["vol"] for n in names]
 
-    for title, key, reverse, fmt in items:
-        st.markdown(f"#### {title}")
-        vmin, vmax = df[key].min(), df[key].max()
+    # 依照值大小給顏色（簡化版 heatmap）
+    def norm_color(values, reverse=False):
+        mini, maxi = min(values), max(values)
+        rng = maxi - mini if maxi != mini else 1
+        colors = []
+        for v in values:
+            t = (v - mini) / rng
+            if reverse: 
+                t = 1 - t
+            colors.append(f"rgba(0, 150, 0, {0.15 + 0.35 * t})")
+        return colors
 
-        row_html = "<div style='display:flex;flex-wrap:wrap;'>"
-        for strat in df.index:
-            v = df.loc[strat, key]
-            row_html += _hs_square(strat, v, vmin, vmax, reverse, fmt)
-        row_html += "</div>"
+    html = "<div style='display:flex;gap:16px;margin-top:12px;'>"
 
-        st.markdown(row_html, unsafe_allow_html=True)
+    for i, name in enumerate(names):
+
+        # 各格子的顏色
+        c_final  = norm_color(final_values)[i]
+        c_cagr   = norm_color(cagr_values)[i]
+        c_sharpe = norm_color(sharpe_values)[i]
+        c_sorti  = norm_color(sortino_values)[i]
+        c_mdd    = norm_color(mdd_values, reverse=True)[i]
+        c_vol    = norm_color(vol_values, reverse=True)[i]
+
+        block = f"""
+        <div style="
+            background:rgba(255,255,255,0.05);
+            padding:14px;
+            border-radius:12px;
+            min-width:160px;
+            text-align:center;
+        ">
+            <div style="font-size:13px;margin-bottom:8px;color:#aaa;">{name}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">
+                <div style="width:60px;height:28px;background:{c_final};border-radius:6px;line-height:28px;font-size:12px;">資產</div>
+                <div style="width:60px;height:28px;background:{c_cagr};border-radius:6px;line-height:28px;font-size:12px;">CAGR</div>
+                <div style="width:60px;height:28px;background:{c_sharpe};border-radius:6px;line-height:28px;font-size:12px;">Sharpe</div>
+                <div style="width:60px;height:28px;background:{c_sorti};border-radius:6px;line-height:28px;font-size:12px;">Sortino</div>
+                <div style="width:60px;height:28px;background:{c_mdd};border-radius:6px;line-height:28px;font-size:12px;">MDD</div>
+                <div style="width:60px;height:28px;background:{c_vol};border-radius:6px;line-height:28px;font-size:12px;">Vol</div>
+            </div>
+        </div>
+        """
+
+        html += block
+
+    html += "</div>"
+    return html
 
 
 ###############################################################
