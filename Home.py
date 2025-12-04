@@ -118,7 +118,7 @@ if not files:
 else:
     for i, asset in enumerate(ASSET_CONFIG[:4]):  # 先顯示 4 個重點
         with summary_cols[i]:
-            csv_path = find_csv_for_symbol(asset["symbol"], files)
+            csv_path = find_csv_for_symbol(asset["symbols"], files)
             if csv_path is None:
                 st.metric(asset["label"], "資料不存在", "⬜")
             else:
