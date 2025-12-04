@@ -417,17 +417,27 @@ if st.button("開始回測 🚀"):
     with row1[3]:
         st.metric("最大回撤（LRS）", format_percent(mdd_lrs),
                   f"較槓桿BH {mdd_gap_lrs_vs_lev:+.2f}%", delta_color="inverse")
-
+    
     ###############################################################
-    #  修正版：轉置表格 + highlight_best + heatmap + 保留指標名稱
+    # 🔥 自動支援深色 / 亮色主題的轉置策略比較表（最終版）
     ###############################################################
     
     import pandas as pd
     import numpy as np
     from matplotlib import cm
+    import streamlit as st
+    
+    # 偵測深色模式
+    theme = st.get_option("theme.base")  # "dark" or "light"
+    is_dark = (theme == "dark")
+    
+    # 基礎色系
+    TEXT_COLOR = "#ffffff" if is_dark else "#111111"
+    HIGHLIGHT_COLOR = "rgba(180, 240, 180, 0.25)" if is_dark else "#d8f5d0"
+    HEATMAP_ALPHA = 0.18 if is_dark else 0.12  # 深色主題要更透明
     
     
-    # ===== 格式化工具 =====
+    # ================= 工具 =================
     def fmt_money(x):
         return f"{x:,.0f} 元"
     
@@ -441,7 +451,7 @@ if st.button("開始回測 🚀"):
         return "—" if (pd.isna(x) or x == 0) else str(int(x))
     
     
-    # ====== 1) Raw 數字（比較用，不做任何格式化） ======
+    # ================= 基礎 raw_table =================
     raw_table = pd.DataFrame([
         {
             "策略": f"{lev_label} LRS 槓桿策略",
@@ -482,52 +492,56 @@ if st.button("開始回測 🚀"):
     ]).reset_index(drop=True)
     
     
-    # ====== 轉置（raw & formatted） ======
-    t_raw = raw_table.set_index("策略").T     # 用於比較大小
-    t_fmt = raw_table.set_index("策略").T.copy()  # 用於顯示（之後格式化）
+    # ================= 轉置 =================
+    t_raw = raw_table.set_index("策略").T
+    t_fmt = t_raw.copy()
+    
+    # ================= 格式化 =================
+    fmt_map = {
+        "期末資產": fmt_money,
+        "總報酬率": fmt_pct,
+        "CAGR（年化）": fmt_pct,
+        "最大回撤（MDD）": fmt_pct,
+        "年化波動": fmt_pct,
+        "Calmar Ratio": fmt_num,
+        "Sharpe": fmt_num,
+        "Sortino": fmt_num,
+        "交易次數": fmt_int,
+    }
+    for idx, func in fmt_map.items():
+        t_fmt.loc[idx] = t_fmt.loc[idx].apply(func)
     
     
-    # ===== 格式化 t_fmt =====
-    for col in t_fmt.columns:
-        t_fmt.loc["期末資產", col] = fmt_money(t_fmt.loc["期末資產", col])
-        t_fmt.loc["總報酬率", col] = fmt_pct(t_fmt.loc["總報酬率", col])
-        t_fmt.loc["CAGR（年化）", col] = fmt_pct(t_fmt.loc["CAGR（年化）", col])
-        t_fmt.loc["Calmar Ratio", col] = fmt_num(t_fmt.loc["Calmar Ratio", col])
-        t_fmt.loc["最大回撤（MDD）", col] = fmt_pct(t_fmt.loc["最大回撤（MDD）", col])
-        t_fmt.loc["年化波動", col] = fmt_pct(t_fmt.loc["年化波動", col])
-        t_fmt.loc["Sharpe", col] = fmt_num(t_fmt.loc["Sharpe", col])
-        t_fmt.loc["Sortino", col] = fmt_num(t_fmt.loc["Sortino", col])
-        t_fmt.loc["交易次數", col] = fmt_int(t_fmt.loc["交易次數", col])
-    
-    
-    # ===== highlight_best（從 raw 比較） =====
+    # ================= highlight_best =================
     def highlight_best(row):
-        s = t_raw.loc[row.name]
-    
-        # MDD：越小越好
-        if row.name == "最大回撤（MDD）":
-            best = s.astype(float).idxmin()
-        else:
-            best = s.astype(float).idxmax()
-    
-        return ["background-color: #d8f5d0" if col == best else "" for col in row.index]
+        s = t_raw.loc[row.name].astype(float)
+        # MDD 越小越好
+        best = s.idxmin() if row.name == "最大回撤（MDD）" else s.idxmax()
+        return [
+            f"background-color: {HIGHLIGHT_COLOR}" if col == best else ""
+            for col in row.index
+        ]
     
     
-    # ===== soft heatmap（以 raw 做顏色） =====
+    # ================= heatmap =================
     def soft_heatmap(series, cmap_name="BuGn"):
-        s = series.astype(float).fillna(0.0)
-        if s.max() - s.min() < 1e-9:
+        s = series.astype(float)
+        if s.max() - s.min() < 1e-12:
             norm = s - s.min()
         else:
             norm = (s - s.min()) / (s.max() - s.min())
     
         cmap = cm.get_cmap(cmap_name)
-        return norm.map(lambda x: f"background-color: rgba{cmap(x, 0.12)}")
+    
+        # 在深色模式下使用透明度，避免太亮
+        return [
+            f"background-color: rgba({int(r*255)}, {int(g*255)}, {int(b*255)}, {HEATMAP_ALPHA})"
+            for (r, g, b, _) in [cmap(x)] * len(series.index)
+        ]
     
     
-    # ===== 套用 styler（注意：不 hide index，保留指標名稱） =====
+    # ================= Apply styler =================
     styled = t_fmt.style
-    
     styled = styled.apply(highlight_best, axis=1)
     
     for col in t_raw.columns:
@@ -536,14 +550,16 @@ if st.button("開始回測 🚀"):
             subset=pd.IndexSlice[:, col]
         )
     
-    styled = styled.set_properties(**{"text-align": "center"})
+    styled = styled.set_properties(**{
+        "text-align": "center",
+        "color": TEXT_COLOR,
+        "font-size": "1.1rem",
+    })
+    
     
     styled = styled.set_table_styles([
-        {"selector": "th.col_heading", "props": [("text-align", "center"), ("color", "#0066cc"), ("font-weight", "bold")]}
+        {"selector": "th", "props": [("color", TEXT_COLOR), ("font-weight", "bold"), ("font-size", "1.15rem")]},
     ])
-    
-    # 不要藏 index（這個是你 screenshot 左側指標消失的主因）
-    # styled = styled.hide(axis="index")   ← 移除
     
     
     st.markdown("### 📊 策略比較（升級版轉置表格）")
