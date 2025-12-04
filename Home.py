@@ -243,7 +243,7 @@ ASSET_CONFIG = [
 if not files:
     st.info("目前找不到任何 CSV 數據檔案，市場摘要會先顯示為占位內容。請在 data 資料夾放入價格歷史 CSV。")
 else:
-    for i, asset in enumerate(ASSET_CONFIG[:8]):  # 先顯示 4 個重點
+    for i, asset in enumerate(ASSET_CONFIG[:4]):  # 先顯示 4 個重點
         with summary_cols[i]:
             csv_path = find_csv_for_symbol(asset["symbol"], files)
             if csv_path is None:
