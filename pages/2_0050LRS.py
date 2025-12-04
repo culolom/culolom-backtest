@@ -11,6 +11,8 @@ import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 from pathlib import Path
+from heat_square import render_heat_square
+
 
 ###############################################################
 # 字型設定
