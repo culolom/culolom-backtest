@@ -166,41 +166,53 @@ def _hs_color(values, reverse=False):
     return colors
 
 def render_heat_square(metrics):
-    names = list(metrics.keys())
+    html = """
+    <div style="display:flex;gap:16px;flex-wrap:wrap;">
+    """
 
-    final_v = [metrics[n]["final"] for n in names]
-    cagr_v  = [metrics[n]["cagr"]  for n in names]
-    shrp_v  = [metrics[n]["sharpe"] for n in names]
-    sort_v  = [metrics[n]["sortino"] for n in names]
-    mdd_v   = [metrics[n]["mdd"] for n in names]
-    vol_v   = [metrics[n]["vol"] for n in names]
+    for name, m in metrics.items():
 
-    html = "<div style='display:flex;gap:16px;margin-top:12px;'>"
+        squares = ""
+        values = [
+            m["final"],
+            m["cagr"],
+            m["sharpe"],
+            m["sortino"],
+            -m["mdd"],   # MDD 越低越好 → 取負號
+            -m["vol"],   # Vol 越低越好 → 取負號
+        ]
 
-    for i, name in enumerate(names):
-        block = f"""
+        # normalization
+        vmin, vmax = min(values), max(values)
+        if vmax - vmin == 0:
+            vmax = vmin + 1
+
+        for v in values:
+            norm = (v - vmin) / (vmax - vmin)
+            g = int(150 + norm * 100)
+            squares += f"""
+                <div style="width:60px;height:28px;
+                background:rgba(0,{g},0,0.35);
+                border-radius:6px;"></div>
+            """
+
+        html += f"""
         <div style="
             background:rgba(255,255,255,0.05);
             padding:14px;
             border-radius:12px;
-            min-width:160px;
-            text-align:center;
-        ">
+            min-width:180px;
+            text-align:center;">
             <div style="font-size:13px;margin-bottom:8px;color:#aaa;">{name}</div>
             <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">
-                <div style="width:60px;height:28px;background:{_hs_color(final_v)[i]};border-radius:6px;line-height:28px;font-size:12px;">資產</div>
-                <div style="width:60px;height:28px;background:{_hs_color(cagr_v)[i]};border-radius:6px;line-height:28px;font-size:12px;">CAGR</div>
-                <div style="width:60px;height:28px;background:{_hs_color(shrp_v)[i]};border-radius:6px;line-height:28px;font-size:12px;">Sharpe</div>
-                <div style="width:60px;height:28px;background:{_hs_color(sort_v)[i]};border-radius:6px;line-height:28px;font-size:12px;">Sortino</div>
-                <div style="width:60px;height:28px;background:{_hs_color(mdd_v, reverse=True)[i]};border-radius:6px;line-height:28px;font-size:12px;">MDD</div>
-                <div style="width:60px;height:28px;background:{_hs_color(vol_v, reverse=True)[i]};border-radius:6px;line-height:28px;font-size:12px;">Vol</div>
+                {squares}
             </div>
         </div>
         """
-        html += block
 
     html += "</div>"
     return html
+
 
 ###############################################################
 # UI 輸入
