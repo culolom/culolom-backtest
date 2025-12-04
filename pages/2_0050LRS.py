@@ -696,7 +696,12 @@ if st.button("開始回測 🚀"):
     }
     
     heat_html = render_heat_square(metrics)
-    st.markdown(heat_html, unsafe_allow_html=True)
+    
+    # 🔥 專屬 HTML 容器，隔離掉前後所有 Streamlit 元件
+    heat_container = st.container()
+    with heat_container:
+        st.markdown(heat_html, unsafe_allow_html=True)
+
 
     ###############################################################
     # 轉置表格 + highlight_best + heatmap
