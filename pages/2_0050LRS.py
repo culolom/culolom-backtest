@@ -37,6 +37,17 @@ st.set_page_config(
     page_icon="📈",
     layout="wide",
 )
+# ------------------------------------------------------
+# 🔒 驗證守門員 (必須放在 set_page_config 之後，sidebar 之前)
+# ------------------------------------------------------
+import sys
+# 讓 pages 資料夾能讀到根目錄的 auth.py
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import auth 
+
+if not auth.check_password():
+    st.stop()  # 驗證沒過就停止執行
+# ------------------------------------------------------
 with st.sidebar:
     st.page_link("Home.py", label="回到戰情室", icon="🏠")
     st.divider()
@@ -45,7 +56,7 @@ with st.sidebar:
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 槓桿策略回測（CSV 版）</h1>",
+    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿策略回測</h1>",
     unsafe_allow_html=True,
 )
 
