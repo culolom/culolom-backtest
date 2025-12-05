@@ -382,18 +382,88 @@ if st.button("開始回測 🚀"):
 
     # --- 雷達 ---
     with tab_radar:
+        # 1. 準備數據
         radar_categories = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反轉)"]
 
+        # 這裡為了雷達圖好看，將數據標準化 (0~1) 或是直接繪製原始數值
+        # 為了避免不同量級(如 30% 和 1.1) 顯示問題，建議先做簡單的 Min-Max Scaling 顯示相對強弱
+        # 或者直接顯示數值，但要注意軸的刻度。這裡維持您的原始邏輯 (數值)，但優化視覺。
+        
+        # 建立數據 List
         radar_lrs  = [nz(cagr_lrs),  nz(sharpe_lrs),  nz(sortino_lrs),  nz(-mdd_lrs),  nz(-vol_lrs)]
         radar_lev  = [nz(cagr_lev),  nz(sharpe_lev),  nz(sortino_lev),  nz(-mdd_lev),  nz(-vol_lev)]
         radar_base = [nz(cagr_base), nz(sharpe_base), nz(sortino_base), nz(-mdd_base), nz(-vol_base)]
 
-        fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(r=radar_lrs, theta=radar_categories, fill="toself", name="LRS"))
-        fig_radar.add_trace(go.Scatterpolar(r=radar_lev, theta=radar_categories, fill="toself", name="槓桿BH"))
-        fig_radar.add_trace(go.Scatterpolar(r=radar_base, theta=radar_categories, fill="toself", name="原型BH"))
+        # 為了讓雷達圖閉合，通常 Plotly 需要把最後一點重複加回第一點 (但在 Scatterpolar 有 fill 屬性時通常會自動閉合，保險起見這裡不手動加，直接畫)
 
-        fig_radar.update_layout(template="plotly_white", height=480)
+        fig_radar = go.Figure()
+
+        # LRS (主角 - 紫色系)
+        fig_radar.add_trace(go.Scatterpolar(
+            r=radar_lrs, 
+            theta=radar_categories, 
+            fill='toself', 
+            name='LRS 策略',
+            line=dict(color='#636EFA', width=3),
+            fillcolor='rgba(99, 110, 250, 0.2)' # 半透明填充
+        ))
+
+        # 槓桿 BH (對照組1 - 紅色系)
+        fig_radar.add_trace(go.Scatterpolar(
+            r=radar_lev, 
+            theta=radar_categories, 
+            fill='toself', 
+            name=f'{lev_label} BH',
+            line=dict(color='#EF553B', width=2, dash='solid'),
+            fillcolor='rgba(239, 85, 59, 0.15)'
+        ))
+
+        # 原型 BH (對照組2 - 綠色系)
+        fig_radar.add_trace(go.Scatterpolar(
+            r=radar_base, 
+            theta=radar_categories, 
+            fill='toself', 
+            name=f'{base_label} BH',
+            line=dict(color='#00CC96', width=2, dash='dash'),
+            fillcolor='rgba(0, 204, 150, 0.1)'
+        ))
+
+        # 2. 視覺設定 (關鍵修復部分)
+        fig_radar.update_layout(
+            height=480,
+            # 移除 template="plotly_white"，改為全透明設定
+            paper_bgcolor='rgba(0,0,0,0)', # 外框透明
+            plot_bgcolor='rgba(0,0,0,0)',  # 繪圖區透明
+            polar=dict(
+                bgcolor='rgba(0,0,0,0)',   # 雷達圖圓盤背景透明 (關鍵!)
+                radialaxis=dict(
+                    visible=True,
+                    range=[None, None], # 自動抓範圍
+                    showticklabels=True,
+                    ticks='', # 不顯示刻度線
+                    gridcolor='rgba(128, 128, 128, 0.2)', # 網格線改為淡灰色 (深淺通用)
+                    linecolor='rgba(128, 128, 128, 0.3)'  # 軸線淡灰
+                ),
+                angularaxis=dict(
+                    gridcolor='rgba(128, 128, 128, 0.2)',
+                    linecolor='rgba(128, 128, 128, 0.3)'
+                )
+            ),
+            legend=dict(
+                orientation="h",  # 圖例水平排列
+                yanchor="bottom",
+                y=-0.15,          # 放在圖表下方
+                xanchor="center",
+                x=0.5
+            ),
+            font=dict(
+                family="Noto Sans TC",
+                size=12,
+                # 不指定 color，讓 Streamlit 自動根據 theme 決定文字顏色 (黑/白)
+            ),
+            margin=dict(l=40, r=40, t=40, b=40)
+        )
+
         st.plotly_chart(fig_radar, use_container_width=True)
 
     # --- 日報酬分佈 ---
