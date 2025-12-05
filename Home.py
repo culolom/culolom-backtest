@@ -254,6 +254,29 @@ st.markdown("""
 
 st.divider()
 
+
+
+# ==========================================
+# 🎨 CSS 樣式注入：卡片懸停浮起效果
+# ==========================================
+st.markdown("""
+<style>
+/* 針對 st.container(border=True) 的 CSS 選擇器 */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    transition: all 0.3s ease-in-out; /* 平滑過渡動畫 */
+    border: 1px solid #e0e0e0; /* 預設邊框顏色 */
+}
+
+/* 滑鼠移上去時的狀態 */
+div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    transform: translateY(-8px); /* 向上浮起 8px */
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15); /* 增加陰影立體感 */
+    border-color: #ffbd45; /* (選用) hover 時邊框微微變色，配合倉鼠的主色 */
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # ==========================================
 # 🛠️ 策略定義區
 # ==========================================
@@ -265,6 +288,7 @@ strategies = [
         "tags": ["美股", "Nasdaq", "動態槓桿"],
         "page_path": "pages/1_QQQLRS.py",
         "btn_label": "進入 QQQ 回測",
+        "is_best": True,  # <--- 加入這個標記：True 代表是好策略，會顯示 🏆
     },
     {
         "name": "0050 LRS 動態槓桿 (台股)",
@@ -273,6 +297,7 @@ strategies = [
         "tags": ["台股", "0050", "波段操作"],
         "page_path": "pages/2_0050LRS.py",
         "btn_label": "進入 0050 回測",
+        "is_best": False, # <--- False 代表一般策略
     },
 ]
 
@@ -284,11 +309,25 @@ for index, strategy in enumerate(strategies):
     col = cols[index % 2]
 
     with col:
+        # 使用 border=True 觸發上面的 CSS 效果
         with st.container(border=True):
-            st.markdown(f"### {strategy['icon']} {strategy['name']}")
-            st.markdown(" ".join([f"`{tag}`" for tag in strategy["tags"]]))
+            
+            # 1. 處理標題與獎盃
+            title_text = f"{strategy['icon']} {strategy['name']}"
+            if strategy.get("is_best"):
+                title_text += " 🏆"  # 如果是好策略，加上獎盃
+            
+            st.markdown(f"### {title_text}")
+
+            # 2. 處理標籤 (拿掉顏色，改用 | 分隔的灰色小字)
+            # 原本: st.markdown(" ".join([f"`{tag}`" for tag in strategy["tags"]]))
+            # 修改後:
+            tags_str = " | ".join(strategy["tags"])
+            st.caption(f"🏷️ {tags_str}") 
+
             st.write(strategy["description"])
-            st.write("")
+            st.write("") # 增加一點留白
+            
             st.page_link(
                 strategy["page_path"],
                 label=strategy["btn_label"],
@@ -296,7 +335,7 @@ for index, strategy in enumerate(strategies):
                 use_container_width=True,
             )
 
-
+# ... (後面的 功能 1：市場即時儀表板 維持不變) ...
 # ==========================================
 # 📊 功能 1：市場即時儀表板 (戰情室核心)
 # ==========================================
