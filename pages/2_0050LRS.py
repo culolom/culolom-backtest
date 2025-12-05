@@ -327,26 +327,113 @@ if st.button("開始回測 🚀"):
     # ⬇⬇⬇ 以下內容完全保留（圖表 + KPI + 表格）
     ###############################################################
 
-    # --- 原型 & MA ---
-    st.markdown("<h3>📌 原型 ETF 價格 & 200SMA（訊號來源）</h3>", unsafe_allow_html=True)
+    # --- 原型 & MA & 槓桿價格 (雙軸圖表) ---
+    st.markdown("<h3>📌 策略訊號與執行價格 (雙軸對照)</h3>", unsafe_allow_html=True)
 
     fig_price = go.Figure()
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label} 收盤價", mode="lines"))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["MA_200"], name="200 日 SMA", mode="lines"))
 
+    # 1. [左軸] 原型 ETF (訊號來源)
+    fig_price.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["Price_base"], 
+        name=f"{base_label} (左軸)", 
+        mode="lines",
+        line=dict(width=2, color="#636EFA"),
+        hovertemplate=f"<b>{base_label}</b><br>日期: %{{x|%Y-%m-%d}}<br>價格: %{{y:,.2f}} 元<extra></extra>"
+    ))
+
+    # 2. [左軸] 200MA
+    fig_price.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["MA_200"], 
+        name="200 日 SMA", 
+        mode="lines",
+        line=dict(width=1.5, color="#FFA15A"),
+        hovertemplate="<b>200SMA</b><br>價格: %{y:,.2f} 元<extra></extra>"
+    ))
+
+    # 3. [右軸] 槓桿 ETF (實際標的) - 使用虛線區隔
+    fig_price.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["Price_lev"], 
+        name=f"{lev_label} (右軸)", 
+        mode="lines",
+        line=dict(width=1, color="#00CC96", dash='dot'), # 虛線
+        opacity=0.6, # 半透明，避免搶戲
+        yaxis="y2",  # 指定到右邊的 Y 軸
+        hovertemplate=f"<b>{lev_label}</b><br>日期: %{{x|%Y-%m-%d}}<br>價格: %{{y:,.2f}} 元<extra></extra>"
+    ))
+
+    # 4. [標記] 買進點 (顯示雙價格)
     if not buys.empty:
+        # 準備 Tooltip 需要的數據：同時包含 Base 和 Lev 的價格
+        buy_hover_text = [
+            f"<b>▲ 買進訊號 (Buy)</b><br>"
+            f"日期: {d.strftime('%Y-%m-%d')}<br>"
+            f"------------------<br>"
+            f"訊號 ({base_label}): {p_base:,.2f} 元<br>"
+            f"成交 ({lev_label}): <b>{p_lev:,.2f} 元</b>"
+            for d, p_base, p_lev in zip(buys.index, buys["Price_base"], buys["Price_lev"])
+        ]
+
         fig_price.add_trace(go.Scatter(
-            x=buys.index, y=buys["Price_base"], mode="markers",
-            name="買進 Buy", marker=dict(color="green", size=10)
+            x=buys.index, 
+            y=buys["Price_base"], # 標記還是畫在左軸(訊號線)上，視覺上才準
+            mode="markers",
+            name="買進訊號", 
+            marker=dict(color="#00C853", size=12, symbol="triangle-up", line=dict(width=1, color="white")),
+            hoverinfo="text", # 使用自定義 text
+            hovertext=buy_hover_text
         ))
 
+    # 5. [標記] 賣出點 (顯示雙價格)
     if not sells.empty:
+        sell_hover_text = [
+            f"<b>▼ 賣出訊號 (Sell)</b><br>"
+            f"日期: {d.strftime('%Y-%m-%d')}<br>"
+            f"------------------<br>"
+            f"訊號 ({base_label}): {p_base:,.2f} 元<br>"
+            f"成交 ({lev_label}): <b>{p_lev:,.2f} 元</b>"
+            for d, p_base, p_lev in zip(sells.index, sells["Price_base"], sells["Price_lev"])
+        ]
+
         fig_price.add_trace(go.Scatter(
-            x=sells.index, y=sells["Price_base"], mode="markers",
-            name="賣出 Sell", marker=dict(color="red", size=10)
+            x=sells.index, 
+            y=sells["Price_base"], 
+            mode="markers",
+            name="賣出訊號", 
+            marker=dict(color="#D50000", size=12, symbol="triangle-down", line=dict(width=1, color="white")),
+            hoverinfo="text",
+            hovertext=sell_hover_text
         ))
 
-    fig_price.update_layout(template="plotly_white", height=420)
+    # 6. Layout 設定 (雙軸)
+    fig_price.update_layout(
+        template="plotly_white", 
+        height=450,
+        hovermode="x unified", # 統一顯示 x 軸資訊
+        yaxis=dict(
+            title=f"{base_label} 價格",
+            showgrid=True,
+            zeroline=False
+        ),
+        yaxis2=dict(
+            title=f"{lev_label} 價格",
+            overlaying="y", # 疊加在第一個 y 軸上
+            side="right",   # 放在右邊
+            showgrid=False, # 右軸不顯示網格，避免線條太亂
+            zeroline=False
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        margin=dict(l=10, r=10, t=30, b=10)
+    )
+    
     st.plotly_chart(fig_price, use_container_width=True)
 
     ###############################################################
