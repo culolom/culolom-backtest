@@ -259,33 +259,26 @@ st.divider()
 # ... (上面是 st.divider()) ...
 
 # ==========================================
-# 🎨 CSS 樣式注入：卡片懸停浮起效果 (修正版)
+# 🎨 CSS 樣式注入：卡片懸停浮起效果 (強力版)
 # ==========================================
+# 這裡使用更精確的 CSS 選擇器，並強制提升優先級
 st.markdown("""
 <style>
-/* 針對 st.container(border=True) 的 CSS 選擇器 */
-/* 使用 [data-testid] 屬性選擇器通常比較準確 */
-[data-testid="stVerticalBlockBorderWrapper"] {
-    transition: all 0.3s ease-in-out !important; /* 強制過渡動畫 */
-    border: 1px solid #e0e0e0; /* 預設邊框 */
+/* 針對 st.container(border=True) 產生的外框 */
+div[data-testid="column"] > div > div > div > div[data-testid="stVerticalBlockBorderWrapper"] {
+    transition: all 0.3s ease-in-out !important;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px; /* 讓圓角更明顯 */
+    background-color: transparent; /* 預設透明 */
 }
 
-/* 滑鼠移上去時的狀態 (Hover) */
-[data-testid="stVerticalBlockBorderWrapper"]:hover {
-    transform: translateY(-8px) !important;       /* 強制向上浮起 8px */
-    box-shadow: 0 10px 25px rgba(0,0,0,0.15) !important; /* 增加立體陰影 */
-    border-color: #FFD700 !important;             /* 邊框變色：金色 (配合獎盃) */
-}
-
-/* 針對深色模式的微調 (如果使用者開深色模式) */
-@media (prefers-color-scheme: dark) {
-    [data-testid="stVerticalBlockBorderWrapper"] {
-        border: 1px solid #444;
-    }
-    [data-testid="stVerticalBlockBorderWrapper"]:hover {
-        border-color: #FFD700 !important;
-        box-shadow: 0 10px 25px rgba(255,255,255,0.1) !important;
-    }
+/* 滑鼠移上去 (Hover) 的效果 */
+div[data-testid="column"] > div > div > div > div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    transform: translateY(-8px) !important;       /* 浮起效果 */
+    box-shadow: 0 12px 24px rgba(0,0,0,0.15) !important; /* 陰影效果 */
+    border-color: #FFD700 !important;             /* 邊框變金色 */
+    background-color: rgba(255, 255, 255, 0.05);  /* 微微發亮 */
+    cursor: pointer; /* 讓滑鼠變成手指形狀，暗示可點擊 */
 }
 </style>
 """, unsafe_allow_html=True)
@@ -302,7 +295,7 @@ strategies = [
         "tags": ["美股", "Nasdaq", "動態槓桿"],
         "page_path": "pages/1_QQQLRS.py",
         "btn_label": "進入 QQQ 回測",
-        "is_best": True,  # 🏆 這是比較好的策略
+        "is_best": True,  # <--- ✅ 設定為 True，標題就會出現 🏆
     },
     {
         "name": "0050 LRS 動態槓桿 (台股)",
@@ -311,7 +304,7 @@ strategies = [
         "tags": ["台股", "0050", "波段操作"],
         "page_path": "pages/2_0050LRS.py",
         "btn_label": "進入 0050 回測",
-        "is_best": False, # 一般策略
+        "is_best": False, # <--- 一般策略，沒有獎盃
     },
 ]
 
@@ -323,24 +316,24 @@ for index, strategy in enumerate(strategies):
     col = cols[index % 2]
 
     with col:
-        # border=True 會生成 data-testid="stVerticalBlockBorderWrapper" 的 div
-        # 上面的 CSS 就是針對這個目標作用
+        # 這裡的 border=True 會被上面的 CSS 抓到
         with st.container(border=True):
             
             # --- 1. 處理標題與獎盃 ---
-            title_text = f"{strategy['icon']} {strategy['name']}"
-            if strategy.get("is_best"):
-                title_text += " 🏆"  # 如果是好策略，加上獎盃
+            # 判斷是否為最佳策略，如果是就加獎盃
+            title_suffix = " 🏆" if strategy.get("is_best") else ""
+            title_text = f"{strategy['icon']} {strategy['name']}{title_suffix}"
             
             st.markdown(f"### {title_text}")
 
-            # --- 2. 處理標籤 (拿掉顏色背景，改用文字) ---
-            # 使用 " | " 符號隔開，看起來比較乾淨
-            tags_str = " | ".join(strategy["tags"])
-            st.caption(f"🏷️ {tags_str}") 
+            # --- 2. 處理標籤 (無顏色純文字版) ---
+            # 使用 " | " 符號將標籤串接起來，看起來像雜誌排版
+            tags_clean = " | ".join(strategy["tags"])
+            st.caption(f"🏷️ {tags_clean}") 
 
+            # --- 3. 描述與按鈕 ---
             st.write(strategy["description"])
-            st.write("") # 增加一點視覺留白
+            st.write("") # 增加一點視覺留白，避免按鈕太貼文字
             
             st.page_link(
                 strategy["page_path"],
@@ -348,8 +341,6 @@ for index, strategy in enumerate(strategies):
                 icon="👉",
                 use_container_width=True,
             )
-
-# ... (接續後面的 功能 1：市場即時儀表板) ...
 # ==========================================
 # 📊 功能 1：市場即時儀表板 (戰情室核心)
 # ==========================================
