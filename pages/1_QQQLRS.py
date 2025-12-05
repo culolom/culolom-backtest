@@ -37,6 +37,17 @@ st.set_page_config(
     page_icon="🦅",
     layout="wide",
 )
+# ------------------------------------------------------
+# 🔒 驗證守門員 (必須放在 set_page_config 之後，sidebar 之前)
+# ------------------------------------------------------
+import sys
+# 讓 pages 資料夾能讀到根目錄的 auth.py
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import auth 
+
+if not auth.check_password():
+    st.stop()  # 驗證沒過就停止執行
+# ------------------------------------------------------
 
 with st.sidebar:
     st.page_link("Home.py", label="回到戰情室", icon="🏠")
@@ -45,6 +56,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+     
 
 st.markdown(
     "<h1 style='margin-bottom:0.5em;'>📊 QQQ LRS 動態槓桿策略回測</h1>",
@@ -516,32 +528,3 @@ if st.button("開始回測 🚀"):
     styled = styled.hide(axis="index")
 
     st.write(styled.to_html(), unsafe_allow_html=True)
-
-    ###############################################################
-    # Footer
-    ###############################################################
-
-    st.markdown(
-        """
-<div style="
-    margin-top: 20px;
-    padding: 18px 22px;
-    border-left: 4px solid #4A90E2;
-    background: rgba(0,0,0,0.03);
-    border-radius: 6px;
-    font-size: 15px;
-    line-height: 1.7;
-">
-
-<h4>📘 美股策略指標說明</h4>
-
-<b>CAGR (年化報酬)</b>：將總報酬攤平到每年的複利成長率。<br>
-<b>Sharpe Ratio</b>：夏普值，衡量承受每一單位風險所獲得的超額報酬 (越高越好)。<br>
-<b>Sortino Ratio</b>：索提諾比率，僅考慮「下跌風險」的報酬比率 (比 Sharpe 更適合衡量單邊上漲策略)。<br>
-<b>Max Drawdown (MDD)</b>：資產從最高點回落的最大跌幅。<br>
-<b>Calmar Ratio</b>：CAGR 除以 MDD，數值越高代表「賺得多且賠得少」。<br>
-
-</div>
-        """,
-        unsafe_allow_html=True,
-    )
