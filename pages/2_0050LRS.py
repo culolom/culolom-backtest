@@ -477,7 +477,7 @@ if st.button("開始回測 🚀"):
         st.plotly_chart(fig_hist, use_container_width=True)
 
     ###############################################################
-    # KPI Summary (美化卡片版 + 自動適應深淺色)
+    # KPI Summary (美化卡片版 + 嚴格正綠負紅)
     ###############################################################
 
     # 計算 Gap (與槓桿BH相比)
@@ -486,12 +486,12 @@ if st.button("開始回測 🚀"):
     vol_gap_lrs_vs_lev = (vol_lrs - vol_lev) * 100
     mdd_gap_lrs_vs_lev = (mdd_lrs - mdd_lev) * 100
 
-    # 定義 CSS 樣式 (使用 CSS Variables 適應深淺色)
+    # 定義 CSS 樣式 (維持輕量化風格)
     st.markdown("""
     <style>
         .kpi-card {
             background-color: var(--secondary-background-color);
-            border: 1px solid rgba(128, 128, 128, 0.15);
+            border: 1px solid rgba(128, 128, 128, 0.1);
             border-radius: 12px;
             padding: 20px 16px;
             display: flex;
@@ -499,84 +499,76 @@ if st.button("開始回測 🚀"):
             align-items: flex-start;
             justify-content: space-between;
             height: 100%;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-        .kpi-card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
         .kpi-label {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             color: var(--text-color);
-            opacity: 0.7;
-            font-weight: 500;
-            margin-bottom: 4px;
+            opacity: 0.6;
+            margin-bottom: 6px;
         }
         .kpi-value {
-            font-size: 1.8rem;
+            font-size: 1.7rem;
             font-weight: 700;
             color: var(--text-color);
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             font-family: 'Noto Sans TC', sans-serif;
+            letter-spacing: 0.5px;
         }
-        /* 漲跌幅標籤 (Chip 樣式) */
+        /* 輕量化 Chip */
         .delta-chip {
             display: inline-flex;
             align-items: center;
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 0.8rem;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
             font-weight: 600;
             white-space: nowrap;
         }
-        /* 正面狀態 (綠色) */
+        /* 正數樣式 (>0) : 綠色 */
         .delta-positive {
-            background-color: rgba(33, 195, 84, 0.15);
-            color: #21c354;
+            background-color: transparent;
+            color: #2e7d32; /* 深綠文字 */
+            border: 1px solid rgba(46, 125, 50, 0.2);
         }
-        /* 負面狀態 (紅色) */
+        /* 負數樣式 (<0) : 紅色 */
         .delta-negative {
-            background-color: rgba(255, 43, 43, 0.15);
-            color: #ff2b2b;
+            background-color: transparent;
+            color: #c62828; /* 深紅文字 */
+            border: 1px solid rgba(198, 40, 40, 0.2);
         }
-        /* 中性狀態 */
+        /* 中性樣式 (=0) : 灰色 */
         .delta-neutral {
-            background-color: rgba(128, 128, 128, 0.15);
+            background-color: transparent;
             color: var(--text-color);
-            opacity: 0.7;
+            opacity: 0.5;
+            border: 1px solid rgba(128, 128, 128, 0.2);
+        }
+        
+        /* 深色模式適配 */
+        @media (prefers-color-scheme: dark) {
+            .delta-positive { color: #66bb6a; border-color: rgba(102, 187, 106, 0.3); }
+            .delta-negative { color: #ef5350; border-color: rgba(239, 83, 80, 0.3); }
         }
     </style>
     """, unsafe_allow_html=True)
 
-    # 輔助函式：產生單張卡片的 HTML
+    # 輔助函式 (修改：純粹依據 gap_val 正負變色)
     def kpi_card_html(label, value, gap_val, invert_logic=False):
-        """
-        invert_logic=True 代表「數值越低越好」(如 MDD, 波動率)
-        Gap < 0 時顯示為綠色 (好)
-        """
-        # 判斷好壞顏色
-        is_good = False
-        if invert_logic:
-            # 波動/MDD：Gap 為負 (下降) 是好事
-            if gap_val < 0: is_good = True
-        else:
-            # 資產/CAGR：Gap 為正 (上升) 是好事
-            if gap_val > 0: is_good = True
-
-        # 決定顏色 class
-        if abs(gap_val) < 0.01:
-            delta_class = "delta-neutral"
-            sign_str = ""
-            icon = "➖"
-        elif is_good:
-            delta_class = "delta-positive"
-            sign_str = "+" if gap_val > 0 else "" # 顯示 + 號，若原本就是負號則不用
-            icon = "🔼" if not invert_logic else "🔽" # 變多用上箭頭，變少(好)用下箭頭
-        else:
-            delta_class = "delta-negative"
-            sign_str = "+" if gap_val > 0 else ""
-            icon = "🔽" if not invert_logic else "🔼" # 變少用下箭頭，變多(壞)用上箭頭
+        # 註：invert_logic 參數保留是為了相容呼叫，但在顏色判斷中不再使用
         
-        # 格式化 Gap 文字
+        if gap_val > 0.001:
+            delta_class = "delta-positive"
+            icon = "▲"
+            sign_str = "+"
+        elif gap_val < -0.001:
+            delta_class = "delta-negative"
+            icon = "▼"
+            sign_str = "" # 負數本身帶有負號，不需額外加
+        else:
+            delta_class = "delta-neutral"
+            icon = "➖"
+            sign_str = ""
+
         delta_text = f"{icon} 較槓桿 {sign_str}{gap_val:.2f}%"
 
         return f"""
@@ -588,6 +580,41 @@ if st.button("開始回測 🚀"):
             </div>
         </div>
         """
+
+    # 建立 4 欄佈局
+    row1 = st.columns(4)
+
+    with row1[0]:
+        st.markdown(kpi_card_html(
+            "期末資產 (LRS)", 
+            format_currency(capital_lrs_final), 
+            asset_gap_lrs_vs_lev
+        ), unsafe_allow_html=True)
+
+    with row1[1]:
+        st.markdown(kpi_card_html(
+            "CAGR (年化)", 
+            format_percent(cagr_lrs), 
+            cagr_gap_lrs_vs_lev
+        ), unsafe_allow_html=True)
+
+    with row1[2]:
+        st.markdown(kpi_card_html(
+            "年化波動 (LRS)", 
+            format_percent(vol_lrs), 
+            vol_gap_lrs_vs_lev, 
+            invert_logic=True 
+        ), unsafe_allow_html=True)
+
+    with row1[3]:
+        st.markdown(kpi_card_html(
+            "最大回撤 (MDD)", 
+            format_percent(mdd_lrs), 
+            mdd_gap_lrs_vs_lev, 
+            invert_logic=True
+        ), unsafe_allow_html=True)
+    
+    st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
 
     # 建立 4 欄佈局
     row1 = st.columns(4)
@@ -628,19 +655,24 @@ if st.button("開始回測 🚀"):
     st.markdown("<div style='margin-bottom: 20px'></div>", unsafe_allow_html=True)
 
     ###############################################################
-    # 完整比較表格（直式美化版 + 自動適應深淺色模式）
+    # 完整比較表格 (極簡版：移除顏色，僅顯示冠軍 🏆)
     ###############################################################
 
-    # 1. 準備原始數據 (以策略名稱為 Index，方便轉置)
-    # 這裡將 MDD 和 波動率 轉為負值存入 raw_data 僅是為了 heatmap 計算邏輯一致(越大越綠)，顯示時會轉回正值
+    # 1. 定義要顯示的指標順序
+    metrics_order = [
+        "期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio",
+        "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"
+    ]
+
+    # 2. 準備原始數據
     data_dict = {
         f"<b>{lev_label}</b><br><span style='font-size:0.85em; opacity:0.7'>LRS 策略</span>": {
             "期末資產": capital_lrs_final,
             "總報酬率": final_ret_lrs,
             "CAGR (年化)": cagr_lrs,
             "Calmar Ratio": calmar_lrs,
-            "最大回撤 (MDD)": mdd_lrs, # 稍後處理顏色邏輯
-            "年化波動": vol_lrs,       # 稍後處理顏色邏輯
+            "最大回撤 (MDD)": mdd_lrs,
+            "年化波動": vol_lrs,
             "Sharpe Ratio": sharpe_lrs,
             "Sortino Ratio": sortino_lrs,
             "交易次數": trade_count_lrs,
@@ -654,7 +686,7 @@ if st.button("開始回測 🚀"):
             "年化波動": vol_lev,
             "Sharpe Ratio": sharpe_lev,
             "Sortino Ratio": sortino_lev,
-            "交易次數": -1, # 無意義
+            "交易次數": -1, 
         },
         f"<b>{base_label}</b><br><span style='font-size:0.85em; opacity:0.7'>Buy & Hold</span>": {
             "期末資產": capital_base_final,
@@ -665,151 +697,135 @@ if st.button("開始回測 🚀"):
             "年化波動": vol_base,
             "Sharpe Ratio": sharpe_base,
             "Sortino Ratio": sortino_base,
-            "交易次數": -1, # 無意義
+            "交易次數": -1,
         }
     }
 
-    # 轉置：Index 變成指標，Columns 變成策略
-    df_vertical = pd.DataFrame(data_dict)
+    # 3. 建立 DataFrame 並排序
+    df_vertical = pd.DataFrame(data_dict).reindex(metrics_order)
 
-    # 2. 定義格式化與顏色邏輯
-    # invert_color: True 代表數值越小越好 (MDD, 波動)
+    # 4. 定義格式化與「好壞方向」
+    # invert=True 代表數值「越小越好」
     metrics_config = {
         "期末資產":       {"fmt": fmt_money, "invert": False},
         "總報酬率":       {"fmt": fmt_pct,   "invert": False},
         "CAGR (年化)":    {"fmt": fmt_pct,   "invert": False},
         "Calmar Ratio":   {"fmt": fmt_num,   "invert": False},
-        "最大回撤 (MDD)": {"fmt": fmt_pct,   "invert": True},  # 越小越好
-        "年化波動":       {"fmt": fmt_pct,   "invert": True},  # 越小越好
+        "最大回撤 (MDD)": {"fmt": fmt_pct,   "invert": True},  # 越小越贏
+        "年化波動":       {"fmt": fmt_pct,   "invert": True},  # 越小越贏
         "Sharpe Ratio":   {"fmt": fmt_num,   "invert": False},
         "Sortino Ratio":  {"fmt": fmt_num,   "invert": False},
-        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >=0 else "—", "invert": True} # 次數少比較省手續費? 或不套色
+        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} # 假設次數少較好，或不比較
     }
 
-    # 3. 建立 HTML 表格字串
-    # 使用 CSS Variables (var(--...)) 確保深色/淺色模式都能正確顯示文字顏色
+    # 5. 生成 HTML (樣式極簡化)
     html_code = """
     <style>
         .comparison-table {
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            border-radius: 8px;
-            overflow: hidden;
+            border-radius: 12px;
+            /* 極簡邊框 */
             border: 1px solid var(--secondary-background-color);
             font-family: 'Noto Sans TC', sans-serif;
             margin-bottom: 1rem;
+            font-size: 0.95rem;
         }
         .comparison-table th {
+            /* 表頭使用次要背景色 */
             background-color: var(--secondary-background-color);
             color: var(--text-color);
-            padding: 12px;
+            padding: 14px;
             text-align: center;
-            font-weight: bold;
-            border-bottom: 2px solid var(--background-color);
-        }
-        /* 第一欄 (指標名稱) 靠左並加強顯示 */
-        .comparison-table td.metric-name {
-            background-color: var(--secondary-background-color);
-            color: var(--text-color);
             font-weight: 600;
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
+        }
+        .comparison-table td.metric-name {
+            background-color: transparent;
+            color: var(--text-color);
+            font-weight: 500;
             text-align: left;
-            padding: 10px 15px;
-            width: 20%;
-            border-bottom: 1px solid var(--background-color);
+            padding: 12px 16px;
+            width: 25%;
+            font-size: 0.9rem;
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
+            opacity: 0.9;
         }
         .comparison-table td.data-cell {
             text-align: center;
-            padding: 10px;
+            padding: 12px;
             color: var(--text-color);
-            border-bottom: 1px solid var(--secondary-background-color);
-            transition: background-color 0.3s;
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
         }
-        .comparison-table tr:last-child td {
-            border-bottom: none;
+        /* 移除 LRS 的明顯底色，改為極淡的背景區分，或完全透明 */
+        .comparison-table td.lrs-col {
+            background-color: rgba(128, 128, 128, 0.03); 
         }
-        /* Hover 效果 */
-        .comparison-table tr:hover td.data-cell {
-            filter: brightness(0.95);
+        /* 冠軍圖示樣式 */
+        .trophy-icon {
+            margin-left: 6px;
+            font-size: 1.1em;
+            text-shadow: 0 0 5px rgba(255, 215, 0, 0.4); /* 讓獎盃微微發光 */
+        }
+        .comparison-table tr:hover td {
+            background-color: rgba(128,128,128, 0.05); /* Hover 整行微亮 */
         }
     </style>
     <table class="comparison-table">
         <thead>
             <tr>
-                <th style="text-align:left; padding-left:15px;">📊 策略指標</th>
+                <th style="text-align:left; padding-left:16px; width:25%;">指標</th>
     """
     
-    # 寫入表頭 (策略名稱)
+    # 寫入表頭
     for col_name in df_vertical.columns:
         html_code += f"<th>{col_name}</th>"
     html_code += "</tr></thead><tbody>"
 
-    # 寫入內容 (逐列處理)
-    import matplotlib.colors as mcolors
-
-    # 定義顏色映射函數 (數值, 該列最小值, 該列最大值, 是否反轉)
-    def get_color(val, vmin, vmax, invert=False):
-        if np.isnan(val) or val == -1: return "transparent"
-        
-        # 防止除以零
-        if vmax == vmin: return "transparent"
-        
-        # 歸一化 0~1
-        norm = (val - vmin) / (vmax - vmin)
-        if invert:
-            norm = 1 - norm # 反轉：數值越小(MDD)，norm 越接近 1 (越綠)
-            
-        # 為了美觀且適應深淺色，我們使用帶透明度的顏色 (RGBA)
-        # 紅(壞) -> 黃 -> 綠(好)
-        # 0.0(Red) -> 0.5(Yellow) -> 1.0(Green)
-        # 我們只取 "背景色"，文字顏色保持 var(--text-color)
-        
-        # 使用自定義的柔和色調
-        # 壞 (Red): rgba(255, 80, 80, alpha)
-        # 好 (Green): rgba(33, 195, 84, alpha)
-        
-        alpha = 0.15 + (norm * 0.25) # 透明度範圍 0.15 ~ 0.4 (不要太深，確保文字可讀)
-        
-        if norm > 0.5:
-             # 偏綠 (好)
-             return f"rgba(33, 195, 84, {alpha:.2f})"
-        else:
-             # 偏紅 (壞) - norm 越小越紅
-             # 調整 alpha 讓紅色的強度隨差勁程度增加
-             red_alpha = 0.15 + ((1-norm) * 0.25)
-             return f"rgba(255, 80, 80, {red_alpha:.2f})"
-
+    # 寫入內容
     for metric in df_vertical.index:
-        row_data = df_vertical.loc[metric]
         config = metrics_config.get(metric, {"fmt": fmt_num, "invert": False})
         
-        # 計算該列的 min/max 用於 heatmap (排除無效值)
-        valid_values = [x for x in row_data if isinstance(x, (int, float)) and x != -1]
-        vmin = min(valid_values) if valid_values else 0
-        vmax = max(valid_values) if valid_values else 0
+        # 1. 找出該列的「最佳值」(Winner Value)
+        # 先取出所有有效數值
+        raw_row_values = df_vertical.loc[metric].values
+        valid_values = [x for x in raw_row_values if isinstance(x, (int, float)) and x != -1 and not pd.isna(x)]
         
+        target_val = None
+        if valid_values and metric != "交易次數": # 交易次數通常不比獎盃，看您需求
+            if config["invert"]:
+                target_val = min(valid_values) # 越小越好 (MDD, 波動)
+            else:
+                target_val = max(valid_values) # 越大越好 (報酬, Sharpe)
+
         html_code += f"<tr><td class='metric-name'>{metric}</td>"
         
-        for strategy in df_vertical.columns:
-            val = row_data[strategy]
+        # 2. 逐欄填入
+        for i, strategy in enumerate(df_vertical.columns):
+            val = df_vertical.at[metric, strategy]
             
-            # 取得顯示文字
             display_text = config["fmt"](val)
             
-            # 取得背景顏色
-            bg_color = "transparent"
-            if isinstance(val, (int, float)) and metric != "交易次數":
-                bg_color = get_color(val, vmin, vmax, config["invert"])
+            # 判斷是否為冠軍
+            is_winner = False
+            if target_val is not None and isinstance(val, (int, float)) and val == target_val:
+                is_winner = True
             
-            # 特別處理：如果是第一欄(LRS)，加粗顯示
-            font_weight = "bold" if strategy == df_vertical.columns[0] else "normal"
-            # LRS 欄位加個微邊框強調
-            border_style = "border-left: 2px solid var(--primary-color);" if strategy == df_vertical.columns[0] else ""
-
-            html_code += f"<td class='data-cell' style='background-color: {bg_color}; font-weight:{font_weight}; {border_style}'>{display_text}</td>"
+            # 如果是冠軍，加上獎盃
+            if is_winner:
+                display_text = f"{display_text} <span class='trophy-icon'>🏆</span>"
+                # 也可以選擇讓冠軍文字變色，例如：
+                # display_text = f"<span style='color:#e6a23c; font-weight:bold'>{display_text}</span> 🏆"
+            
+            # LRS 欄位樣式
+            is_lrs = (i == 0)
+            lrs_class = "lrs-col" if is_lrs else ""
+            font_weight = "bold" if is_lrs else "normal"
+            
+            html_code += f"<td class='data-cell {lrs_class}' style='font-weight:{font_weight};'>{display_text}</td>"
         
         html_code += "</tr>"
 
     html_code += "</tbody></table>"
-    
     st.write(html_code, unsafe_allow_html=True)
