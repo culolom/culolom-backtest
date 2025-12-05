@@ -256,22 +256,36 @@ st.divider()
 
 
 
+# ... (上面是 st.divider()) ...
+
 # ==========================================
-# 🎨 CSS 樣式注入：卡片懸停浮起效果
+# 🎨 CSS 樣式注入：卡片懸停浮起效果 (修正版)
 # ==========================================
 st.markdown("""
 <style>
 /* 針對 st.container(border=True) 的 CSS 選擇器 */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-    transition: all 0.3s ease-in-out; /* 平滑過渡動畫 */
-    border: 1px solid #e0e0e0; /* 預設邊框顏色 */
+/* 使用 [data-testid] 屬性選擇器通常比較準確 */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    transition: all 0.3s ease-in-out !important; /* 強制過渡動畫 */
+    border: 1px solid #e0e0e0; /* 預設邊框 */
 }
 
-/* 滑鼠移上去時的狀態 */
-div[data-testid="stVerticalBlockBorderWrapper"]:hover {
-    transform: translateY(-8px); /* 向上浮起 8px */
-    box-shadow: 0 10px 25px rgba(0,0,0,0.15); /* 增加陰影立體感 */
-    border-color: #ffbd45; /* (選用) hover 時邊框微微變色，配合倉鼠的主色 */
+/* 滑鼠移上去時的狀態 (Hover) */
+[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    transform: translateY(-8px) !important;       /* 強制向上浮起 8px */
+    box-shadow: 0 10px 25px rgba(0,0,0,0.15) !important; /* 增加立體陰影 */
+    border-color: #FFD700 !important;             /* 邊框變色：金色 (配合獎盃) */
+}
+
+/* 針對深色模式的微調 (如果使用者開深色模式) */
+@media (prefers-color-scheme: dark) {
+    [data-testid="stVerticalBlockBorderWrapper"] {
+        border: 1px solid #444;
+    }
+    [data-testid="stVerticalBlockBorderWrapper"]:hover {
+        border-color: #FFD700 !important;
+        box-shadow: 0 10px 25px rgba(255,255,255,0.1) !important;
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -288,7 +302,7 @@ strategies = [
         "tags": ["美股", "Nasdaq", "動態槓桿"],
         "page_path": "pages/1_QQQLRS.py",
         "btn_label": "進入 QQQ 回測",
-        "is_best": True,  # <--- 加入這個標記：True 代表是好策略，會顯示 🏆
+        "is_best": True,  # 🏆 這是比較好的策略
     },
     {
         "name": "0050 LRS 動態槓桿 (台股)",
@@ -297,7 +311,7 @@ strategies = [
         "tags": ["台股", "0050", "波段操作"],
         "page_path": "pages/2_0050LRS.py",
         "btn_label": "進入 0050 回測",
-        "is_best": False, # <--- False 代表一般策略
+        "is_best": False, # 一般策略
     },
 ]
 
@@ -309,24 +323,24 @@ for index, strategy in enumerate(strategies):
     col = cols[index % 2]
 
     with col:
-        # 使用 border=True 觸發上面的 CSS 效果
+        # border=True 會生成 data-testid="stVerticalBlockBorderWrapper" 的 div
+        # 上面的 CSS 就是針對這個目標作用
         with st.container(border=True):
             
-            # 1. 處理標題與獎盃
+            # --- 1. 處理標題與獎盃 ---
             title_text = f"{strategy['icon']} {strategy['name']}"
             if strategy.get("is_best"):
                 title_text += " 🏆"  # 如果是好策略，加上獎盃
             
             st.markdown(f"### {title_text}")
 
-            # 2. 處理標籤 (拿掉顏色，改用 | 分隔的灰色小字)
-            # 原本: st.markdown(" ".join([f"`{tag}`" for tag in strategy["tags"]]))
-            # 修改後:
+            # --- 2. 處理標籤 (拿掉顏色背景，改用文字) ---
+            # 使用 " | " 符號隔開，看起來比較乾淨
             tags_str = " | ".join(strategy["tags"])
             st.caption(f"🏷️ {tags_str}") 
 
             st.write(strategy["description"])
-            st.write("") # 增加一點留白
+            st.write("") # 增加一點視覺留白
             
             st.page_link(
                 strategy["page_path"],
@@ -335,7 +349,7 @@ for index, strategy in enumerate(strategies):
                 use_container_width=True,
             )
 
-# ... (後面的 功能 1：市場即時儀表板 維持不變) ...
+# ... (接續後面的 功能 1：市場即時儀表板) ...
 # ==========================================
 # 📊 功能 1：市場即時儀表板 (戰情室核心)
 # ==========================================
