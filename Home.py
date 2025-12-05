@@ -275,6 +275,112 @@ strategies = [
         "btn_label": "進入 0050 回測",
     },
 ]
+st.markdown("""
+<style>
+/* ====== 卡片外框容器 ====== */
+.strategy-container {
+    display: flex;
+    gap: 32px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+/* ====== 單一卡片 ====== */
+.strategy-card {
+    flex: 1;
+    min-width: 320px;
+    background-color: var(--secondary-background-color);
+    border-radius: 18px;
+    padding: 28px 32px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    border: 1px solid rgba(128,128,128,0.12);
+    transition: all .25s ease;
+    cursor: pointer;
+}
+
+/* ====== 滑鼠懸浮：浮起、陰影加深、放大 ====== */
+.strategy-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.12);
+    border-color: rgba(128,128,128,0.2);
+}
+
+/* ====== 卡片標題 ====== */
+.strategy-title {
+    font-size: 1.7rem;
+    font-weight: 800;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* ====== 文字描述區 ====== */
+.strategy-desc {
+    font-size: 1rem;
+    opacity: 0.85;
+    line-height: 1.6;
+    margin-bottom: 20px;
+}
+
+/* ====== Tag 標籤 ====== */
+.badge {
+    display: inline-block;
+    background: rgba(0,0,0,0.05);
+    padding: 4px 10px;
+    margin-right: 8px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+}
+
+/* ====== CTA 按鈕 ====== */
+.strategy-btn {
+    margin-top: 10px;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+</style>
+
+<div class="strategy-container">
+
+    <!-- QQQ 卡片 -->
+    <div class="strategy-card" onclick="window.location.href='QQQ_LRS.py'">
+        <div class="strategy-title">🦅 QQQ LRS 動態槓桿（美股）🏆</div>
+
+        <div>
+            <span class="badge">美股</span>
+            <span class="badge">Nasdaq</span>
+            <span class="badge">動態槓桿</span>
+        </div>
+
+        <p class="strategy-desc">
+            鎖定美股科技巨頭。以 QQQ 200 日均線為訊號，動態切換 QLD (2倍) 或 TQQQ (3倍)
+            槓桿 ETF，捕捉 Nasdaq 長期成長趨勢。
+        </p>
+
+        <div class="strategy-btn">👉 進入 QQQ 回測</div>
+    </div>
+
+    <!-- 0050 卡片 -->
+    <div class="strategy-card" onclick="window.location.href='0050_LRS.py'">
+        <div class="strategy-title">🇹🇼 TW 0050 LRS 動態槓桿（台股）</div>
+
+        <div>
+            <span class="badge">台股</span>
+            <span class="badge">0050</span>
+            <span class="badge">波段操作</span>
+        </div>
+
+        <p class="strategy-desc">
+            進階資金控管策略。以 0050/006208 為訊號，動態調整正2槓桿 ETF 的曝險比，
+            追求比大盤更高的報酬風險比。
+        </p>
+
+        <div class="strategy-btn">👉 進入 0050 回測</div>
+    </div>
+
+</div>
+""", unsafe_allow_html=True)
 
 st.subheader("🛠️ 選擇你的實驗策略")
 
