@@ -1,4 +1,4 @@
-from curl_cffi import requests # 關鍵：使用支援模擬指紋的 requests
+from curl_cffi import requests # 使用支援模擬指紋的 requests
 import pandas as pd
 import os
 import sys
@@ -18,7 +18,7 @@ PAGE_URL = "https://index.ndc.gov.tw/n/zh_tw/data/eco"
 # 資料 API
 API_URL = "https://index.ndc.gov.tw/n/json/data/economy/indicator"
 
-# 雖然 curl_cffi 會自動處理大部分，但我們還是帶上完整的 Headers
+# Headers 設定
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
     "Accept": "application/json, text/javascript, */*; q=0.01",
@@ -28,37 +28,36 @@ HEADERS = {
 }
 
 def fetch_score_data():
-    print("🚀 [Job: Score] 開始抓取國發會景氣對策信號 (使用 curl_cffi 偽裝)...")
+    print("🚀 [Job: Score] 開始抓取國發會景氣對策信號 (curl_cffi + GET)...")
 
     # 1. 確保資料夾存在
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        # 2. 初始化 Session (關鍵：impersonate="chrome")
-        # 這會讓 Python 的連線特徵完全變成 Chrome 瀏覽器的樣子
+        # 2. 初始化 Session (impersonate="chrome110")
         s = requests.Session(impersonate="chrome110") 
         s.headers.update(HEADERS)
 
         # [步驟 A] 造訪首頁取得 Cookie
-        print(f"   ...正在造訪頁面 (模擬 Chrome): {PAGE_URL}")
+        print(f"   ...正在造訪頁面: {PAGE_URL}")
         r1 = s.get(PAGE_URL, timeout=15)
-        if r1.status_code != 200:
-            print(f"   ⚠️ 首頁回應碼: {r1.status_code}")
-
+        
         # 休息一下
         time.sleep(random.uniform(1, 2))
 
-        # [步驟 B] 請求 API
+        # [步驟 B] 請求 API (改成 GET)
         print("   ...正在請求資料 API")
+        
+        # 參數：sys=10(景氣), cat=15(燈號), ind=74(分數)
         payload = {'sys': 10, 'cat': 15, 'ind': 74}
         
-        # 注意：curl_cffi 的 post 用法跟 requests 99% 一樣
-        res = s.post(API_URL, data=payload, timeout=15)
+        # 【關鍵修正】這裡改成 get，並且用 params 傳遞參數
+        res = s.get(API_URL, params=payload, timeout=15)
         
         # 檢查回應
         if res.status_code != 200:
             print(f"❌ API 回應錯誤: {res.status_code}")
-            print(f"   回應內容: {res.text[:200]}") # 印出一點內容看是不是被擋
+            print(f"   回應內容: {res.text[:200]}") 
             sys.exit(1)
             
         data = res.json()
