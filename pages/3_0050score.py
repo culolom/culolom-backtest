@@ -46,8 +46,9 @@ st.divider()
 # 資料讀取函式
 ###############################################################
 
+
 def load_csv(symbol: str) -> pd.DataFrame:
-    # 模糊比對檔名 (支援大小寫與 .TW)
+    # 1. 模糊比對檔名 (支援大小寫與 .TW)
     candidates = [f"{symbol}.csv", f"{symbol.upper()}.csv", f"{symbol.lower()}.csv"]
     path = None
     for c in candidates:
@@ -60,22 +61,54 @@ def load_csv(symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
     
     try:
-        df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
-        df = df.sort_index()
+        # 2. 先讀取，不強制 parse_dates (避免報錯)
+        df = pd.read_csv(path)
         
-        # 處理價格欄位 (優先使用還原權值 Adj Close)
-        if "Adj Close" in df.columns:
-            df["Price"] = df["Adj Close"]
-        elif "Close" in df.columns:
-            df["Price"] = df["Close"]
-        elif "Score" in df.columns: # 針對分數檔
-            df["Price"] = df["Score"]
-        else:
+        # 3. 智慧修正：處理「日期」欄位
+        # 如果沒有叫做 'Date' 的欄位，我們就假設「第一欄」是日期
+        if "Date" not in df.columns:
+            # 把第一欄強制改名為 'Date'
+            df = df.rename(columns={df.columns[0]: "Date"})
+            
+        # 4. 智慧修正：處理「分數/價格」欄位
+        # 尋找看起來像價格的欄位
+        target_col = None
+        
+        # 優先順序：Adj Close > Close > Score > Price
+        priority_cols = ["Adj Close", "Close", "Score", "Price"]
+        for pc in priority_cols:
+            if pc in df.columns:
+                target_col = pc
+                break
+        
+        # 如果都沒找到，開始找中文關鍵字 (針對景氣分數檔)
+        if target_col is None:
+            for c in df.columns:
+                if "分數" in str(c) or "信號" in str(c) or "score" in str(c).lower():
+                    target_col = c
+                    break
+        
+        # 如果還是沒找到，就假設是「最後一欄」 (通常 CSV 最後一欄是數值)
+        if target_col is None and len(df.columns) > 1:
+            target_col = df.columns[-1]
+            
+        if target_col is None:
             return pd.DataFrame()
+
+        # 5. 資料清洗與索引設定
+        df["Date"] = pd.to_datetime(df["Date"], errors='coerce') # 強制轉日期，錯誤變 NaT
+        df = df.dropna(subset=["Date"]) # 刪除日期無效的行 (例如多餘的標題列)
+        df = df.set_index("Date").sort_index()
+        
+        # 統一將數據欄位改名為 "Price" 方便後續計算
+        # 強制轉為數字 (處理 '原始數值' 這種文字干擾)
+        df["Price"] = pd.to_numeric(df[target_col], errors='coerce')
+        df = df.dropna(subset=["Price"]) # 刪除非數字的資料
             
         return df[["Price"]]
+        
     except Exception as e:
-        st.error(f"讀取 {symbol} 失敗: {e}")
+        print(f"❌ 讀取 {symbol} 失敗: {e}")
         return pd.DataFrame()
 
 ###############################################################
