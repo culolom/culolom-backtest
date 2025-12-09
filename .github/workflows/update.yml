@@ -3,7 +3,7 @@ name: Update CSV Data
 on:
   schedule:
     - cron: "0 22 * * *"   # 台灣時間早上 6 點（UTC+8）
-  workflow_dispatch:       # 可以手動按「Run workflow」
+  workflow_dispatch:
 
 jobs:
   update:
@@ -19,15 +19,21 @@ jobs:
           python-version: "3.10"
 
       - name: Install dependencies
-        run: pip install yfinance pandas
-
-      - name: Run update script
-        run: python scripts/update_csv.py
-
-      - name: Commit and Push changes
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
+          pip install pandas requests yfinance numpy
+
+      - name: Run update_csv.py
+        run: |
+          python scripts/update_csv.py
+
+      - name: Run update_ndc_bci.py
+        run: |
+          python scripts/update_ndc_bci.py
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
           git add data/*.csv
-          git commit -m "Auto update CSV data $(date '+%Y-%m-%d')" || echo "No changes"
+          git commit -m "Auto-update CSV (prices + NDC BCI)" || echo "No changes to commit"
           git push
