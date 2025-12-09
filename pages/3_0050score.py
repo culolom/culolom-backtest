@@ -1,5 +1,5 @@
 ###############################################################
-# pages/4_Macro_Strategy.py — 國發會景氣燈號策略
+# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (UI 優化版)
 # 核心邏輯：藍燈(低分)買進，紅燈(高分)賣出
 ###############################################################
 
@@ -24,13 +24,21 @@ except ImportError:
     pass 
 
 ###############################################################
-# 設定
+# 字型與頁面設定
 ###############################################################
+
+font_path = "./NotoSansTC-Bold.ttf"
+if os.path.exists(font_path):
+    import matplotlib.font_manager as fm
+    import matplotlib
+    fm.fontManager.addfont(font_path)
+    matplotlib.rcParams["font.family"] = "Noto Sans TC"
+
 st.set_page_config(page_title="景氣燈號策略", page_icon="🚦", layout="wide")
 
-DATA_DIR = Path("data")
-
-# Sidebar
+# ==========================================
+# 🛑 務必保留的 Sidebar 區域
+# ==========================================
 with st.sidebar:
     st.page_link("Home.py", label="回到戰情室", icon="🏠")
     st.divider()
@@ -38,17 +46,25 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.1em;'>🚦 國發會景氣燈號策略 (Macro Strategy)</h1>", unsafe_allow_html=True)
-st.caption("股市名言：「藍燈買股票，紅燈數鈔票」。利用總體經濟指標進行逆勢操作。")
-st.divider()
+# ==========================================
+# 主頁面標題
+# ==========================================
+st.markdown("<h1 style='margin-bottom:0.5em;'>🚦 國發會景氣燈號策略 (Macro Strategy)</h1>", unsafe_allow_html=True)
+st.markdown("""
+<b>股市名言：「藍燈買股票，紅燈數鈔票」。利用總體經濟指標進行長線逆勢操作。</b><br>
+1️⃣ <b>藍燈區 (買進)</b>：景氣低迷，分數低於門檻 (通常 16分)，分批佈局。<br>
+2️⃣ <b>紅燈區 (賣出)</b>：景氣過熱，分數高於門檻 (通常 32-38分)，獲利了結。<br>
+<small>策略特色：交易頻率極低，適合抓取大波段週期。</small>
+""", unsafe_allow_html=True)
 
 ###############################################################
-# 資料讀取函式
+# 資料處理函式 (超強容錯版)
 ###############################################################
 
+DATA_DIR = Path("data")
 
-def load_csv(symbol: str) -> pd.DataFrame:
-    # 1. 模糊比對檔名 (支援大小寫與 .TW)
+def load_csv_smart(symbol: str) -> pd.DataFrame:
+    # 1. 模糊比對檔名
     candidates = [f"{symbol}.csv", f"{symbol.upper()}.csv", f"{symbol.lower()}.csv"]
     path = None
     for c in candidates:
@@ -61,276 +77,293 @@ def load_csv(symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
     
     try:
-        # 2. 先讀取，不強制 parse_dates (避免報錯)
+        # 2. 先讀取
         df = pd.read_csv(path)
         
-        # 3. 智慧修正：處理「日期」欄位
-        # 如果沒有叫做 'Date' 的欄位，我們就假設「第一欄」是日期
+        # 3. 處理日期：假設第一欄是日期
         if "Date" not in df.columns:
-            # 把第一欄強制改名為 'Date'
             df = df.rename(columns={df.columns[0]: "Date"})
             
-        # 4. 智慧修正：處理「分數/價格」欄位
-        # 尋找看起來像價格的欄位
-        target_col = None
+        df["Date"] = pd.to_datetime(df["Date"], errors='coerce')
+        df = df.dropna(subset=["Date"])
+        df = df.set_index("Date").sort_index()
         
-        # 優先順序：Adj Close > Close > Score > Price
-        priority_cols = ["Adj Close", "Close", "Score", "Price"]
-        for pc in priority_cols:
-            if pc in df.columns:
-                target_col = pc
+        # 4. 處理數值 (Price / Score)
+        target_col = None
+        priority = ["Adj Close", "Close", "Score", "Price"]
+        for p in priority:
+            if p in df.columns:
+                target_col = p
                 break
         
-        # 如果都沒找到，開始找中文關鍵字 (針對景氣分數檔)
+        # 關鍵字搜尋 (針對中文)
         if target_col is None:
             for c in df.columns:
-                if "分數" in str(c) or "信號" in str(c) or "score" in str(c).lower():
+                c_str = str(c).lower()
+                if "分" in c_str or "score" in c_str or "價" in c_str:
                     target_col = c
                     break
         
-        # 如果還是沒找到，就假設是「最後一欄」 (通常 CSV 最後一欄是數值)
-        if target_col is None and len(df.columns) > 1:
+        if target_col is None and len(df.columns) > 0:
             target_col = df.columns[-1]
             
-        if target_col is None:
-            return pd.DataFrame()
-
-        # 5. 資料清洗與索引設定
-        df["Date"] = pd.to_datetime(df["Date"], errors='coerce') # 強制轉日期，錯誤變 NaT
-        df = df.dropna(subset=["Date"]) # 刪除日期無效的行 (例如多餘的標題列)
-        df = df.set_index("Date").sort_index()
-        
-        # 統一將數據欄位改名為 "Price" 方便後續計算
-        # 強制轉為數字 (處理 '原始數值' 這種文字干擾)
+        # 統一改名並轉數字
         df["Price"] = pd.to_numeric(df[target_col], errors='coerce')
-        df = df.dropna(subset=["Price"]) # 刪除非數字的資料
-            
+        df = df.dropna(subset=["Price"])
+        
         return df[["Price"]]
         
     except Exception as e:
-        print(f"❌ 讀取 {symbol} 失敗: {e}")
         return pd.DataFrame()
 
 ###############################################################
-# UI 參數設定
+# UI 輸入區 (仿照塔木德風格)
 ###############################################################
 
+st.divider()
+
+# 第一排：標的選擇 (2欄)
 col1, col2 = st.columns(2)
 with col1:
-    ticker = st.text_input("交易標的 (預設 0050)", value="0050.TW")
+    ticker = st.text_input("📈 交易標的 (ETF/股票)", value="0050.TW")
 with col2:
-    score_file = st.text_input("景氣分數 CSV 檔名 (不含 .csv)", value="SCORE")
+    score_file = st.text_input("🚦 景氣分數檔名 (CSV)", value="SCORE")
 
-with st.expander("⚙️ 策略參數與燈號定義", expanded=True):
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        buy_threshold = st.number_input("🔵 買進門檻 (分數 <= ?)", 9, 45, 16, help="藍燈區間通常為 9-16 分。低於此分數分批買進。")
-    with c2:
-        sell_threshold = st.number_input("🔴 賣出門檻 (分數 >= ?)", 9, 45, 32, help="黃紅燈(32-37)或紅燈(38-45)。高於此分數開始減碼或出清。")
-    with c3:
-        # 關鍵參數：訊號延遲
-        lag_months = st.number_input("⏳ 訊號延遲 (月)", 0, 3, 1, help="避免「看圖說故事」。1月的景氣分數通常在2月底才公佈，因此回測時必須延遲 1 個月才能買賣，否則就是作弊。")
+# --- 預讀資料以計算有效日期 ---
+df_check_p = load_csv_smart(ticker)
+df_check_s = load_csv_smart(score_file)
 
-    col_d1, col_d2, col_d3 = st.columns(3)
-    with col_d1:
-        start_date = st.date_input("開始日期", value=dt.date(2003, 1, 1)) # 0050 成立於 2003
-    with col_d2:
-        end_date = st.date_input("結束日期", value=dt.date.today())
-    with col_d3:
-        initial_capital = st.number_input("初始本金", value=1_000_000, step=100_000)
+if df_check_p.empty or df_check_s.empty:
+    st.warning("⚠️ 等待資料讀取... 請確認 data 資料夾。")
+    valid_start = dt.date(2003, 1, 1)
+    valid_end = dt.date.today()
+else:
+    # 取交集
+    v_start = max(df_check_p.index.min().date(), df_check_s.index.min().date())
+    v_end = min(df_check_p.index.max().date(), df_check_s.index.max().date())
+    valid_start, valid_end = v_start, v_end
+    st.info(f"📌 {ticker} + {score_file} 的共同資料區間：{valid_start} ~ {valid_end}")
+
+# 第二排：日期與本金 (3欄)
+col_d1, col_d2, col_d3 = st.columns(3)
+with col_d1:
+    start_date = st.date_input("開始日期", value=valid_start, min_value=valid_start, max_value=valid_end)
+with col_d2:
+    end_date = st.date_input("結束日期", value=valid_end, min_value=valid_start, max_value=valid_end)
+with col_d3:
+    initial_capital = st.number_input("初始本金 (元)", value=1_000_000, step=100_000)
+
+# 第三排：策略核心參數 (3欄)
+col_p1, col_p2, col_p3 = st.columns(3)
+with col_p1:
+    buy_threshold = st.number_input("🔵 買進門檻 (分數 <= ?)", 9, 45, 16, help="低於此分數視為藍燈，開始買進")
+with col_p2:
+    sell_threshold = st.number_input("🔴 賣出門檻 (分數 >= ?)", 9, 45, 32, help="高於此分數視為紅燈/黃紅燈，開始賣出")
+with col_p3:
+    lag_months = st.number_input("⏳ 訊號延遲 (月)", 0, 3, 1, help="模擬真實公佈時間差，避免看圖說故事。建議設為 1。")
 
 ###############################################################
-# 回測核心邏輯
+# 回測執行
 ###############################################################
 
-if st.button("開始回測 🚀", type="primary", use_container_width=True):
+if st.button("開始回測 🚀", type="primary"):
     with st.spinner("正在整合數據與計算訊號..."):
-        # 1. 讀取資料
-        df_price = load_csv(ticker)
-        df_score = load_csv(score_file)
-
-        if df_price.empty:
-            st.error(f"❌ 找不到 {ticker}.csv，請確認 data 資料夾。")
-            st.stop()
-        if df_score.empty:
-            st.error(f"❌ 找不到 {score_file}.csv，請確認 data 資料夾。")
-            st.stop()
-
-        # 2. 時間對齊
-        # 截取使用者選擇的時間段
-        df_price = df_price.loc[str(start_date):str(end_date)]
         
+        # 1. 使用預讀的資料並切割時間
+        df_price = df_check_p.loc[str(start_date):str(end_date)]
+        df_score = df_check_s # 分數保留完整以供 Shift 使用
+
         if df_price.empty:
-            st.error("選定區間無股價資料。")
+            st.error("❌ 選定區間無股價資料")
             st.stop()
 
-        # 3. 合併資料 (Resample: Month to Day)
-        # 建立一個主表，以股價的日資料為準
+        # 2. 合併資料 (Resample)
         df = df_price.rename(columns={"Price": "Close"}).copy()
         
-        # 處理分數資料：
-        # 景氣分數是「月資料」，通常標示為該月1號 (例如 2024-01-01)
-        # 我們使用 reindex + ffill (前值填充) 將其擴展到每一天
-        # 例如：1/1 是 20分，那 1/2 ~ 1/31 每天都視為 20分
+        # 擴展分數到日頻率
         df_score_daily = df_score.reindex(df.index, method='ffill')
-        
-        # 將分數併入主表
         df["Score_Raw"] = df_score_daily["Price"]
         
-        # 4. 處理「公告延遲 (Lag)」
-        # 重要：如果是 Lag=1，代表 2/1 才能看到 1/1 的分數
-        # 我們簡單用「交易日」來推算，一個月約 20~22 交易日
+        # 3. 處理延遲
         shift_days = int(lag_months * 22)
         df["Score_Signal"] = df["Score_Raw"].shift(shift_days)
-        
-        # 去除因為 Shift 產生的空值
         df = df.dropna()
 
-        # 5. 產生買賣訊號
-        # 1 = 持有, 0 = 空手
-        position = 0
+        if df.empty:
+            st.error("❌ 資料經過延遲處理後為空，請選擇更長的區間。")
+            st.stop()
+
+        # 4. 產生訊號
+        # 1=持有, 0=空手
+        pos = 0
         pos_list = []
-        
         for i in range(len(df)):
-            score = df["Score_Signal"].iloc[i]
-            
-            # 進場邏輯：分數掉入藍燈區 (<= 16)
-            if score <= buy_threshold:
-                position = 1
-            # 出場邏輯：分數衝上紅燈區 (>= 32)
-            elif score >= sell_threshold:
-                position = 0
-            # 中間區間 (黃綠燈)：維持原狀 (Hold)
-            
-            pos_list.append(position)
+            s = df["Score_Signal"].iloc[i]
+            if s <= buy_threshold:
+                pos = 1
+            elif s >= sell_threshold:
+                pos = 0
+            pos_list.append(pos)
             
         df["Position"] = pos_list
         
-        # 6. 計算績效
+        # 5. 計算績效
         df["Ret"] = df["Close"].pct_change().fillna(0)
-        # 策略報酬 = 昨天的持倉狀態 * 今天的漲跌幅
         df["Strategy_Ret"] = df["Position"].shift(1) * df["Ret"]
         
-        # 資金曲線
         df["Equity_Strategy"] = initial_capital * (1 + df["Strategy_Ret"]).cumprod()
-        df["Equity_Benchmark"] = initial_capital * (1 + df["Ret"]).cumprod() # 買入持有
+        df["Equity_Benchmark"] = initial_capital * (1 + df["Ret"]).cumprod()
 
-        # ----------------------------------------------
-        # 視覺化展示
-        # ----------------------------------------------
-        
-        # 計算 KPI
-        def calc_kpi(series):
-            total_ret = (series.iloc[-1] / initial_capital) - 1
-            days = (series.index[-1] - series.index[0]).days
-            cagr = (1 + total_ret) ** (365 / days) - 1 if days > 0 else 0
-            mdd = (series / series.cummax() - 1).min()
-            return total_ret, cagr, mdd
+        # ---------------- KPI 計算 ----------------
+        def calc_metrics(equity_series):
+            total_ret = (equity_series.iloc[-1] / equity_series.iloc[0]) - 1
+            years = (equity_series.index[-1] - equity_series.index[0]).days / 365.25
+            cagr = (1 + total_ret) ** (1/years) - 1 if years > 0 else 0
+            mdd = (equity_series / equity_series.cummax() - 1).min()
+            
+            daily_ret = equity_series.pct_change().fillna(0)
+            vol = daily_ret.std() * np.sqrt(252)
+            sharpe = (cagr - 0.04) / vol if vol > 0 else 0
+            return total_ret, cagr, mdd, vol, sharpe
 
-        ret_str, cagr_str, mdd_str = calc_kpi(df["Equity_Strategy"])
-        ret_bch, cagr_bch, mdd_bch = calc_kpi(df["Equity_Benchmark"])
+        res_strat = calc_metrics(df["Equity_Strategy"])
+        res_bench = calc_metrics(df["Equity_Benchmark"])
 
-        # KPI 卡片
-        kpi_cols = st.columns(4)
-        with kpi_cols[0]: st.metric("期末總資產", f"${df['Equity_Strategy'].iloc[-1]:,.0f}", f"vs 買進持有: ${df['Equity_Benchmark'].iloc[-1]:,.0f}")
-        with kpi_cols[1]: st.metric("總報酬率", f"{ret_str:.1%}", f"差額: {(ret_str-ret_bch):.1%}")
-        with kpi_cols[2]: st.metric("年化報酬 (CAGR)", f"{cagr_str:.1%}", f"基準: {cagr_bch:.1%}")
-        with kpi_cols[3]: st.metric("最大回撤 (MDD)", f"{mdd_str:.1%}", f"基準: {mdd_bch:.1%}", delta_color="inverse")
+        # ==========================================================
+        # 顯示結果
+        # ==========================================================
+
+        # CSS 樣式 (塔木德風格)
+        st.markdown("""
+        <style>
+            .kpi-card {
+                background-color: var(--secondary-background-color);
+                border-radius: 12px; padding: 15px; text-align: center;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1);
+            }
+            .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--text-color); }
+            .kpi-lbl { font-size: 0.9rem; opacity: 0.7; }
+            .kpi-sub { font-size: 0.8rem; color: #666; margin-top: 5px; }
+            .pos { color: #21c354; font-weight: bold; }
+            .neg { color: #ff3c3c; font-weight: bold; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        def kpi_html(label, val, bench_val, is_pct=False):
+            val_str = f"{val:.2%}" if is_pct else f"${val:,.0f}"
+            bench_str = f"{bench_val:.2%}" if is_pct else f"${bench_val:,.0f}"
+            return f"""
+            <div class="kpi-card">
+                <div class="kpi-lbl">{label}</div>
+                <div class="kpi-val">{val_str}</div>
+                <div class="kpi-sub">基準: {bench_str}</div>
+            </div>
+            """
+
+        # 1. KPI 卡片
+        row_kpi = st.columns(4)
+        with row_kpi[0]: st.markdown(kpi_html("期末總資產", res_strat[0]*initial_capital + initial_capital, res_bench[0]*initial_capital + initial_capital), unsafe_allow_html=True)
+        with row_kpi[1]: st.markdown(kpi_html("年化報酬 (CAGR)", res_strat[1], res_bench[1], True), unsafe_allow_html=True)
+        with row_kpi[2]: st.markdown(kpi_html("最大回撤 (MDD)", res_strat[2], res_bench[2], True), unsafe_allow_html=True)
+        with row_kpi[3]: st.markdown(kpi_html("波動率 (Risk)", res_strat[3], res_bench[3], True), unsafe_allow_html=True)
 
         st.markdown("---")
 
-        # 圖表 1: 資金曲線
-        tab1, tab2 = st.tabs(["💰 資金成長曲線", "🚦 買賣點與燈號"])
-        
+        # 2. 圖表區域
+        tab1, tab2 = st.tabs(["💰 資金與燈號", "📊 交易點位詳情"])
+
         with tab1:
+            # 主圖：資金
             fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], name="景氣燈號策略", line=dict(color="#00C853", width=2)))
-            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Benchmark"], name="買進持有 (0050)", line=dict(color="gray", width=1, dash='dot')))
-            fig_eq.update_layout(height=450, template="plotly_white", hovermode="x unified", title="策略 vs 大盤 績效比較")
+            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], name="燈號策略", line=dict(color="#00C853", width=2)))
+            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Benchmark"], name=f"買進持有 ({ticker})", line=dict(color="#B0BEC5", width=2, dash='dash')))
+            
+            fig_eq.update_layout(template="plotly_white", height=450, hovermode="x unified", title="策略績效比較", legend=dict(orientation="h", y=1.02))
             st.plotly_chart(fig_eq, use_container_width=True)
 
+            # 副圖：燈號
+            fig_s = go.Figure()
+            fig_s.add_trace(go.Scatter(x=df.index, y=df["Score_Signal"], name="景氣分數", line=dict(color="#FFA000")))
+            
+            # 色帶
+            fig_s.add_hrect(y0=0, y1=buy_threshold, fillcolor="blue", opacity=0.15, layer="below", annotation_text="藍燈區 (買)")
+            fig_s.add_hrect(y0=sell_threshold, y1=55, fillcolor="red", opacity=0.15, layer="below", annotation_text="紅燈區 (賣)")
+            
+            fig_s.update_layout(template="plotly_white", height=250, title="景氣對策信號走勢", yaxis=dict(range=[9, 48]), showlegend=False)
+            st.plotly_chart(fig_s, use_container_width=True)
+
         with tab2:
-            # 準備買賣點資料
-            # 買點：今天 Position=1 且 昨天=0
+            # 準備買賣點
             buys = df[(df["Position"] == 1) & (df["Position"].shift(1) == 0)]
-            # 賣點：今天 Position=0 且 昨天=1
             sells = df[(df["Position"] == 0) & (df["Position"].shift(1) == 1)]
-
-            fig_sig = go.Figure()
-
-            # 股價線
-            fig_sig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="股價", line=dict(color="#333", width=1.5)))
-
-            # 標記買賣點
-            fig_sig.add_trace(go.Scatter(
-                x=buys.index, y=buys["Close"], mode="markers", name="買進 (藍燈)",
-                marker=dict(symbol="triangle-up", size=12, color="blue", line=dict(width=1, color="white"))
-            ))
-            fig_sig.add_trace(go.Scatter(
-                x=sells.index, y=sells["Close"], mode="markers", name="賣出 (紅燈)",
-                marker=dict(symbol="triangle-down", size=12, color="red", line=dict(width=1, color="white"))
-            ))
-
-            # 加上景氣分數背景 (使用 Heatmap 或區間)
-            # 這裡我們用「副圖」來畫分數，比較清晰
             
-            fig_sig.update_layout(height=400, template="plotly_white", hovermode="x unified", title="進出場點位回顧")
-            st.plotly_chart(fig_sig, use_container_width=True)
+            fig_pt = go.Figure()
+            fig_pt.add_trace(go.Scatter(x=df.index, y=df["Close"], name="股價", line=dict(color="#333", width=1)))
+            fig_pt.add_trace(go.Scatter(x=buys.index, y=buys["Close"], mode="markers", name="買進訊號", marker=dict(symbol="triangle-up", color="blue", size=10)))
+            fig_pt.add_trace(go.Scatter(x=sells.index, y=sells["Close"], mode="markers", name="賣出訊號", marker=dict(symbol="triangle-down", color="red", size=10)))
             
-            # 副圖：景氣分數
-            fig_score = go.Figure()
-            fig_score.add_trace(go.Scatter(x=df.index, y=df["Score_Signal"], name="景氣分數 (已延遲)", line=dict(color="orange")))
-            
-            # 畫出燈號區間 (背景色帶)
-            # 藍燈 (<=16)
-            fig_score.add_hrect(y0=9, y1=16, fillcolor="blue", opacity=0.1, layer="below", annotation_text="藍燈 (買)")
-            # 紅燈 (>=38, 這裡畫到32當作警戒)
-            fig_score.add_hrect(y0=32, y1=37, fillcolor="orange", opacity=0.1, layer="below", annotation_text="黃紅")
-            fig_score.add_hrect(y0=38, y1=55, fillcolor="red", opacity=0.1, layer="below", annotation_text="紅燈 (賣)")
-            
-            # 門檻線
-            fig_score.add_hline(y=buy_threshold, line_dash="dash", line_color="blue")
-            fig_score.add_hline(y=sell_threshold, line_dash="dash", line_color="red")
-            
-            fig_score.update_layout(height=250, template="plotly_white", title="景氣對策信號走勢", yaxis=dict(range=[9, 45]))
-            st.plotly_chart(fig_score, use_container_width=True)
+            fig_pt.update_layout(template="plotly_white", height=450, hovermode="x unified", title="進出點位標記")
+            st.plotly_chart(fig_pt, use_container_width=True)
 
-        # 詳細數據表
+        # 3. 交易列表 (Pandas Styler)
         st.markdown("### 📋 歷年交易紀錄")
-        trades = pd.concat([
-            buys["Close"].rename("買入價格"),
-            sells["Close"].rename("賣出價格")
-        ], axis=1).sort_index()
         
-        # 整理成表格
-        trade_list = []
-        # 簡單配對邏輯 (僅供參考)
+        # 產生交易清單
+        trades = []
         temp_buy = None
-        for date, row in trades.iterrows():
-            if not pd.isna(row["買入價格"]):
-                temp_buy = (date, row["買入價格"])
-            elif not pd.isna(row["賣出價格"]) and temp_buy:
-                buy_date, buy_price = temp_buy
-                sell_price = row["賣出價格"]
-                ret = (sell_price - buy_price) / buy_price
-                trade_list.append({
-                    "買入日期": buy_date.strftime("%Y-%m-%d"),
-                    "買入價格": buy_price,
+        
+        # 找出所有訊號點
+        signals = df[df["Position"] != df["Position"].shift(1)].dropna()
+        
+        for date, row in signals.iterrows():
+            if row["Position"] == 1: # 買進
+                temp_buy = (date, row["Close"])
+            elif row["Position"] == 0 and temp_buy: # 賣出
+                b_date, b_price = temp_buy
+                s_price = row["Close"]
+                ret = (s_price - b_price) / b_price
+                trades.append({
+                    "買入日期": b_date.strftime("%Y-%m-%d"),
+                    "買入價格": b_price,
                     "賣出日期": date.strftime("%Y-%m-%d"),
-                    "賣出價格": sell_price,
-                    "報酬率": ret
+                    "賣出價格": s_price,
+                    "報酬率": ret,
+                    "持有天數": (date - b_date).days
                 })
                 temp_buy = None
-        
-        if trade_list:
-            df_trades = pd.DataFrame(trade_list)
+                
+        if trades:
+            df_trades = pd.DataFrame(trades)
             st.dataframe(
-                df_trades.style.format({
+                df_trades.style
+                .format({
                     "買入價格": "{:.2f}", 
                     "賣出價格": "{:.2f}", 
                     "報酬率": "{:.2%}"
-                }).background_gradient(cmap="RdYlGn", subset=["報酬率"]),
+                })
+                .background_gradient(cmap="RdYlGn", subset=["報酬率"]),
                 use_container_width=True
             )
         else:
-            st.info("區間內無完整買賣交易紀錄 (可能一直持有或空手)")
+            st.info("區間內無完整一進一出之交易紀錄")
+
+        # 4. 總結比較表
+        st.markdown("### 📊 詳細數據總結")
+        comp_data = {
+            "策略": ["景氣燈號策略", f"基準 ({ticker})"],
+            "總報酬率": [res_strat[0], res_bench[0]],
+            "CAGR (年化)": [res_strat[1], res_bench[1]],
+            "最大回撤 (MDD)": [res_strat[2], res_bench[2]],
+            "年化波動率": [res_strat[3], res_bench[3]],
+            "Sharpe Ratio": [res_strat[4], res_bench[4]]
+        }
+        df_comp = pd.DataFrame(comp_data).set_index("策略")
+        
+        st.dataframe(
+            df_comp.style
+            .format("{:.2%}", subset=["總報酬率", "CAGR (年化)", "最大回撤 (MDD)", "年化波動率"])
+            .format("{:.2f}", subset=["Sharpe Ratio"])
+            .background_gradient(cmap="RdYlGn", subset=["總報酬率", "CAGR (年化)", "Sharpe Ratio"])
+            .background_gradient(cmap="RdYlGn_r", subset=["最大回撤 (MDD)", "年化波動率"]),
+            use_container_width=True
+        )
