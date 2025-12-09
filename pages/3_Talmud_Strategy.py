@@ -69,7 +69,7 @@ ASSETS_STOCKS = {
 ASSETS_CASH = {
     "TBIL (3個月國債)": "TBIL", # 剛加入的
     "BIL (1-3月國債)": "BIL", 
-
+    "TLT (20年期國債)": "BIL", 
 
 }
 
