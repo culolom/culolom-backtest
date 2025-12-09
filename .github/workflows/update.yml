@@ -20,7 +20,7 @@ jobs:
 
       # 【修改點 1】這裡補上 requests
       - name: Install dependencies
-        run: pip install yfinance pandas requests curl_cffi
+        run: pip install yfinance pandas requests 
 
       # 【修改點 2】新增這一步，執行抓取景氣分數的腳本
       - name: Run Score Update script
