@@ -55,7 +55,7 @@ DATA_DIR = Path("data")
 # 如果你有抓其他 CSV，可以在這裡加入
 ASSETS_REAL_ESTATE = {
     "VNQ (房地產信託ETF)": "VNQ", 
-    "IYR (美國地產ETF)": "IYR"
+
 }
 
 ASSETS_STOCKS = {
@@ -63,14 +63,14 @@ ASSETS_STOCKS = {
     "SPY (標普500)": "SPY", 
     "VTI (全美股市)": "VTI", 
     "VT (全球股市)": "VT",
-    "QLD (兩倍做多QQQ)": "QLD" # 塔木德也能玩槓桿，只要心臟夠大
+
 }
 
 ASSETS_CASH = {
     "TBIL (3個月國債)": "TBIL", # 剛加入的
     "BIL (1-3月國債)": "BIL", 
-    "SHV (短期國債)": "SHV", 
-    "VGSH (短期公債)": "VGSH"
+
+
 }
 
 # 2. 讀取 CSV (相容模式)
