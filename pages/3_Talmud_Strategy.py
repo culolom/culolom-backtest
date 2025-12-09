@@ -14,17 +14,7 @@ import plotly.graph_objects as go
 from pathlib import Path
 import sys
 
-# ------------------------------------------------------
-# 🔒 驗證守門員
-# ------------------------------------------------------
-# 確保能找到 auth.py (往上一層目錄找)
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-try:
-    import auth
-    if not auth.check_password():
-        st.stop()
-except ImportError:
-    pass 
+
 
 ###############################################################
 # 字型與頁面設定
