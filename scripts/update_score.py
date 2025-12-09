@@ -1,11 +1,10 @@
-from curl_cffi import requests # 使用支援模擬指紋的 requests
+import requests
 import pandas as pd
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-import time
-import random
+import io
 
 # -----------------------------------------------------
 # 設定
@@ -13,93 +12,93 @@ import random
 DATA_DIR = Path("data")
 CSV_PATH = DATA_DIR / "SCORE.csv"
 
-# 國發會首頁
-PAGE_URL = "https://index.ndc.gov.tw/n/zh_tw/data/eco"
-# 資料 API
-API_URL = "https://index.ndc.gov.tw/n/json/data/economy/indicator"
-
-# Headers 設定
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": "https://index.ndc.gov.tw/n/zh_tw/data/eco",
-    "X-Requested-With": "XMLHttpRequest",
-    "Origin": "https://index.ndc.gov.tw"
-}
+# 政府資料開放平臺 API (景氣指標及燈號-景氣對策信號)
+# Dataset ID: 14603 (這是國發會「景氣指標及燈號-景氣對策信號」的固定 ID)
+OPEN_DATA_API = "https://data.gov.tw/api/v2/rest/dataset/14603"
 
 def fetch_score_data():
-    print("🚀 [Job: Score] 開始抓取國發會景氣對策信號 (curl_cffi + GET)...")
+    print("🚀 [Job: Score] 開始抓取國發會景氣對策信號 (Open Data)...")
 
     # 1. 確保資料夾存在
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        # 2. 初始化 Session (impersonate="chrome110")
-        s = requests.Session(impersonate="chrome110") 
-        s.headers.update(HEADERS)
-
-        # [步驟 A] 造訪首頁取得 Cookie
-        print(f"   ...正在造訪頁面: {PAGE_URL}")
-        r1 = s.get(PAGE_URL, timeout=15)
+        # [步驟 A] 詢問 Open Data API 取得 CSV 下載連結
+        print(f"   ...正在查詢資料集資訊: {OPEN_DATA_API}")
+        res = requests.get(OPEN_DATA_API, timeout=15)
+        res.raise_for_status()
+        meta_data = res.json()
         
-        # 休息一下
-        time.sleep(random.uniform(1, 2))
-
-        # [步驟 B] 請求 API (改成 GET)
-        print("   ...正在請求資料 API")
+        # 找到 CSV 格式的資源 ID
+        csv_url = None
+        if "result" in meta_data and "resources" in meta_data["result"]:
+            for resource in meta_data["result"]["resources"]:
+                if resource["file_ext"].lower() == "csv":
+                    csv_url = resource["resource_url"]
+                    break
         
-        # 參數：sys=10(景氣), cat=15(燈號), ind=74(分數)
-        payload = {'sys': 10, 'cat': 15, 'ind': 74}
-        
-        # 【關鍵修正】這裡改成 get，並且用 params 傳遞參數
-        res = s.get(API_URL, params=payload, timeout=15)
-        
-        # 檢查回應
-        if res.status_code != 200:
-            print(f"❌ API 回應錯誤: {res.status_code}")
-            print(f"   回應內容: {res.text[:200]}") 
+        if not csv_url:
+            print("❌ [Job: Score] 找不到 CSV 下載連結 (Open Data 結構可能變更)")
             sys.exit(1)
             
-        data = res.json()
+        print(f"   ...找到 CSV 下載點: {csv_url}")
+
+        # [步驟 B] 下載 CSV
+        # 這裡有時候會 redirect 到 ws.ndc.gov.tw，requests 會自動處理
+        csv_res = requests.get(csv_url, timeout=30)
+        csv_res.raise_for_status()
         
-    except Exception as e:
-        print(f"❌ [Job: Score] 連線發生例外狀況: {e}")
-        sys.exit(1)
-
-    # 3. 解析 JSON
-    target_data = None
-    if isinstance(data, dict):
-         for key, val in data.items():
-            if isinstance(val, dict) and "lines" in val:
-                for line in val["lines"]:
-                    title = line.get("title", "")
-                    if "景氣對策信號" in title and "(分)" in title:
-                        target_data = line["data"]
-                        break
-            if target_data: break
-            
-    if not target_data:
-        print("❌ [Job: Score] 找不到資料 (API 結構可能改變)")
-        # 印出 Key 來除錯
-        print(f"DEBUG Keys: {list(data.keys()) if isinstance(data, dict) else data}")
-        sys.exit(1)
-
-    # 4. 整理數據
-    records = []
-    print(f"   ...取得 {len(target_data)} 筆資料，正在整理...")
-    for item in target_data:
+        # [步驟 C] 使用 Pandas 讀取 CSV
+        # 國發會 CSV 格式通常是: "年月", "景氣對策信號(分)", "燈號"
+        # 有時候編碼是 big5 或 utf-8-sig
         try:
-            raw_date = str(item['x'])  # "198401"
-            score = item['y']
+            df_raw = pd.read_csv(io.BytesIO(csv_res.content), encoding='utf-8')
+        except UnicodeDecodeError:
+            df_raw = pd.read_csv(io.BytesIO(csv_res.content), encoding='big5')
+
+    except Exception as e:
+        print(f"❌ [Job: Score] 連線或解析失敗: {e}")
+        sys.exit(1)
+
+    # 4. 資料清理與標準化
+    # 欄位名稱可能會變，我們用位置來抓 (通常第 0 欄是日期，第 1 欄是分數)
+    # 假設格式：date, score, light...
+    print(f"   ...原始資料欄位: {df_raw.columns.tolist()}")
+    
+    records = []
+    for index, row in df_raw.iterrows():
+        try:
+            # 處理日期：通常是 "198401" 或 "1984/01" 或 "7301" (民國)
+            raw_date = str(row.iloc[0]).strip()
+            score = row.iloc[1] # 分數通常在第二欄
             
-            dt_obj = datetime.strptime(raw_date, "%Y%m")
+            # 國發會 Open Data 常見格式處理
+            # 格式 A: "198401"
+            if len(raw_date) == 6 and raw_date.isdigit():
+                dt_obj = datetime.strptime(raw_date, "%Y%m")
+            # 格式 B: "1984/01"
+            elif "/" in raw_date:
+                # 處理民國年 "073/01" -> 1984/01
+                parts = raw_date.split('/')
+                if len(parts[0]) <= 3: # 民國年
+                    year = int(parts[0]) + 1911
+                    dt_obj = datetime(year, int(parts[1]), 1)
+                else:
+                    dt_obj = datetime.strptime(raw_date, "%Y/%m")
+            else:
+                continue
+
             fmt_date = dt_obj.strftime("%Y-%m-%d")
+            
+            # 確保分數是數字
+            score = float(score)
+            
             records.append({"Date": fmt_date, "Score": score})
-        except:
+        except Exception:
             continue
 
     if not records:
-        print("❌ [Job: Score] 無有效數據")
+        print("❌ [Job: Score] 解析後無有效數據，請檢查 CSV 內容")
         sys.exit(1)
 
     # 5. 存檔
@@ -107,9 +106,14 @@ def fetch_score_data():
     df = df.set_index("Date")
     df = df.sort_index()
     
+    # 移除重複與空值
+    df = df.dropna()
+    df = df[~df.index.duplicated(keep='last')]
+    
     df.to_csv(CSV_PATH)
     print(f"✅ [Job: Score] 更新完成！已儲存至: {CSV_PATH}")
-    print(f"   最新分數: {df.index[-1]} -> {df['Score'].iloc[-1]} 分")
+    print(f"   資料區間: {df.index[0]} ~ {df.index[-1]}")
+    print(f"   最新分數: {df['Score'].iloc[-1]} 分")
 
 if __name__ == "__main__":
     fetch_score_data()
