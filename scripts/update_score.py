@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import io
 import sys
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -11,159 +12,192 @@ from pathlib import Path
 DATA_DIR = Path("data")
 CSV_PATH = DATA_DIR / "SCORE.csv"
 
-# 政府資料開放平臺 API (搜尋介面)
-SEARCH_API = "https://data.gov.tw/api/v2/rest/dataset"
+SEARCH_API = "https://data.gov.tw/api/v2/rest/dataset/search"
+DATASET_API = "https://data.gov.tw/api/v2/rest/dataset/{}"
 
+
+# -----------------------------------------------------
+# 工具：解析台灣日期
+# -----------------------------------------------------
 def parse_taiwan_date(date_str):
-    """ 解析日期 (民國/西元) """
     s = str(date_str).strip()
     try:
-        # 198401
+        # yyyyMM
         if len(s) == 6 and s.isdigit():
             return datetime.strptime(s, "%Y%m")
-        # 07301
+        # 民國年 5 碼 07301
         elif len(s) == 5 and s.isdigit():
             year = int(s[:3]) + 1911
             month = int(s[3:])
             return datetime(year, month, 1)
-        # 1984-01, 1984/01
+        # yyyy/MM 或 yyyy-MM
         elif "-" in s or "/" in s:
             s = s.replace("/", "-")
             parts = s.split("-")
             if len(parts) >= 2:
                 year = int(parts[0])
                 month = int(parts[1])
-                if year < 1911: year += 1911
+                if year < 1911:
+                    year += 1911
                 return datetime(year, month, 1)
     except:
         pass
     return None
 
+
+# -----------------------------------------------------
+# 主邏輯 → 抓 Score
+# -----------------------------------------------------
 def fetch_score_data():
-    print("🚀 [Job: Score] 開始執行：使用 API 搜尋景氣對策信號...")
+    print("🚀 [Job: Score] 開始執行：搜尋資料集 + 下載最新資料...")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # -----------------------------------------------------------
+    # 步驟 1：使用官方 API 搜尋 Dataset（絕對不會因 HTML 改版壞掉）
+    # -----------------------------------------------------------
+    target_title = "景氣指標及燈號"
+    print(f"   ...搜尋: {target_title}")
+
+    try:
+        r = requests.get(
+            SEARCH_API,
+            params={"q": target_title},
+            timeout=15
+        )
+        r.raise_for_status()
+        search_data = r.json()
+
+        datasets = search_data.get("result", {}).get("results", [])
+
+        dataset_id = None
+
+        # 找第一個 title 有包含「景氣指標及燈號」
+        for d in datasets:
+            if target_title in d.get("title", ""):
+                dataset_id = d.get("identifier")
+                break
+
+        # fallback
+        if not dataset_id and datasets:
+            dataset_id = datasets[0].get("identifier")
+
+        if not dataset_id:
+            print("❌ 搜尋 API 找不到任何可用資料集")
+            sys.exit(1)
+
+        print(f"   ✅ Dataset ID: {dataset_id}")
+
+    except Exception as e:
+        print(f"❌ 搜尋 API 連線錯誤: {e}")
+        sys.exit(1)
+
+    # -----------------------------------------------------------
+    # 步驟 2：用 API 抓該 Dataset 的資源列表
+    # -----------------------------------------------------------
+    api_url = DATASET_API.format(dataset_id)
+    print(f"   ...取得資源列表: {api_url}")
+
+    try:
+        r = requests.get(api_url, timeout=15)
+        r.raise_for_status()
+        detail = r.json()
+        resources = detail.get("result", {}).get("resources", [])
+    except Exception as e:
+        print(f"❌ 取得 Dataset 詳細資訊失敗: {e}")
+        sys.exit(1)
+
+    # -----------------------------------------------------------
+    # 步驟 3：找 CSV；沒有 CSV → 找 JSON
+    # -----------------------------------------------------------
     csv_url = None
-    target_title = ""
+    json_url = None
 
-    # 1. 搜尋資料集
-    # 關鍵字設為 "景氣對策信號"，這樣最準
-    print("   ...正在呼叫搜尋 API...")
-    try:
-        # q=關鍵字
-        res = requests.get(SEARCH_API, params={"q": "景氣對策信號"}, timeout=30)
-        res.raise_for_status()
-        data = res.json()
-        
-        # 檢查是否有搜尋結果
-        if not data.get("success"):
-            print(f"❌ API 呼叫失敗: {data}")
-            sys.exit(1)
-            
-        datasets = data.get("result", {}).get("records", [])
-        if not datasets:
-            print("❌ 搜尋不到任何資料集")
-            sys.exit(1)
-            
-        print(f"   ...找到 {len(datasets)} 個資料集，開始篩選 CSV...")
+    for res in resources:
+        fmt = str(res.get("file_ext") or res.get("format") or "").lower()
+        desc = (res.get("resource_description") or "").lower()
 
-        # 2. 遍歷資料集尋找 CSV
-        for ds in datasets:
-            # 取得資料集 ID
-            ds_id = ds.get("id")
-            ds_title = ds.get("title", "")
-            
-            # 呼叫詳情 API 取得資源列表
-            detail_res = requests.get(f"{SEARCH_API}/{ds_id}", timeout=10)
-            if detail_res.status_code != 200:
-                continue
-                
-            resources = detail_res.json().get("result", {}).get("resources", [])
-            
-            for r in resources:
-                fmt = str(r.get("file_ext") or r.get("format") or "").lower()
-                desc = str(r.get("resource_description") or "")
-                
-                # 判定是否為 CSV
-                if "csv" in fmt or "csv" in desc.lower():
-                    csv_url = r.get("resource_url")
-                    target_title = ds_title
-                    print(f"   ✅ 鎖定資料集: {ds_title}")
-                    print(f"   ⬇️ 找到 CSV 資源: {csv_url}")
-                    break
-            
-            if csv_url: break
-            
-    except Exception as e:
-        print(f"❌ API 搜尋過程發生錯誤: {e}")
-        sys.exit(1)
+        # 先找 CSV
+        if "csv" in fmt or "csv" in desc:
+            csv_url = res.get("resource_url")
+            print(f"   ⬇️ 找到 CSV：{csv_url}")
+            break
 
-    if not csv_url:
-        print("❌ 所有搜尋結果中都沒有發現 CSV 格式的檔案")
-        sys.exit(1)
+        # 找 JSON（備用）
+        if ("json" in fmt or "json" in desc) and not json_url:
+            json_url = res.get("resource_url")
 
-    # 3. 下載與處理
-    try:
-        print(f"   ...開始下載...")
-        file_res = requests.get(csv_url, timeout=60)
-        file_res.raise_for_status()
-        
-        # 解碼
-        content = file_res.content
+    # -----------------------------------------------------------
+    # 步驟 4：下載 CSV 或 JSON
+    # -----------------------------------------------------------
+    if csv_url:
+        # ---- 下載 CSV ----
         try:
-            df_raw = pd.read_csv(io.BytesIO(content), encoding='utf-8')
-        except:
-            df_raw = pd.read_csv(io.BytesIO(content), encoding='big5')
-            
-        print(f"   ...解析中 (原始大小 {df_raw.shape})...")
-        
-        records = []
-        # 暴力掃描欄位抓取 日期 & 分數
-        for idx, row in df_raw.iterrows():
-            date_val = None
-            score_val = None
-            
-            for col in df_raw.columns:
-                val = str(row[col]).strip()
-                
-                # 抓日期
-                if date_val is None:
-                    dt = parse_taiwan_date(val)
-                    if dt: 
-                        date_val = dt
-                        continue
-                
-                # 抓分數 (排除日期數字)
-                if score_val is None:
-                    clean_val = val.replace('.', '', 1)
-                    if clean_val.isdigit():
-                        v = float(val)
-                        if 9 <= v <= 55: # 合理分數範圍
-                            score_val = v
-            
-            if date_val and score_val:
-                records.append({
-                    "Date": date_val.strftime("%Y-%m-%d"),
-                    "Score": score_val
-                })
+            print("   ...下載 CSV 資料")
+            r = requests.get(csv_url, timeout=20)
+            r.raise_for_status()
 
-        if not records:
-            print("❌ 解析後無資料，無法識別日期與分數欄位")
-            print("DEBUG: 前幾行資料:", df_raw.head())
+            df = pd.read_csv(io.StringIO(r.text))
+            print(f"   📊 CSV 筆數: {len(df)}")
+
+        except Exception as e:
+            print(f"❌ CSV 下載失敗: {e}")
             sys.exit(1)
 
-        # 5. 存檔
-        df = pd.DataFrame(records)
-        df = df.drop_duplicates(subset=["Date"], keep="last")
-        df = df.set_index("Date").sort_index()
-        
-        df.to_csv(CSV_PATH)
-        print(f"🎉 [Job: Score] 成功！已儲存 {len(df)} 筆資料至: {CSV_PATH}")
-        print(f"   最新數據: {df.index[-1]} -> {df['Score'].iloc[-1]} 分")
+    else:
+        # ---- 下載 JSON ----
+        if not json_url:
+            print("❌ 沒有 CSV 也沒有 JSON，無法下載資料")
+            sys.exit(1)
 
-    except Exception as e:
-        print(f"❌ 下載或解析失敗: {e}")
-        sys.exit(1)
+        print(f"⚠️ 無 CSV，改用 JSON：{json_url}")
 
+        try:
+            r = requests.get(json_url, timeout=20)
+            r.raise_for_status()
+            data_json = r.json()
+
+            # 嘗試把 JSON 轉成 DataFrame
+            if isinstance(data_json, dict):
+                df = pd.DataFrame(data_json.get("result", []))
+            else:
+                df = pd.DataFrame(data_json)
+
+            print(f"   📊 JSON 筆數: {len(df)}")
+
+        except Exception as e:
+            print(f"❌ JSON 下載失敗: {e}")
+            sys.exit(1)
+
+    # -----------------------------------------------------------
+    # 步驟 5：資料清洗（日期 → datetime）
+    # -----------------------------------------------------------
+    date_cols = ["日期", "時間", "年月", "月份"]
+    found_date_col = None
+
+    for col in df.columns:
+        if col in date_cols:
+            found_date_col = col
+            break
+
+    if found_date_col:
+        df["parsed_date"] = df[found_date_col].apply(parse_taiwan_date)
+        df = df.dropna(subset=["parsed_date"])
+        df = df.sort_values("parsed_date")
+        df = df.reset_index(drop=True)
+        print(f"   📅 日期欄位解析完成: {found_date_col}")
+
+    # -----------------------------------------------------------
+    # 步驟 6：寫入 CSV
+    # -----------------------------------------------------------
+    df.to_csv(CSV_PATH, index=False, encoding="utf-8-sig")
+    print(f"   💾 已儲存至 {CSV_PATH}")
+
+    print("🎉 Score 爬取完成")
+    return df
+
+
+# -----------------------------------------------------
+# main
+# -----------------------------------------------------
 if __name__ == "__main__":
     fetch_score_data()
