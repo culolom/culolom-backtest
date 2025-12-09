@@ -1,435 +1,215 @@
 """
-HamrLab Backtest Platform main entry.
-Dashboard-style layout with Password Protection + Momentum Overview.
+Auto-update adjusted-price CSVs (Self-Healing Version)
+- Automatically detects & repairs missing Stock Splits (like 00663L)
+- Forces continuity even if Yahoo Finance data is broken
 """
 
-import streamlit as st
-import os
-import datetime
+from __future__ import annotations
+from pathlib import Path
+from datetime import datetime, timedelta
+import re
 import pandas as pd
+import yfinance as yf
 import numpy as np
 
-# 1. 頁面設定 (必須放在第一行)
-st.set_page_config(
-    page_title="倉鼠回測平台 | 會員專屬",
-    page_icon="🐹",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# -----------------------------------------------------
+# Paths & Config
+# -----------------------------------------------------
+DATA_DIR = Path("data")
+SYMBOLS_FILE = Path("symbols.txt")
 
-# ------------------------------------------------------
-# 🎨 全域主題色 (HamrLab 經典藍)
-# ------------------------------------------------------
-PRIMARY_COLOR = "#2563EB"   # 藍
-ACCENT_COLOR = "#22C55E"    # 綠
-BG_COLOR = "#F3F4F6"        # 淺灰
-CARD_BG = "#FFFFFF"         # 白
-TEXT_COLOR = "#111827"      # 深灰
+# -----------------------------------------------------
+# Normalize symbol
+# -----------------------------------------------------
+def normalize_symbol(sym: str) -> str:
+    s = sym.strip().upper()
+    if s.endswith(".TW"):
+        return s
+    if re.match(r"^\d+[A-Z]*$", s):
+        return s + ".TW"
+    return s
 
-def inject_global_css():
-    """自訂 CSS，讓整體更像 SaaS 儀表板。"""
-    st.markdown(
-        f"""
-        <style>
-        /* 整體背景 & 內容寬度 */
-        .stApp {{
-            background-color: {BG_COLOR};
-        }}
-        .block-container {{
-            padding-top: 1.5rem;
-            padding-bottom: 2rem;
-            max-width: 1200px;
-        }}
+# -----------------------------------------------------
+# Helper: Fix yfinance MultiIndex columns
+# -----------------------------------------------------
+def clean_yfinance_columns(df: pd.DataFrame) -> pd.DataFrame:
+    # Fix (Price, Ticker) -> Price
+    if isinstance(df.columns, pd.MultiIndex):
+        try:
+            df.columns = df.columns.get_level_values(0)
+        except IndexError:
+            pass
+    return df
 
-        /* 標題顏色 */
-        h1, h2, h3, h4, h5, h6 {{
-            color: {TEXT_COLOR};
-        }}
+# -----------------------------------------------------
+# CORE: Detect & Repair Splits Manually
+# -----------------------------------------------------
+def detect_and_repair_splits(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+    """
+    Scans for massive price discontinuities (>50% drop or >100% gain)
+    and back-adjusts historical data if Yahoo missed the split.
+    """
+    if df.empty or len(df) < 2:
+        return df
 
-        /* 卡片容器統一樣式 */
-        .hamr-card {{
-            background-color: {CARD_BG};
-            border-radius: 1rem;
-            padding: 1.2rem 1.4rem;
-            box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
-            border: 1px solid #E5E7EB;
-        }}
+    # 需要 Open 欄位來計算精確的 Split Ratio (Open[t] / Close[t-1])
+    # 如果只有 Close，這一步只能用 Close 估算
+    has_open = 'Open' in df.columns
 
-        .hamr-card:hover {{
-            box-shadow: 0 15px 35px rgba(15, 23, 42, 0.16);
-            transform: translateY(-2px);
-            transition: box-shadow 0.18s ease, transform 0.18s ease;
-        }}
+    # 計算價格變化率
+    closes = df['Close']
+    prev_closes = closes.shift(1)
+    
+    # 偵測閾值：跌幅 > 40% (0.6) 或 漲幅 > 80% (1.8)
+    # 00663L 1拆7 約跌 85%
+    drops = closes / prev_closes
+    
+    # 找出異常點 (忽略第一筆 NaN)
+    split_candidates = drops[(drops < 0.6) | (drops > 1.8)].dropna()
 
-        /* 按鈕主題色 */
-        .stButton>button {{
-            background: linear-gradient(135deg, {PRIMARY_COLOR}, #1D4ED8);
-            color: white;
-            border-radius: 999px;
-            border: none;
-            padding: 0.5rem 1rem;
-            font-weight: 600;
-        }}
-        .stButton>button:hover {{
-            background: linear-gradient(135deg, #1D4ED8, {PRIMARY_COLOR});
-        }}
+    if split_candidates.empty:
+        return df
 
-        /* metrics 卡片微調 */
-        [data-testid="stMetric"] {{
-            background-color: {CARD_BG};
-            padding: 0.6rem 0.8rem;
-            border-radius: 0.75rem;
-            border: 1px solid #E5E7EB;
-        }}
+    # 開始修復
+    df_fixed = df.copy()
+    
+    for date, ratio_raw in split_candidates.items():
+        # 取得該日期的整數索引位置
+        loc_idx = df_fixed.index.get_loc(date)
+        if loc_idx == 0: continue
 
-        /* 熱力格：使用 emoji +對齊 */
-        .momentum-cell {{
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            font-size: 0.9rem;
-            text-align: center;
-            padding: 0.2rem 0.4rem;
-        }}
-        .momentum-table th {{
-            font-size: 0.85rem;
-            padding: 0.3rem 0.4rem;
-        }}
-        .momentum-table td {{
-            padding: 0.25rem 0.4rem;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-inject_global_css()
-
-# 2. 側邊欄：品牌與外部連結
-with st.sidebar:
-    # 檢查並顯示 Logo
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=140)
-    else:
-        st.title("🐹") 
+        # 計算修正因子 (Split Factor)
+        # 理想公式： Factor = Previous Close / Current Open
+        # 因為 Split 通常發生在開盤前，Open 應該已經是分割後的價格
+        prev_close = df_fixed['Close'].iloc[loc_idx - 1]
         
-    st.title("倉鼠實驗室")
-    st.caption("v1.1.0 Beta | 白銀會員限定")
-
-    st.markdown("---")
-    st.markdown("👤 身分：**白銀小倉鼠**")
-    st.markdown("🔐 驗證方式：本月專屬密碼")
-
-    st.divider()
-    
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="部落格首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@HamrLab", label="YouTube 頻道", icon="📺")
-    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
-    
-    st.divider()
-    st.info("💡 **提醒**\n本平台僅供策略研究與回測驗證，不構成任何投資建議。")
-    st.divider()
-    
-    # 加入登出按鈕 (清除 Session)
-    if st.button("🚪 登出系統"):
-        st.session_state["password_correct"] = False
-        st.rerun()
-
-
-# ------------------------------------------------------
-# 資料檢查 & 公用函式
-# ------------------------------------------------------
-DATA_DIR = "data"
-
-def scan_data_folder():
-    """掃描 data 資料夾，回傳檔案列表與最近更新日期。"""
-    data_status = "檢查中..."
-    last_update = None
-    files = []
-
-    try:
-        if os.path.exists(DATA_DIR):
-            files = [
-                os.path.join(DATA_DIR, f)
-                for f in os.listdir(DATA_DIR)
-                if f.endswith(".csv")
-            ]
-            if files:
-                latest_file = max(files, key=os.path.getmtime)
-                timestamp = os.path.getmtime(latest_file)
-                last_update = datetime.datetime.fromtimestamp(timestamp)
-                data_status = "✅ 系統數據正常"
-            else:
-                data_status = "⚠️ 無數據文件"
+        if has_open:
+            curr_open = df_fixed['Open'].iloc[loc_idx]
+            # 避免 Open 為 0 或 NaN
+            if pd.isna(curr_open) or curr_open == 0:
+                curr_open = df_fixed['Close'].iloc[loc_idx]
         else:
-            data_status = "❌ 找不到 data 資料夾"
-    except Exception:
-        data_status = "⚠️ 狀態檢測異常"
+            curr_open = df_fixed['Close'].iloc[loc_idx]
 
-    return data_status, last_update, files
+        # Factor > 1 代表拆股 (價格變小，如 175 -> 25，Factor=7)
+        # Factor < 1 代表反向拆股 (價格變大)
+        factor = prev_close / curr_open
 
-def find_csv_for_symbol(symbol: str, files: list):
-    """在 data/*.csv 中，找符合 symbol 的檔名（模糊搜尋）。"""
-    symbol_lower = symbol.lower()
-    for f in files:
-        name = os.path.basename(f).lower()
-        if symbol_lower in name:
-            return f
-    return None
+        # 簡單過濾：如果這只是市場大崩盤 (例如跌 10-20%)，Factor 會接近 1.1-1.2
+        # 我們只處理 Factor > 1.5 或 Factor < 0.6 的情況
+        if 0.6 < factor < 1.5:
+            continue
 
-def load_price_series(csv_path: str):
-    """
-    從 CSV 讀出價格序列：
-    - 優先找 'Close' 欄位
-    - 否則取數值欄位中最後一個當作價格
-    """
-    try:
-        df = pd.read_csv(csv_path)
-        # 嘗試把第一欄日期當 index
-        df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0], errors="coerce")
-        df = df.set_index(df.columns[0])
-        df = df.sort_index()
-        # 找價格欄位
-        if "Close" in df.columns:
-            price = df["Close"].astype(float)
-        else:
-            numeric_cols = df.select_dtypes(include=[np.number]).columns
-            if len(numeric_cols) == 0:
-                return None
-            price = df[numeric_cols[-1]].astype(float)
-        return price.dropna()
-    except Exception:
-        return None
+        print(f"🔧 REPAIR: Detected missing split for {symbol} on {date.date()}")
+        print(f"   Before: {prev_close:.2f} -> {curr_open:.2f} (Factor: {factor:.4f})")
+        
+        # 執行回溯修正 (Back Adjustment)
+        # 舊價格全部除以 Factor (例如 175 / 7 = 25)
+        # 舊成交量全部乘以 Factor (股數變多)
+        mask = df_fixed.index < date
+        
+        cols_to_fix = ['Close', 'Open', 'High', 'Low']
+        for col in cols_to_fix:
+            if col in df_fixed.columns:
+                df_fixed.loc[mask, col] = df_fixed.loc[mask, col] / factor
+        
+        if 'Volume' in df_fixed.columns:
+            df_fixed.loc[mask, 'Volume'] = df_fixed.loc[mask, 'Volume'] * factor
 
-def calc_momentum(price: pd.Series, window_days: int):
-    """計算 N 日報酬率（近似 1/3/6/12 月）。"""
-    if price is None or len(price) <= window_days:
-        return None
-    latest = price.iloc[-1]
-    past = price.iloc[-window_days]
-    if past == 0 or pd.isna(latest) or pd.isna(past):
-        return None
-    return (latest / past) - 1.0
+        print(f"   ✅ History adjusted. New prev close: {df_fixed.loc[mask, 'Close'].iloc[-1]:.2f}")
 
-def momentum_to_cell(value: float):
-    """把數值轉成帶 emoji 的文字（當簡易熱力圖）。"""
-    if value is None:
-        return "<span class='momentum-cell'>-</span>"
-    pct = value * 100
-    if pct <= 0:
-        icon = "⬜"
-    elif pct <= 5:
-        icon = "🟨"
-    elif pct <= 15:
-        icon = "🟩"
-    else:
-        icon = "🟩🟩"
-    return f"<span class='momentum-cell'>{icon}<br>{pct:.1f}%</span>"
+    return df_fixed
 
-# ------------------------------------------------------
-# 🧭 Hero Section + 資料狀態
-# ------------------------------------------------------
-data_status, last_update, files = scan_data_folder()
-
-st.title("🚀 倉鼠量化戰情室")
-
-hero_left, hero_right = st.columns([2, 1])
-
-with hero_left:
-    st.markdown(
-        f"""
-        <div class="hamr-card">
-            <h3>歡迎回到你的量化基地。</h3>
-            <p style="margin-top:0.5rem; color:{TEXT_COLOR}; line-height:1.6;">
-            在這裡，你不用寫一行程式碼，就能用
-            <b style="color:{PRIMARY_COLOR};">LRS、動能評分、槓桿控管</b>
-            來驗證任何交易想法。
-            </p>
-            <p style="margin-top:0.5rem; color:{TEXT_COLOR}; line-height:1.6;">
-            今天的市場誰最強？哪一種策略最適合現在？<br>
-            先看下面的 <b>市場摘要 + 動能儀表板</b>，再決定要開哪一套策略。
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True
+# -----------------------------------------------------
+# Download & Update Logic
+# -----------------------------------------------------
+def download_data(symbol: str, start=None, mode="full") -> pd.DataFrame:
+    """Generic download wrapper that fetches Open/Close/Volume"""
+    print(f"⬇ Fetching {symbol} ({mode})...")
+    
+    df = yf.download(
+        symbol,
+        start=start,
+        period="max" if mode=="full" else None,
+        auto_adjust=True, # 嘗試讓 Yahoo 自動調整
+        progress=False
     )
+    df = clean_yfinance_columns(df)
+    
+    # 確保有需要的欄位，若沒有則補 NaN (避免報錯)
+    required = ['Open', 'Close', 'Volume']
+    for col in required:
+        if col not in df.columns:
+            df[col] = np.nan
+            
+    return df
 
-with hero_right:
-    col_status, col_files = st.columns(2)
-    col_status.metric("資料狀態", data_status.replace("✅ ", "").replace("⚠️ ", "").replace("❌ ", ""))
-    col_files.metric("數據檔案數量", len(files))
+def update_symbol(symbol: str):
+    DATA_DIR.mkdir(exist_ok=True)
+    csv_path = DATA_DIR / f"{symbol}.csv"
+    
+    # 1. Load Existing
+    existing = None
+    if csv_path.exists():
+        try:
+            existing = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+            if "Close" not in existing.columns: existing = None
+        except:
+            existing = None
 
-    if last_update:
-        st.metric("最後更新日期", last_update.strftime("%Y-%m-%d"))
+    # 2. Determine Fetch Strategy
+    if existing is None or existing.empty:
+        # Full Download
+        new_data = download_data(symbol, mode="full")
     else:
-        st.metric("最後更新日期", "N/A")
+        # Append Update
+        last_date = existing.index[-1]
+        start_date = (last_date - timedelta(days=10)).strftime("%Y-%m-%d") # 多抓幾天用來接合
+        print(f"📄 Appending {symbol} from {start_date}...")
+        
+        fresh = download_data(symbol, start=start_date, mode="append")
+        
+        # 合併舊與新 (這裡還沒修復)
+        # 先把 fresh 中重疊的部分蓋過 existing (以最新的數據為準)
+        existing = existing[existing.index < pd.Timestamp(start_date)]
+        new_data = pd.concat([existing, fresh])
+        new_data = new_data[~new_data.index.duplicated(keep='last')]
+        new_data = new_data.sort_index()
 
-st.caption("🧪 你今天想做什麼？看市場方向、找強勢標的，還是直接開 LRS 回測？")
+    if new_data.empty:
+        print(f"⚠ No data for {symbol}")
+        return
 
-st.markdown("---")
+    # 3. 執行「自我修復」檢測 (關鍵步驟！)
+    # 無論是新下載還是合併後，都要檢查是否有「假崩盤」
+    repaired_data = detect_and_repair_splits(new_data, symbol)
 
-# ------------------------------------------------------
-# 📊 今日市場摘要（依據 SMA200 簡易判斷）
-# ------------------------------------------------------
-st.subheader("📌 今日市場摘要")
+    # 4. Save (只保留 Close, Volume 以節省空間，或者保留 Open 也可以)
+    # 這裡依照您的需求只留 Date, Close, Volume
+    final_output = repaired_data[["Close", "Volume"]].copy()
+    final_output.index.name = "Date"
+    
+    final_output.to_csv(csv_path)
+    print(f"✅ Saved {symbol} ({len(final_output)} rows)")
 
-summary_cols = st.columns(4)
-
-# 定義幾個常見指標／資產（可依你的 CSV 命名調整）
-ASSET_CONFIG = [
-    {"label": "美股科技", "symbol": "QQQ"},
-    {"label": "美股大盤", "symbol": "VOO"},
-    {"label": "台股大盤", "symbol": "0050"},
-    {"label": "全球股市", "symbol": "VT"},
-    {"label": "長天期債券", "symbol": "TLT"},
-    {"label": "比特幣", "symbol": "BTC"},
-]
-
-def classify_trend(price: pd.Series):
-    """用 200 日 + 價格位置簡易判斷趨勢。"""
-    if price is None or len(price) < 200:
-        return "資料不足", "⬜"
-    ma200 = price.rolling(200).mean().iloc[-1]
-    last = price.iloc[-1]
-    if pd.isna(ma200) or pd.isna(last):
-        return "資料不足", "⬜"
-    diff = (last / ma200) - 1.0
-    if diff > 0.05:
-        return "多頭", "🟢"
-    elif diff > 0:
-        return "偏多", "🟡"
-    elif diff > -0.05:
-        return "偏空", "🟠"
+# -----------------------------------------------------
+# Main
+# -----------------------------------------------------
+def main():
+    if not SYMBOLS_FILE.exists():
+        # Demo mode if file missing
+        print("⚠ symbols.txt missing, using demo list.")
+        symbols = ["00663L.TW"] 
     else:
-        return "空頭", "🔴"
+        with open(SYMBOLS_FILE, "r", encoding="utf-8") as f:
+            symbols = [normalize_symbol(line.strip()) for line in f if line.strip() and not line.startswith("#")]
 
-if not files:
-    st.info("目前找不到任何 CSV 數據檔案，動能儀表板會先顯示占位內容。請在 data 資料夾放入價格歷史 CSV。")
-else:
-    for i, asset in enumerate(ASSET_CONFIG[:4]):  # 先顯示 4 個重點
-        with summary_cols[i]:
-            csv_path = find_csv_for_symbol(asset["symbol"], files)
-            if csv_path is None:
-                st.metric(asset["label"], "資料不存在", "⬜")
-            else:
-                price = load_price_series(csv_path)
-                trend_text, trend_icon = classify_trend(price)
-                st.metric(asset["label"], trend_text, trend_icon)
+    for sym in symbols:
+        print("-" * 40)
+        try:
+            update_symbol(sym)
+        except Exception as e:
+            print(f"❌ Error {sym}: {e}")
 
-st.caption("註：以上為簡易 SMA200 趨勢判讀，只作為戰情室參考，不作為買賣訊號。")
-
-st.markdown("---")
-
-# ------------------------------------------------------
-# 🔥 動能儀表板（1 / 3 / 6 / 12 月）
-# ------------------------------------------------------
-st.subheader("🔥 動能熱力儀表板（1 / 3 / 6 / 12 月報酬）")
-
-if not files:
-    st.info("目前沒有數據檔案，因此無法計算動能。請先在 data 資料夾放入 QQQ、0050 等標的的歷史價格 CSV。")
-else:
-    # 只顯示我們有檔案的標的
-    TARGETS = ["QQQ", "VOO", "0050", "VT", "TLT", "BTC"]
-    rows_html = ""
-    has_any = False
-
-    for sym in TARGETS:
-        csv_path = find_csv_for_symbol(sym, files)
-        if csv_path is None:
-            continue
-
-        price = load_price_series(csv_path)
-        if price is None:
-            continue
-
-        has_any = True
-        m1 = calc_momentum(price, 21)    # 約 1 個月 (21 交易日)
-        m3 = calc_momentum(price, 63)    # 約 3 個月
-        m6 = calc_momentum(price, 126)   # 約 6 個月
-        m12 = calc_momentum(price, 252)  # 約 12 個月
-
-        rows_html += f"""
-        <tr>
-            <td style="text-align:left; padding:0.25rem 0.4rem;">{sym}</td>
-            <td>{momentum_to_cell(m1)}</td>
-            <td>{momentum_to_cell(m3)}</td>
-            <td>{momentum_to_cell(m6)}</td>
-            <td>{momentum_to_cell(m12)}</td>
-        </tr>
-        """
-
-    if not has_any:
-        st.info("目前雖然找到 CSV 檔案，但無法解析價格欄位。請確認 CSV 有日期欄位與 Close 或數值價格欄位。")
-    else:
-        table_html = f"""
-        <table class="momentum-table">
-            <thead>
-                <tr>
-                    <th style="text-align:left;">標的</th>
-                    <th>1M</th>
-                    <th>3M</th>
-                    <th>6M</th>
-                    <th>12M</th>
-                </tr>
-            </thead>
-            <tbody>
-                {rows_html}
-            </tbody>
-        </table>
-        """
-        st.markdown(f"<div class='hamr-card'>{table_html}</div>", unsafe_allow_html=True)
-
-st.caption("🟩 顏色越綠代表動能越強；⬜ 代表動能偏弱或報酬為負。")
-
-st.markdown("---")
-
-# ------------------------------------------------------
-# 🛠️ 策略展示區 (卡片式佈局)
-# ------------------------------------------------------
-strategies = [
-    {
-        "name": "QQQ LRS 動態槓桿 (美股)",
-        "icon": "🦅",
-        "description": "鎖定美股科技巨頭。以 QQQ 200 日均線為訊號，動態切換 QLD / TQQQ 槓桿 ETF，追蹤 Nasdaq 長期成長趨勢，同時控制回撤。",
-        "tags": ["美股", "Nasdaq", "動態槓桿"],
-        "who": "適合願意承受波動、但又希望有風險控管機制的長線投資人。",
-        "page_path": "pages/1_QQQLRS.py",
-        "btn_label": "進入 QQQ LRS 回測"
-    },
-    {
-        "name": "0050 LRS 動態槓桿 (台股)",
-        "icon": "🇹🇼",
-        "description": "以 0050 / 006208 為基準，搭配正二槓桿 ETF，在多頭時放大曝險、空頭時降低持股比重，追求優於大盤的報酬風險比。",
-        "tags": ["台股", "0050", "波段操作"],
-        "who": "適合熟悉台股、想用系統化方式控制正二風險的投資人。",
-        "page_path": "pages/2_0050LRS.py",
-        "btn_label": "進入 0050 LRS 回測"
-    },
-]
-
-st.subheader("🛠️ 選擇你的實驗策略")
-
-cols = st.columns(2)
-
-for index, strategy in enumerate(strategies):
-    col = cols[index % 2]
-    with col:
-        st.markdown("<div class='hamr-card'>", unsafe_allow_html=True)
-
-        st.markdown(f"### {strategy['icon']} {strategy['name']}")
-        st.markdown(" ".join([f"`{tag}`" for tag in strategy["tags"]]))
-        st.write(strategy["description"])
-        st.markdown(f"<span style='font-size:0.9rem; color:#4B5563;'>👉 {strategy['who']}</span>", unsafe_allow_html=True)
-        st.write("")
-        st.page_link(
-            strategy["page_path"],
-            label=strategy["btn_label"],
-            icon="👉",
-            use_container_width=True
-        )
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-# 6. 未來展望 / 預告區塊
-st.markdown("---")
-st.caption("🚧 更多策略正在開發中（MACD 動能、RSI 逆勢策略、資金輪動雷達...），完成後會優先在這裡開給白銀會員。")
+if __name__ == "__main__":
+    main()
