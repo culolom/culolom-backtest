@@ -13,18 +13,21 @@ import random
 DATA_DIR = Path("data")
 CSV_PATH = DATA_DIR / "SCORE.csv"
 
-# 國發會首頁 (我們去這裡拿 Cookie)
-BASE_URL = "https://index.ndc.gov.tw/n/zh_tw/index"
-# 資料 API (真正拿數據的地方)
+# [修改點 1] 這是您找到的網頁 (商店大門)，我們要先造訪這裡拿通行證
+PAGE_URL = "https://index.ndc.gov.tw/n/zh_tw/data/eco"
+
+# 這是實際的資料 API (倉庫)
 API_URL = "https://index.ndc.gov.tw/n/json/data/economy/indicator"
 
-# 偽裝成 Chrome 瀏覽器的表頭 (Headers)
+# [修改點 2] 偽裝 Headers，讓 Referer 指向正確的頁面
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": "https://index.ndc.gov.tw/n/zh_tw/data/eco", # 告訴伺服器我們是從數據頁面來的
+    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://index.ndc.gov.tw/n/zh_tw/data/eco",  # 關鍵：告訴伺服器我從這裡來的
     "X-Requested-With": "XMLHttpRequest",
-    "Origin": "https://index.ndc.gov.tw"
+    "Origin": "https://index.ndc.gov.tw",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
 }
 
 def fetch_score_data():
@@ -33,22 +36,23 @@ def fetch_score_data():
     # 1. 確保資料夾存在
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 2. 初始化 Session (關鍵步驟！這就是瀏覽器的記憶體)
+    # 2. 初始化 Session (模擬瀏覽器行為)
     session = requests.Session()
     session.headers.update(HEADERS)
 
     try:
-        # [步驟 A] 先造訪首頁，取得 Session Cookie (通行證)
-        print(f"   ...正在造訪首頁取得通行證: {BASE_URL}")
-        session.get(BASE_URL, timeout=10)
+        # [步驟 A] 先造訪您提供的那個網頁，取得該頁面的專屬 Cookie
+        print(f"   ...正在造訪頁面取得通行證: {PAGE_URL}")
+        session.get(PAGE_URL, timeout=15)
         
-        # 稍微休息一下，模擬真人行為
-        time.sleep(random.uniform(1, 2))
+        # 休息一下，假裝在看網頁
+        time.sleep(random.uniform(1, 3))
 
         # [步驟 B] 帶著 Cookie 去請求 API
         print("   ...正在請求資料 API")
         # 參數：sys=10(景氣), cat=15(燈號), ind=74(分數)
         payload = {'sys': 10, 'cat': 15, 'ind': 74}
+        
         res = session.post(API_URL, data=payload, timeout=15)
         
         # 檢查狀態碼
@@ -57,7 +61,9 @@ def fetch_score_data():
         
     except Exception as e:
         print(f"❌ [Job: Score] API 連線失敗: {e}")
-        # 如果失敗，強制讓 GitHub Actions 亮紅燈
+        # 印出更多錯誤資訊方便除錯
+        if 'res' in locals():
+            print(f"   HTTP Status: {res.status_code}")
         sys.exit(1)
 
     # 3. 解析 JSON 資料結構
@@ -67,7 +73,7 @@ def fetch_score_data():
             if isinstance(val, dict) and "lines" in val:
                 for line in val["lines"]:
                     title = line.get("title", "")
-                    # 模糊比對標題，防止官方改字
+                    # 模糊比對
                     if "景氣對策信號" in title and "(分)" in title:
                         target_data = line["data"]
                         break
