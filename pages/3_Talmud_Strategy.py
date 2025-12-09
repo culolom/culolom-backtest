@@ -61,7 +61,7 @@ DATA_DIR = Path("data")
 # 1. 定義資產選項
 ASSETS_REAL_ESTATE = {
     "VNQ (房地產信託ETF)": "VNQ", 
-    "IYR (美國地產ETF)": "IYR"
+
 }
 
 ASSETS_STOCKS = {
@@ -75,7 +75,7 @@ ASSETS_STOCKS = {
 ASSETS_CASH = {
     "TBIL (3個月國債)": "TBIL", 
     "BIL (1-3月國債)": "BIL", 
-    "SHV (短期國債)": "SHV", 
+    "TLT (20年期國債)": "TLT", 
     "IEF (7-10年公債)": "IEF"
 }
 
