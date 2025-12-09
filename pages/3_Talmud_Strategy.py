@@ -73,7 +73,7 @@ ASSETS_STOCKS = {
 }
 
 ASSETS_CASH = {
-    "TBIL (3個月國債)": "TBIL", 
+    "BNDW (全世界債券)": "BNDW", 
     "BIL (1-3月國債)": "BIL", 
     "TLT (20年期國債)": "TLT", 
     "IEF (7-10年公債)": "IEF"
