@@ -5,3 +5,4 @@ yfinance
 plotly
 matplotlib
 requests
+curl_cffi
