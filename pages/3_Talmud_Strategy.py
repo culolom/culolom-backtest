@@ -1,6 +1,6 @@
 ###############################################################
-# app.py — 塔木德策略 (Talmud Strategy) 回測系統
-# 核心邏輯：三分法 (不動產/股票/現金) + 定期再平衡 + 自選對照組
+# pages/4_Macro_Strategy.py — 國發會景氣燈號策略
+# 核心邏輯：藍燈(低分)買進，紅燈(高分)賣出
 ###############################################################
 
 import os
@@ -8,31 +8,29 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib
-import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 from pathlib import Path
 import sys
 
-
+# ------------------------------------------------------
+# 🔒 驗證守門員
+# ------------------------------------------------------
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+try:
+    import auth
+    if not auth.check_password():
+        st.stop()
+except ImportError:
+    pass 
 
 ###############################################################
-# 字型與頁面設定
+# 設定
 ###############################################################
+st.set_page_config(page_title="景氣燈號策略", page_icon="🚦", layout="wide")
 
-font_path = "./NotoSansTC-Bold.ttf"
-if os.path.exists(font_path):
-    fm.fontManager.addfont(font_path)
-    matplotlib.rcParams["font.family"] = "Noto Sans TC"
-else:
-    matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
-matplotlib.rcParams["axes.unicode_minus"] = False
+DATA_DIR = Path("data")
 
-st.set_page_config(page_title="塔木德策略回測", page_icon="⚖️", layout="wide")
-
-# ==========================================
-# 🛑 務必保留的 Sidebar 區域
-# ==========================================
+# Sidebar
 with st.sidebar:
     st.page_link("Home.py", label="回到戰情室", icon="🏠")
     st.divider()
@@ -40,58 +38,17 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-# ==========================================
-# 主頁面標題
-# ==========================================
-st.markdown("<h1 style='margin-bottom:0.5em;'>⚖️ 塔木德資產配置 (Talmud Strategy)</h1>", unsafe_allow_html=True)
-st.markdown("""
-<b>猶太經典《塔木德》智慧：將資產分為三等份。</b><br>
-1️⃣ <b>不動產 (Real Estate)</b>：如 VNQ, IYR<br>
-2️⃣ <b>股票事業 (Stocks)</b>：如 QQQ, SPY, VT<br>
-3️⃣ <b>現金 (Cash/Bonds)</b>：如 TBIL, BIL, SHV (作為避風港與再平衡籌碼)<br>
-<small>策略核心：定期將三個籃子的資金「再平衡 (Rebalance)」回 33% 權重，實現自動化的「高出低進」。</small>
-""", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.1em;'>🚦 國發會景氣燈號策略 (Macro Strategy)</h1>", unsafe_allow_html=True)
+st.caption("股市名言：「藍燈買股票，紅燈數鈔票」。利用總體經濟指標進行逆勢操作。")
+st.divider()
 
 ###############################################################
-# 資料設定
+# 資料讀取函式
 ###############################################################
 
-DATA_DIR = Path("data")
-
-# 1. 定義資產選項
-ASSETS_REAL_ESTATE = {
-    "VNQ (房地產信託ETF)": "VNQ", 
-
-}
-
-ASSETS_STOCKS = {
-    "QQQ (納斯達克100)": "QQQ", 
-    "SPY (標普500)": "SPY", 
-    "VTI (全美股市)": "VTI", 
-    "VT (全球股市)": "VT",
-    "0050.TW (台灣50)": "0050.TW"
-}
-
-ASSETS_CASH = {
-    "BNDW (全世界債券)": "BNDW", 
-    "BIL (1-3月國債)": "BIL", 
-    "TLT (20年期國債)": "TLT", 
-    "IEF (7-10年公債)": "IEF"
-}
-
-# 【新增】對照組清單
-ASSETS_BENCHMARK = {
-    "SPY (標普500)": "SPY",
-    "QQQ (納斯達克100)": "QQQ",
-    "VT (全球股市)": "VT",
-    "0050.TW (台灣50)": "0050.TW",
-    "VTI (全美股市)": "VTI"
-}
-
-# 2. 讀取 CSV (相容模式)
 def load_csv(symbol: str) -> pd.DataFrame:
-    # 嘗試不同檔名規則 (處理 .TW 或大小寫)
-    candidates = [f"{symbol}.csv", f"{symbol.upper()}.csv"]
+    # 模糊比對檔名 (支援大小寫與 .TW)
+    candidates = [f"{symbol}.csv", f"{symbol.upper()}.csv", f"{symbol.lower()}.csv"]
     path = None
     for c in candidates:
         p = DATA_DIR / c
@@ -102,265 +59,245 @@ def load_csv(symbol: str) -> pd.DataFrame:
     if path is None:
         return pd.DataFrame()
     
-    # 讀取 CSV
     try:
         df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
         df = df.sort_index()
         
-        # 優先找 Adj Close
+        # 處理價格欄位 (優先使用還原權值 Adj Close)
         if "Adj Close" in df.columns:
             df["Price"] = df["Adj Close"]
         elif "Close" in df.columns:
             df["Price"] = df["Close"]
+        elif "Score" in df.columns: # 針對分數檔
+            df["Price"] = df["Score"]
         else:
             return pd.DataFrame()
             
         return df[["Price"]]
-    except:
+    except Exception as e:
+        st.error(f"讀取 {symbol} 失敗: {e}")
         return pd.DataFrame()
 
-# 3. 取得共同日期區間 (支援多個代號)
-def get_common_range(sym_list):
-    dfs = []
-    for s in sym_list:
-        d = load_csv(s)
-        if not d.empty:
-            dfs.append(d)
-    
-    if not dfs:
-        return dt.date(2015, 1, 1), dt.date.today()
-    
-    start = max([d.index.min() for d in dfs]).date()
-    end = min([d.index.max() for d in dfs]).date()
-    return start, end
-
 ###############################################################
-# UI 輸入區
+# UI 參數設定
 ###############################################################
 
-st.divider()
-
-# 【修改】改為 4 欄，加入比較基準
-col1, col2, col3, col4 = st.columns(4)
-
+col1, col2 = st.columns(2)
 with col1:
-    re_label = st.selectbox("1️⃣ 土地 (REITs)", list(ASSETS_REAL_ESTATE.keys()))
-    sym_re = ASSETS_REAL_ESTATE[re_label]
+    ticker = st.text_input("交易標的 (預設 0050)", value="0050.TW")
 with col2:
-    stk_label = st.selectbox("2️⃣ 事業 (Stocks)", list(ASSETS_STOCKS.keys()), index=0)
-    sym_stk = ASSETS_STOCKS[stk_label]
-with col3:
-    cash_label = st.selectbox("3️⃣ 現金 (Cash)", list(ASSETS_CASH.keys()), index=0)
-    sym_cash = ASSETS_CASH[cash_label]
-with col4:
-    # 新增：選擇要比較的大盤
-    bench_label = st.selectbox("📊 比較基準 (Benchmark)", list(ASSETS_BENCHMARK.keys()), index=0)
-    sym_bench = ASSETS_BENCHMARK[bench_label]
+    score_file = st.text_input("景氣分數 CSV 檔名 (不含 .csv)", value="SCORE")
 
-# 計算日期範圍 (包含對照組)
-s_min, s_max = get_common_range([sym_re, sym_stk, sym_cash, sym_bench])
-st.info(f"📌 {sym_re} + {sym_stk} + {sym_cash} + {sym_bench} 的共同資料區間：{s_min} ~ {s_max}")
+with st.expander("⚙️ 策略參數與燈號定義", expanded=True):
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        buy_threshold = st.number_input("🔵 買進門檻 (分數 <= ?)", 9, 45, 16, help="藍燈區間通常為 9-16 分。低於此分數分批買進。")
+    with c2:
+        sell_threshold = st.number_input("🔴 賣出門檻 (分數 >= ?)", 9, 45, 32, help="黃紅燈(32-37)或紅燈(38-45)。高於此分數開始減碼或出清。")
+    with c3:
+        # 關鍵參數：訊號延遲
+        lag_months = st.number_input("⏳ 訊號延遲 (月)", 0, 3, 1, help="避免「看圖說故事」。1月的景氣分數通常在2月底才公佈，因此回測時必須延遲 1 個月才能買賣，否則就是作弊。")
 
-# 參數設定
-col_d1, col_d2, col_d3 = st.columns(3)
-with col_d1:
-    start_date = st.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=365*5)), min_value=s_min, max_value=s_max)
-with col_d2:
-    end_date = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
-with col_d3:
-    initial_capital = st.number_input("初始本金 (元)", value=1_000_000, step=100_000)
-
-rebalance_freq = st.radio(
-    "再平衡頻率 (策略靈魂)", 
-    ["每年 (Yearly)", "每季 (Quarterly)", "不平衡 (Buy & Hold)"], 
-    horizontal=True
-)
+    col_d1, col_d2, col_d3 = st.columns(3)
+    with col_d1:
+        start_date = st.date_input("開始日期", value=dt.date(2003, 1, 1)) # 0050 成立於 2003
+    with col_d2:
+        end_date = st.date_input("結束日期", value=dt.date.today())
+    with col_d3:
+        initial_capital = st.number_input("初始本金", value=1_000_000, step=100_000)
 
 ###############################################################
 # 回測核心邏輯
 ###############################################################
 
-if st.button("開始回測 🚀", type="primary"):
-    with st.spinner("正在模擬資產配置..."):
-        # 1. 讀取數據
-        df_re = load_csv(sym_re).loc[start_date:end_date]
-        df_stk = load_csv(sym_stk).loc[start_date:end_date]
-        df_cash = load_csv(sym_cash).loc[start_date:end_date]
-        df_bench = load_csv(sym_bench).loc[start_date:end_date] # 讀取基準
+if st.button("開始回測 🚀", type="primary", use_container_width=True):
+    with st.spinner("正在整合數據與計算訊號..."):
+        # 1. 讀取資料
+        df_price = load_csv(ticker)
+        df_score = load_csv(score_file)
 
-        missing = []
-        if df_re.empty: missing.append(sym_re)
-        if df_stk.empty: missing.append(sym_stk)
-        if df_cash.empty: missing.append(sym_cash)
-        if df_bench.empty: missing.append(sym_bench)
-
-        if missing:
-            st.error(f"❌ 資料不足！請確認 data 資料夾內是否有: {', '.join(missing)}")
+        if df_price.empty:
+            st.error(f"❌ 找不到 {ticker}.csv，請確認 data 資料夾。")
+            st.stop()
+        if df_score.empty:
+            st.error(f"❌ 找不到 {score_file}.csv，請確認 data 資料夾。")
             st.stop()
 
-        # 2. 合併資料
-        df = pd.DataFrame(index=df_re.index)
-        df["P_RE"] = df_re["Price"]
-        df = df.join(df_stk["Price"].rename("P_STK"), how="inner")
-        df = df.join(df_cash["Price"].rename("P_CASH"), how="inner")
-        df = df.join(df_bench["Price"].rename("P_BENCH"), how="inner")
+        # 2. 時間對齊
+        # 截取使用者選擇的時間段
+        df_price = df_price.loc[str(start_date):str(end_date)]
         
-        # 計算個別資產日報酬
-        df["Ret_RE"] = df["P_RE"].pct_change().fillna(0)
-        df["Ret_STK"] = df["P_STK"].pct_change().fillna(0)
-        df["Ret_CASH"] = df["P_CASH"].pct_change().fillna(0)
-        df["Ret_BENCH"] = df["P_BENCH"].pct_change().fillna(0)
+        if df_price.empty:
+            st.error("選定區間無股價資料。")
+            st.stop()
 
-        # 3. 模擬回測
-        dates = df.index
-        # 初始化：資金均分三份
-        holdings = {
-            "RE": initial_capital / 3,
-            "STK": initial_capital / 3,
-            "CASH": initial_capital / 3
-        }
+        # 3. 合併資料 (Resample: Month to Day)
+        # 建立一個主表，以股價的日資料為準
+        df = df_price.rename(columns={"Price": "Close"}).copy()
         
-        history_equity = []     # 記錄總資產
-        history_weights = []    # 記錄權重分佈
+        # 處理分數資料：
+        # 景氣分數是「月資料」，通常標示為該月1號 (例如 2024-01-01)
+        # 我們使用 reindex + ffill (前值填充) 將其擴展到每一天
+        # 例如：1/1 是 20分，那 1/2 ~ 1/31 每天都視為 20分
+        df_score_daily = df_score.reindex(df.index, method='ffill')
         
-        for i, d in enumerate(dates):
-            # A. 計算當日資產變化 (持有到收盤)
-            if i > 0:
-                holdings["RE"] *= (1 + df["Ret_RE"].iloc[i])
-                holdings["STK"] *= (1 + df["Ret_STK"].iloc[i])
-                holdings["CASH"] *= (1 + df["Ret_CASH"].iloc[i])
+        # 將分數併入主表
+        df["Score_Raw"] = df_score_daily["Price"]
+        
+        # 4. 處理「公告延遲 (Lag)」
+        # 重要：如果是 Lag=1，代表 2/1 才能看到 1/1 的分數
+        # 我們簡單用「交易日」來推算，一個月約 20~22 交易日
+        shift_days = int(lag_months * 22)
+        df["Score_Signal"] = df["Score_Raw"].shift(shift_days)
+        
+        # 去除因為 Shift 產生的空值
+        df = df.dropna()
+
+        # 5. 產生買賣訊號
+        # 1 = 持有, 0 = 空手
+        position = 0
+        pos_list = []
+        
+        for i in range(len(df)):
+            score = df["Score_Signal"].iloc[i]
             
-            total_equity = sum(holdings.values())
+            # 進場邏輯：分數掉入藍燈區 (<= 16)
+            if score <= buy_threshold:
+                position = 1
+            # 出場邏輯：分數衝上紅燈區 (>= 32)
+            elif score >= sell_threshold:
+                position = 0
+            # 中間區間 (黃綠燈)：維持原狀 (Hold)
             
-            # B. 判斷是否需要再平衡
-            do_rebalance = False
-            if rebalance_freq == "每年 (Yearly)":
-                if i > 0 and d.year != dates[i-1].year: # 跨年
-                    do_rebalance = True
-            elif rebalance_freq == "每季 (Quarterly)":
-                if i > 0 and d.quarter != dates[i-1].quarter: # 跨季
-                    do_rebalance = True
+            pos_list.append(position)
             
-            # C. 執行再平衡 (賣強補弱，回到 33%)
-            if do_rebalance:
-                target_amount = total_equity / 3
-                holdings["RE"] = target_amount
-                holdings["STK"] = target_amount
-                holdings["CASH"] = target_amount
-            
-            # D. 記錄數據
-            history_equity.append(total_equity)
-            history_weights.append([
-                holdings["RE"]/total_equity, 
-                holdings["STK"]/total_equity, 
-                holdings["CASH"]/total_equity
-            ])
-
-        # 寫回 DataFrame
-        df["Equity_Talmud"] = history_equity
+        df["Position"] = pos_list
         
-        # 4. 建立對照組 (Benchmark)
-        df["Equity_Benchmark"] = initial_capital * (1 + df["Ret_BENCH"]).cumprod()
+        # 6. 計算績效
+        df["Ret"] = df["Close"].pct_change().fillna(0)
+        # 策略報酬 = 昨天的持倉狀態 * 今天的漲跌幅
+        df["Strategy_Ret"] = df["Position"].shift(1) * df["Ret"]
         
-        # 權重拆解
-        w_arr = np.array(history_weights)
-        df["W_RE"] = w_arr[:, 0]
-        df["W_STK"] = w_arr[:, 1]
-        df["W_CASH"] = w_arr[:, 2]
+        # 資金曲線
+        df["Equity_Strategy"] = initial_capital * (1 + df["Strategy_Ret"]).cumprod()
+        df["Equity_Benchmark"] = initial_capital * (1 + df["Ret"]).cumprod() # 買入持有
 
-        # ---------------- KPI 計算 ----------------
-        def calc_metrics(equity_series):
-            total_ret = (equity_series.iloc[-1] / equity_series.iloc[0]) - 1
-            years = (equity_series.index[-1] - equity_series.index[0]).days / 365.25
-            cagr = (1 + total_ret) ** (1/years) - 1 if years > 0 else 0
-            mdd = (equity_series / equity_series.cummax() - 1).min()
-            daily_ret = equity_series.pct_change().fillna(0)
-            vol = daily_ret.std() * np.sqrt(252)
-            sharpe = (cagr - 0.04) / vol if vol > 0 else 0 # 假設無風險 4%
-            return total_ret, cagr, mdd, vol, sharpe
+        # ----------------------------------------------
+        # 視覺化展示
+        # ----------------------------------------------
+        
+        # 計算 KPI
+        def calc_kpi(series):
+            total_ret = (series.iloc[-1] / initial_capital) - 1
+            days = (series.index[-1] - series.index[0]).days
+            cagr = (1 + total_ret) ** (365 / days) - 1 if days > 0 else 0
+            mdd = (series / series.cummax() - 1).min()
+            return total_ret, cagr, mdd
 
-        res_tal = calc_metrics(df["Equity_Talmud"])
-        res_bench = calc_metrics(df["Equity_Benchmark"])
+        ret_str, cagr_str, mdd_str = calc_kpi(df["Equity_Strategy"])
+        ret_bch, cagr_bch, mdd_bch = calc_kpi(df["Equity_Benchmark"])
 
-        # ==========================================================
-        # 顯示結果
-        # ==========================================================
-
-        # CSS 樣式 (卡片與顏色)
-        st.markdown("""
-        <style>
-            .kpi-card {
-                background-color: var(--secondary-background-color);
-                border-radius: 12px; padding: 15px; text-align: center;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1);
-            }
-            .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--text-color); }
-            .kpi-lbl { font-size: 0.9rem; opacity: 0.7; }
-            .kpi-sub { font-size: 0.8rem; color: #666; margin-top: 5px; }
-            .pos { color: #21c354; font-weight: bold; }
-            .neg { color: #ff3c3c; font-weight: bold; }
-        </style>
-        """, unsafe_allow_html=True)
-
-        def kpi_html(label, val, bench_val, is_pct=False):
-            val_str = f"{val:.2%}" if is_pct else f"${val:,.0f}"
-            bench_str = f"{bench_val:.2%}" if is_pct else f"${bench_val:,.0f}"
-            return f"""
-            <div class="kpi-card">
-                <div class="kpi-lbl">{label}</div>
-                <div class="kpi-val">{val_str}</div>
-                <div class="kpi-sub">基準: {bench_str}</div>
-            </div>
-            """
-
-        # 1. KPI 卡片
-        row_kpi = st.columns(4)
-        with row_kpi[0]: st.markdown(kpi_html("期末總資產", res_tal[0]*initial_capital + initial_capital, res_bench[0]*initial_capital + initial_capital), unsafe_allow_html=True)
-        with row_kpi[1]: st.markdown(kpi_html("年化報酬 (CAGR)", res_tal[1], res_bench[1], True), unsafe_allow_html=True)
-        with row_kpi[2]: st.markdown(kpi_html("最大回撤 (MDD)", res_tal[2], res_bench[2], True), unsafe_allow_html=True)
-        with row_kpi[3]: st.markdown(kpi_html("波動率 (Risk)", res_tal[3], res_bench[3], True), unsafe_allow_html=True)
+        # KPI 卡片
+        kpi_cols = st.columns(4)
+        with kpi_cols[0]: st.metric("期末總資產", f"${df['Equity_Strategy'].iloc[-1]:,.0f}", f"vs 買進持有: ${df['Equity_Benchmark'].iloc[-1]:,.0f}")
+        with kpi_cols[1]: st.metric("總報酬率", f"{ret_str:.1%}", f"差額: {(ret_str-ret_bch):.1%}")
+        with kpi_cols[2]: st.metric("年化報酬 (CAGR)", f"{cagr_str:.1%}", f"基準: {cagr_bch:.1%}")
+        with kpi_cols[3]: st.metric("最大回撤 (MDD)", f"{mdd_str:.1%}", f"基準: {mdd_bch:.1%}", delta_color="inverse")
 
         st.markdown("---")
 
-        # 2. 資金曲線圖
-        st.markdown("### 📈 策略效益分析")
-        tab1, tab2 = st.tabs(["資金成長曲線", "動態權重 (再平衡視覺化)"])
-
+        # 圖表 1: 資金曲線
+        tab1, tab2 = st.tabs(["💰 資金成長曲線", "🚦 買賣點與燈號"])
+        
         with tab1:
             fig_eq = go.Figure()
-            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Talmud"], name="塔木德策略", line=dict(color="#636EFA", width=3)))
-            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Benchmark"], name=f"基準: {bench_label}", line=dict(color="#B0BEC5", width=2, dash='dash')))
-            fig_eq.update_layout(template="plotly_white", height=450, hovermode="x unified", title=f"策略 vs {bench_label}", legend=dict(orientation="h", y=1.02, x=1, xanchor="right"))
+            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], name="景氣燈號策略", line=dict(color="#00C853", width=2)))
+            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Benchmark"], name="買進持有 (0050)", line=dict(color="gray", width=1, dash='dot')))
+            fig_eq.update_layout(height=450, template="plotly_white", hovermode="x unified", title="策略 vs 大盤 績效比較")
             st.plotly_chart(fig_eq, use_container_width=True)
 
         with tab2:
-            st.caption("觀察重點：當某一資產大漲導致權重擴大時，再平衡機制會將其「削平」，並加碼到底部資產。")
-            fig_w = go.Figure()
-            fig_w.add_trace(go.Scatter(x=df.index, y=df["W_RE"], name=f"土地: {re_label}", stackgroup='one', line=dict(width=0), fillcolor='rgba(0, 204, 150, 0.5)'))
-            fig_w.add_trace(go.Scatter(x=df.index, y=df["W_STK"], name=f"股票: {stk_label}", stackgroup='one', line=dict(width=0), fillcolor='rgba(239, 85, 59, 0.5)'))
-            fig_w.add_trace(go.Scatter(x=df.index, y=df["W_CASH"], name=f"現金: {cash_label}", stackgroup='one', line=dict(width=0), fillcolor='rgba(99, 110, 250, 0.5)'))
-            fig_w.update_layout(template="plotly_white", height=400, yaxis=dict(tickformat=".0%", range=[0, 1], title="資產權重"), hovermode="x unified", legend=dict(orientation="h"))
-            st.plotly_chart(fig_w, use_container_width=True)
+            # 準備買賣點資料
+            # 買點：今天 Position=1 且 昨天=0
+            buys = df[(df["Position"] == 1) & (df["Position"].shift(1) == 0)]
+            # 賣點：今天 Position=0 且 昨天=1
+            sells = df[(df["Position"] == 0) & (df["Position"].shift(1) == 1)]
 
-        # 3. 數據表格
-        st.markdown("### 📋 詳細數據")
+            fig_sig = go.Figure()
+
+            # 股價線
+            fig_sig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="股價", line=dict(color="#333", width=1.5)))
+
+            # 標記買賣點
+            fig_sig.add_trace(go.Scatter(
+                x=buys.index, y=buys["Close"], mode="markers", name="買進 (藍燈)",
+                marker=dict(symbol="triangle-up", size=12, color="blue", line=dict(width=1, color="white"))
+            ))
+            fig_sig.add_trace(go.Scatter(
+                x=sells.index, y=sells["Close"], mode="markers", name="賣出 (紅燈)",
+                marker=dict(symbol="triangle-down", size=12, color="red", line=dict(width=1, color="white"))
+            ))
+
+            # 加上景氣分數背景 (使用 Heatmap 或區間)
+            # 這裡我們用「副圖」來畫分數，比較清晰
+            
+            fig_sig.update_layout(height=400, template="plotly_white", hovermode="x unified", title="進出場點位回顧")
+            st.plotly_chart(fig_sig, use_container_width=True)
+            
+            # 副圖：景氣分數
+            fig_score = go.Figure()
+            fig_score.add_trace(go.Scatter(x=df.index, y=df["Score_Signal"], name="景氣分數 (已延遲)", line=dict(color="orange")))
+            
+            # 畫出燈號區間 (背景色帶)
+            # 藍燈 (<=16)
+            fig_score.add_hrect(y0=9, y1=16, fillcolor="blue", opacity=0.1, layer="below", annotation_text="藍燈 (買)")
+            # 紅燈 (>=38, 這裡畫到32當作警戒)
+            fig_score.add_hrect(y0=32, y1=37, fillcolor="orange", opacity=0.1, layer="below", annotation_text="黃紅")
+            fig_score.add_hrect(y0=38, y1=55, fillcolor="red", opacity=0.1, layer="below", annotation_text="紅燈 (賣)")
+            
+            # 門檻線
+            fig_score.add_hline(y=buy_threshold, line_dash="dash", line_color="blue")
+            fig_score.add_hline(y=sell_threshold, line_dash="dash", line_color="red")
+            
+            fig_score.update_layout(height=250, template="plotly_white", title="景氣對策信號走勢", yaxis=dict(range=[9, 45]))
+            st.plotly_chart(fig_score, use_container_width=True)
+
+        # 詳細數據表
+        st.markdown("### 📋 歷年交易紀錄")
+        trades = pd.concat([
+            buys["Close"].rename("買入價格"),
+            sells["Close"].rename("賣出價格")
+        ], axis=1).sort_index()
         
-        # 準備資料
-        comparison_data = {
-            "策略": ["塔木德策略", f"基準 ({bench_label})"],
-            "總報酬率": [res_tal[0], res_bench[0]],
-            "CAGR (年化)": [res_tal[1], res_bench[1]],
-            "最大回撤 (MDD)": [res_tal[2], res_bench[2]],
-            "年化波動率": [res_tal[3], res_bench[3]],
-            "Sharpe Ratio": [res_tal[4], res_bench[4]]
-        }
-        df_comp = pd.DataFrame(comparison_data).set_index("策略")
+        # 整理成表格
+        trade_list = []
+        # 簡單配對邏輯 (僅供參考)
+        temp_buy = None
+        for date, row in trades.iterrows():
+            if not pd.isna(row["買入價格"]):
+                temp_buy = (date, row["買入價格"])
+            elif not pd.isna(row["賣出價格"]) and temp_buy:
+                buy_date, buy_price = temp_buy
+                sell_price = row["賣出價格"]
+                ret = (sell_price - buy_price) / buy_price
+                trade_list.append({
+                    "買入日期": buy_date.strftime("%Y-%m-%d"),
+                    "買入價格": buy_price,
+                    "賣出日期": date.strftime("%Y-%m-%d"),
+                    "賣出價格": sell_price,
+                    "報酬率": ret
+                })
+                temp_buy = None
         
-        st.dataframe(
-            df_comp.style
-            .format("{:.2%}", subset=["總報酬率", "CAGR (年化)", "最大回撤 (MDD)", "年化波動率"])
-            .format("{:.2f}", subset=["Sharpe Ratio"])
-            .background_gradient(cmap="RdYlGn", subset=["總報酬率", "CAGR (年化)", "Sharpe Ratio"])
-            .background_gradient(cmap="RdYlGn_r", subset=["最大回撤 (MDD)", "年化波動率"]),
-            use_container_width=True
-        )
+        if trade_list:
+            df_trades = pd.DataFrame(trade_list)
+            st.dataframe(
+                df_trades.style.format({
+                    "買入價格": "{:.2f}", 
+                    "賣出價格": "{:.2f}", 
+                    "報酬率": "{:.2%}"
+                }).background_gradient(cmap="RdYlGn", subset=["報酬率"]),
+                use_container_width=True
+            )
+        else:
+            st.info("區間內無完整買賣交易紀錄 (可能一直持有或空手)")
