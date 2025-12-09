@@ -1,47 +1,73 @@
 import requests
 import pandas as pd
 import os
-import sys  # 用來強制報錯
+import sys
 from datetime import datetime
 from pathlib import Path
+import time
+import random
 
 # -----------------------------------------------------
 # 設定
 # -----------------------------------------------------
 DATA_DIR = Path("data")
 CSV_PATH = DATA_DIR / "SCORE.csv"
-URL = "https://index.ndc.gov.tw/n/json/data/economy/indicator"
 
-# 【關鍵修改 1】加入 User-Agent 偽裝成瀏覽器
+# 國發會首頁 (我們去這裡拿 Cookie)
+BASE_URL = "https://index.ndc.gov.tw/n/zh_tw/index"
+# 資料 API (真正拿數據的地方)
+API_URL = "https://index.ndc.gov.tw/n/json/data/economy/indicator"
+
+# 偽裝成 Chrome 瀏覽器的表頭 (Headers)
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Referer": "https://index.ndc.gov.tw/n/zh_tw/index",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Referer": "https://index.ndc.gov.tw/n/zh_tw/data/eco", # 告訴伺服器我們是從數據頁面來的
+    "X-Requested-With": "XMLHttpRequest",
     "Origin": "https://index.ndc.gov.tw"
 }
 
 def fetch_score_data():
     print("🚀 [Job: Score] 開始抓取國發會景氣對策信號...")
 
-    # 確保資料夾存在
+    # 1. 確保資料夾存在
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 2. 初始化 Session (關鍵步驟！這就是瀏覽器的記憶體)
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
     try:
-        # 發送 POST 請求 (加入 headers)
-        res = requests.post(URL, data={'sys': 10, 'cat': 15, 'ind': 74}, headers=HEADERS, timeout=15)
+        # [步驟 A] 先造訪首頁，取得 Session Cookie (通行證)
+        print(f"   ...正在造訪首頁取得通行證: {BASE_URL}")
+        session.get(BASE_URL, timeout=10)
+        
+        # 稍微休息一下，模擬真人行為
+        time.sleep(random.uniform(1, 2))
+
+        # [步驟 B] 帶著 Cookie 去請求 API
+        print("   ...正在請求資料 API")
+        # 參數：sys=10(景氣), cat=15(燈號), ind=74(分數)
+        payload = {'sys': 10, 'cat': 15, 'ind': 74}
+        res = session.post(API_URL, data=payload, timeout=15)
+        
+        # 檢查狀態碼
         res.raise_for_status()
         data = res.json()
+        
     except Exception as e:
         print(f"❌ [Job: Score] API 連線失敗: {e}")
-        sys.exit(1) # 【關鍵修改 2】強制讓 Action 失敗亮紅燈
+        # 如果失敗，強制讓 GitHub Actions 亮紅燈
+        sys.exit(1)
 
-    # 解析 JSON
+    # 3. 解析 JSON 資料結構
     target_data = None
     if isinstance(data, dict):
          for key, val in data.items():
             if isinstance(val, dict) and "lines" in val:
                 for line in val["lines"]:
                     title = line.get("title", "")
-                    # 國發會 API 有時候 title 會變，這裡做模糊比對
+                    # 模糊比對標題，防止官方改字
                     if "景氣對策信號" in title and "(分)" in title:
                         target_data = line["data"]
                         break
@@ -49,34 +75,37 @@ def fetch_score_data():
             
     if not target_data:
         print("❌ [Job: Score] 找不到景氣分數資料 (API 回傳結構可能改變)")
-        # 印出部分資料幫助除錯
-        print(f"DEBUG: Data keys received: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
-        sys.exit(1) # 強制失敗
+        print(f"DEBUG keys: {list(data.keys()) if isinstance(data, dict) else 'Not dict'}")
+        sys.exit(1)
 
-    # 整理數據
+    # 4. 整理數據
     records = []
+    print(f"   ...取得 {len(target_data)} 筆資料，正在整理...")
     for item in target_data:
         try:
-            raw_date = str(item['x'])  # "202301"
-            score = item['y']
+            raw_date = str(item['x'])  # 例如 "198401"
+            score = item['y']          # 例如 39
+            
+            # 轉換日期格式: 198401 -> 1984-01-01
             dt_obj = datetime.strptime(raw_date, "%Y%m")
             fmt_date = dt_obj.strftime("%Y-%m-%d")
             records.append({"Date": fmt_date, "Score": score})
-        except Exception as e:
+        except Exception:
             continue
 
     if not records:
         print("❌ [Job: Score] 解析後無有效數據")
         sys.exit(1)
 
-    # 存檔
+    # 5. 存檔
     df = pd.DataFrame(records)
     df = df.set_index("Date")
     df = df.sort_index()
     
     df.to_csv(CSV_PATH)
     print(f"✅ [Job: Score] 更新完成！已儲存至: {CSV_PATH}")
-    print(f"   最新數據: {df.index[-1]} -> {df['Score'].iloc[-1]} 分")
+    print(f"   資料區間: {df.index[0]} ~ {df.index[-1]}")
+    print(f"   最新分數: {df['Score'].iloc[-1]} 分")
 
 if __name__ == "__main__":
     fetch_score_data()
