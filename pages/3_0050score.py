@@ -1,5 +1,5 @@
 ###############################################################
-# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (五色燈號版)
+# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (五色燈號 + 初始部位版)
 ###############################################################
 
 import os
@@ -119,9 +119,20 @@ def load_csv_smart(symbol: str) -> pd.DataFrame:
 
 st.divider()
 
+# 固定使用 SCORE
+score_file = "SCORE" 
+
 col1, col2 = st.columns(2)
-with col1: ticker = st.text_input("📈 交易標的", value="0050.TW")
-with col2: score_file = st.text_input("🚦 景氣分數檔名", value="SCORE")
+with col1: 
+    # 修改點：使用 Selectbox 並加入 006208
+    ticker = st.selectbox("📈 交易標的", ["0050.TW", "006208.TW", "QQQ", "SPY"], index=0)
+with col2: 
+    # 修改點：新增初始部位選擇
+    initial_pos_option = st.radio(
+        "🚀 初始部位狀態", 
+        ["空手 (等待第一個藍燈訊號)", "已持有 (假設第一天就滿倉)"],
+        horizontal=True
+    )
 
 df_check_p = load_csv_smart(ticker)
 df_check_s = load_csv_smart(score_file)
@@ -133,7 +144,7 @@ if not df_check_p.empty and not df_check_s.empty:
     v_end = min(df_check_p.index.max().date(), df_check_s.index.max().date())
     if v_start <= v_end:
         valid_start, valid_end = v_start, v_end
-        st.info(f"📌 共同資料區間：{valid_start} ~ {valid_end}")
+        st.info(f"📌 {ticker} + 景氣分數 共同資料區間：{valid_start} ~ {valid_end}")
     else:
         st.error("❌ 資料日期無交集")
         st.stop()
@@ -169,13 +180,19 @@ if st.button("開始回測 🚀", type="primary"):
 
         if df.empty: st.error("資料不足"); st.stop()
 
-        # 訊號產生
-        pos = 0
+        # 訊號產生 (修改點：根據使用者選擇設定初始狀態)
+        current_pos = 1 if "已持有" in initial_pos_option else 0
         pos_list = []
+        
         for s in df["Score_Signal"].values:
-            if s <= buy_threshold: pos = 1
-            elif s >= sell_threshold: pos = 0
-            pos_list.append(pos)
+            if s <= buy_threshold: 
+                current_pos = 1 # 藍燈買進/續抱
+            elif s >= sell_threshold: 
+                current_pos = 0 # 紅燈賣出/空手
+            # 其他情況維持 current_pos 不變
+            
+            pos_list.append(current_pos)
+            
         df["Position"] = pos_list
         
         # 績效
@@ -273,8 +290,22 @@ if st.button("開始回測 🚀", type="primary"):
         st.markdown("### 📋 歷年交易紀錄")
         trades = []
         temp_buy = None
-        for date, row in df[df["Position"] != df["Position"].shift(1)].iterrows():
-            if row["Position"] == 1: temp_buy = (date, row["Close"])
+        
+        # 處理第一筆就持有的情況 (如果使用者選「已持有」，且第一天沒有買進訊號，我們也把它當作一次買入)
+        # 但通常為了表格好看，我們只列出「訊號改變」的點
+        # 這裡的邏輯是找出 Position 變動的點
+        signals = df[df["Position"] != df["Position"].shift(1)]
+        
+        # 如果第一天就是 Position=1 (已持有)，我們手動補一個買入點在第一天
+        if not df.empty and df["Position"].iloc[0] == 1:
+             # 把第一天加入 signals 處理序列 (如果它沒在 signals 裡的話)
+             if df.index[0] not in signals.index:
+                 # 這裡簡單處理：直接初始化 temp_buy
+                 temp_buy = (df.index[0], df["Close"].iloc[0])
+
+        for date, row in signals.iterrows():
+            if row["Position"] == 1: 
+                temp_buy = (date, row["Close"])
             elif row["Position"] == 0 and temp_buy:
                 b_d, b_p = temp_buy
                 ret = (row["Close"]-b_p)/b_p
