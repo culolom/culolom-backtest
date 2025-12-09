@@ -315,9 +315,12 @@ if st.button("開始回測 🚀", type="primary"):
         df_comp = pd.DataFrame(comparison_data).set_index("策略")
         
         # 格式化顯示
+        # 【修正重點】：subset 裡面的名稱必須跟上面的 comparison_data Key 完全一樣
         st.dataframe(
-            df_comp.style.format("{:.2%}")
-            .background_gradient(cmap="RdYlGn", subset=["總報酬率", "CAGR", "Sharpe Ratio"])
+            df_comp.style
+            .format("{:.2%}", subset=["總報酬率", "CAGR (年化)", "最大回撤 (MDD)", "年化波動率"])  # 這些顯示百分比
+            .format("{:.2f}", subset=["Sharpe Ratio"])  # 夏普值顯示數字就好，不用百分比
+            .background_gradient(cmap="RdYlGn", subset=["總報酬率", "CAGR (年化)", "Sharpe Ratio"]) # 修正這裡的名稱
             .background_gradient(cmap="RdYlGn_r", subset=["最大回撤 (MDD)", "年化波動率"]), # MDD 越小越綠
             use_container_width=True
         )
