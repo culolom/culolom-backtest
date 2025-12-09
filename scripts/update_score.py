@@ -1,8 +1,8 @@
 import requests
 import pandas as pd
-import os
-import sys
 import io
+import sys
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -12,159 +12,179 @@ from pathlib import Path
 DATA_DIR = Path("data")
 CSV_PATH = DATA_DIR / "SCORE.csv"
 
-# 政府資料開放平臺 API (直接鎖定國發會「景氣對策信號」的固定 ID: 14603)
-# 這是最穩定的入口，比搜尋更可靠
-DATASET_ID = "14603"
-API_URL = f"https://data.gov.tw/api/v2/rest/dataset/{DATASET_ID}"
+# 政府資料開放平臺「網頁版」搜尋連結 (給人看的)
+SEARCH_PAGE = "https://data.gov.tw/datasets/search"
+
+# 用來查詢詳情的 API 樣板
+DATASET_API_TEMPLATE = "https://data.gov.tw/api/v2/rest/dataset/{}"
 
 def parse_taiwan_date(date_str):
-    """ 強力解析各種民國/西元日期格式 """
+    """ 解析日期 (民國/西元) """
     s = str(date_str).strip()
     try:
-        # 格式 1: "198401" (6位純數字)
+        # 198401
         if len(s) == 6 and s.isdigit():
             return datetime.strptime(s, "%Y%m")
-        # 格式 2: "07301" (5位純數字 - 民國)
+        # 07301
         elif len(s) == 5 and s.isdigit():
             year = int(s[:3]) + 1911
             month = int(s[3:])
             return datetime(year, month, 1)
-        # 格式 3: "1984-01" 或 "1984/01"
+        # 1984-01, 1984/01
         elif "-" in s or "/" in s:
             s = s.replace("/", "-")
             parts = s.split("-")
             if len(parts) >= 2:
                 year = int(parts[0])
                 month = int(parts[1])
-                if year < 1911: year += 1911 # 修正民國年
+                if year < 1911: year += 1911
                 return datetime(year, month, 1)
     except:
         pass
     return None
 
+def get_latest_dataset_id():
+    """ 爬取網頁搜尋結果，找出最新的資料集 ID """
+    print("   ...正在爬取 data.gov.tw 搜尋頁面...")
+    
+    # 搜尋關鍵字：景氣指標及燈號
+    # 我們針對這個標題搜尋，準確度最高
+    params = {"title": "景氣指標及燈號"}
+    
+    try:
+        # 偽裝成瀏覽器
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        res = requests.get(SEARCH_PAGE, params=params, headers=headers, timeout=15)
+        res.raise_for_status()
+        html = res.text
+        
+        # 使用 Regex 尋找 dataset ID
+        # 網頁連結通常長這樣: /dataset/14603
+        # 我們找出現的第一個匹配項
+        match = re.search(r'/dataset/(\d+)', html)
+        
+        if match:
+            found_id = match.group(1)
+            print(f"   ✅ 找到最新資料集 ID: {found_id}")
+            return found_id
+        else:
+            print("❌ 在搜尋結果頁面找不到 Dataset ID")
+            # 印出一點 HTML 除錯
+            print(f"DEBUG HTML: {html[:500]}...")
+            return None
+            
+    except Exception as e:
+        print(f"❌ 爬取搜尋頁面失敗: {e}")
+        return None
+
 def fetch_score_data():
-    print(f"🚀 [Job: Score] 開始抓取國發會景氣對策信號 (ID: {DATASET_ID})...")
+    print("🚀 [Job: Score] 開始執行 (網頁爬蟲 + API 下載)...")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. 呼叫 API 取得 Metadata
+    # 1. 自動抓取 ID
+    dataset_id = get_latest_dataset_id()
+    
+    # 如果真的抓不到，有一個備用方案 (這是目前已知的另一個 ID)
+    if not dataset_id:
+        print("⚠️ 無法自動取得 ID，嘗試使用備用 ID (44376)...")
+        dataset_id = "44376"
+
+    # 2. 呼叫 API 取得下載點
+    api_url = DATASET_API_TEMPLATE.format(dataset_id)
+    print(f"   ...正在查詢 API: {api_url}")
+    
     try:
-        res = requests.get(API_URL, timeout=15)
+        res = requests.get(api_url, timeout=15)
         res.raise_for_status()
         meta = res.json()
         
-        # 檢查是否成功
-        if not meta.get("success"):
-            print(f"❌ API 回傳失敗: {meta}")
-            sys.exit(1)
-            
         resources = meta.get("result", {}).get("resources", [])
         if not resources:
-            print("❌ API 回傳成功但「無任何資源檔案」(Resources empty)")
+            print("❌ API 回傳資源為空 (Resources empty)")
             sys.exit(1)
             
     except Exception as e:
-        print(f"❌ 連線 API 失敗: {e}")
+        print(f"❌ API 連線失敗: {e}")
         sys.exit(1)
 
-    # 2. 暴力尋找 CSV 下載點
+    # 3. 尋找 CSV
     csv_url = None
-    print(f"   ...分析 {len(resources)} 個資源檔案...")
-    
-    # 收集所有格式以供除錯
-    found_formats = []
-    
     for r in resources:
-        # 取得各種可能的格式標籤
         fmt = str(r.get("file_ext") or "").lower()
-        fmt2 = str(r.get("format") or "").lower()
-        url = str(r.get("resource_url") or "").lower()
-        desc = str(r.get("resource_description") or "")
-        
-        found_formats.append(f"{fmt}/{fmt2}")
-
-        # 判定標準：只要任何一個欄位暗示它是 CSV
-        is_csv = "csv" in fmt or "csv" in fmt2 or url.endswith(".csv") or "csv" in desc.lower()
-        
-        if is_csv:
+        if "csv" in fmt:
             csv_url = r.get("resource_url")
-            print(f"   ✅ 找到 CSV 資源: {desc} ({csv_url})")
+            print(f"   ✅ 找到 CSV 資源: {r.get('resource_description')} ({csv_url})")
             break
-    
+            
     if not csv_url:
-        print("❌ 找不到任何 CSV 資源")
-        print(f"   DEBUG: 找到的格式列表: {found_formats}")
-        print("   建議：國發會可能暫時移除了 CSV，請稍後再試或改用 XML 解析。")
+        print("❌ 該資料集沒有 CSV 格式")
         sys.exit(1)
 
-    # 3. 下載 CSV
+    # 4. 下載與處理
     try:
-        print(f"   ⬇️ 正在下載: {csv_url}")
+        print(f"   ⬇️ 正在下載 CSV...")
         file_res = requests.get(csv_url, timeout=60)
         file_res.raise_for_status()
         
-        # 嘗試解碼 (Big5 是政府資料最常用的編碼)
+        # 解碼
         content = file_res.content
         try:
             df_raw = pd.read_csv(io.BytesIO(content), encoding='utf-8')
-        except UnicodeDecodeError:
+        except:
             df_raw = pd.read_csv(io.BytesIO(content), encoding='big5')
             
-        print(f"   ...下載成功，原始資料大小: {df_raw.shape}")
+        print(f"   ...解析中 (原始大小 {df_raw.shape})...")
+        
+        records = []
+        # 暴力掃描欄位抓取 日期 & 分數
+        for idx, row in df_raw.iterrows():
+            date_val = None
+            score_val = None
+            
+            for col in df_raw.columns:
+                val = str(row[col]).strip()
+                
+                # 抓日期
+                if date_val is None:
+                    dt = parse_taiwan_date(val)
+                    if dt: 
+                        date_val = dt
+                        continue
+                
+                # 抓分數 (排除日期數字)
+                if score_val is None:
+                    # 移除小數點後檢查是否為數字
+                    clean_val = val.replace('.', '', 1)
+                    if clean_val.isdigit():
+                        v = float(val)
+                        # 景氣分數特徵：9 ~ 55 分
+                        if 9 <= v <= 55:
+                            score_val = v
+            
+            if date_val and score_val:
+                records.append({
+                    "Date": date_val.strftime("%Y-%m-%d"),
+                    "Score": score_val
+                })
+
+        if not records:
+            print("❌ 解析後無資料，無法識別日期與分數欄位")
+            sys.exit(1)
+
+        # 5. 存檔
+        df = pd.DataFrame(records)
+        df = df.drop_duplicates(subset=["Date"], keep="last")
+        df = df.set_index("Date").sort_index()
+        
+        df.to_csv(CSV_PATH)
+        print(f"🎉 [Job: Score] 成功！已儲存 {len(df)} 筆資料至: {CSV_PATH}")
+        print(f"   最新數據: {df.index[-1]} -> {df['Score'].iloc[-1]} 分")
 
     except Exception as e:
-        print(f"❌ 下載或讀取 CSV 失敗: {e}")
+        print(f"❌ 下載或解析失敗: {e}")
         sys.exit(1)
-
-    # 4. 解析資料 (欄位識別)
-    records = []
-    # 國發會 CSV 欄位名稱常變，我們用「內容」來判斷
-    # 策略：每一行都檢查，只要能抓到「日期」和「分數」就收錄
-    
-    for idx, row in df_raw.iterrows():
-        date_val = None
-        score_val = None
-        
-        # 遍歷該行的所有欄位
-        for col in df_raw.columns:
-            val = str(row[col]).strip()
-            
-            # 嘗試解析日期
-            if date_val is None:
-                dt = parse_taiwan_date(val)
-                if dt:
-                    date_val = dt
-                    continue # 這一欄是日期，就不用檢查是不是分數了
-
-            # 嘗試解析分數 (9~55分)
-            # 排除看起來像日期的數字 (如 202301)
-            if score_val is None and val.replace('.', '', 1).isdigit():
-                v_float = float(val)
-                # 景氣分數通常在 9 到 55 之間 (紅燈45，但也許有極端值，放寬一點)
-                # 同時要避免抓到 "2023" 這種年份
-                if 9 <= v_float <= 55:
-                    score_val = v_float
-
-        if date_val and score_val:
-            records.append({
-                "Date": date_val.strftime("%Y-%m-%d"),
-                "Score": score_val
-            })
-
-    if not records:
-        print("❌ 解析失敗：無法從 CSV 中識別出日期與分數")
-        print("   DEBUG: 前幾行資料範例：")
-        print(df_raw.head().to_string())
-        sys.exit(1)
-
-    # 5. 存檔
-    df = pd.DataFrame(records)
-    df = df.drop_duplicates(subset=["Date"], keep="last")
-    df = df.set_index("Date").sort_index()
-    
-    df.to_csv(CSV_PATH)
-    print(f"🎉 [Job: Score] 成功更新！已儲存 {len(df)} 筆資料至: {CSV_PATH}")
-    print(f"   資料區間: {df.index[0]} ~ {df.index[-1]}")
-    print(f"   最新分數: {df['Score'].iloc[-1]} 分")
 
 if __name__ == "__main__":
     fetch_score_data()
