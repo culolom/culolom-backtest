@@ -1,5 +1,5 @@
 ###############################################################
-# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (真實延遲版)
+# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (分批進出版)
 ###############################################################
 
 import os
@@ -12,7 +12,16 @@ from plotly.subplots import make_subplots
 from pathlib import Path
 import sys
 
-
+# ------------------------------------------------------
+# 🔒 驗證守門員
+# ------------------------------------------------------
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+try:
+    import auth
+    if not auth.check_password():
+        st.stop()
+except ImportError:
+    pass 
 
 ###############################################################
 # 設定
@@ -34,8 +43,8 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.5em;'>🚦 國發會景氣燈號策略 (Macro Strategy)</h1>", unsafe_allow_html=True)
-st.markdown("<b>股市名言：「藍燈買股票，紅燈數鈔票」。</b>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>🚦 國發會景氣燈號策略 (分批進出版)</h1>", unsafe_allow_html=True)
+st.markdown("<b>進階策略：「藍燈分批買，紅燈分批賣」。平滑成本，降低風險。</b>", unsafe_allow_html=True)
 
 # 燈號說明
 st.info("""
@@ -131,24 +140,31 @@ with col_d1: start_date = st.date_input("開始日期", value=valid_start, min_v
 with col_d2: end_date = st.date_input("結束日期", value=valid_end, min_value=valid_start, max_value=valid_end)
 with col_d3: initial_capital = st.number_input("初始本金", value=1_000_000, step=100_000)
 
-# 補充說明與參數
-st.info("""
-💡 **交易規則說明**：
-景氣對策信號通常於每月 **27號** 公佈「上個月」的分數。
-本策略設定為 **「公佈日下個月的第一個交易日」** 進行買賣，以符合真實操作。
-(例如：1月分數 -> 2/27 公佈 -> 3/1 進場，資料延遲約 2 個月)
-""")
+st.markdown("---")
+st.subheader("⚙️ 進出策略參數")
 
-col_p1, col_p2 = st.columns(2)
-with col_p1: buy_threshold = st.number_input("🔵 買進門檻 (<=)", 9, 45, 16)
-with col_p2: sell_threshold = st.number_input("🔴 賣出門檻 (>=)", 9, 45, 32)
+c1, c2 = st.columns(2)
+with c1:
+    st.markdown("#### 🔵 買進設定 (藍燈)")
+    buy_threshold = st.number_input("觸發分數 (<=)", 9, 45, 16)
+    buy_batches = st.number_input("分批買進次數", 1, 12, 5, help="分成幾筆資金進場")
+    buy_interval = st.number_input("買進間隔 (天)", 1, 90, 30, help="每隔幾天買一筆")
+
+with c2:
+    st.markdown("#### 🔴 賣出設定 (紅燈)")
+    sell_threshold = st.number_input("觸發分數 (>=)", 9, 45, 32)
+    sell_batches = st.number_input("分批賣出次數", 1, 12, 5, help="分成幾筆賣出")
+    sell_interval = st.number_input("賣出間隔 (天)", 1, 90, 30, help="每隔幾天賣一筆")
+
+# 說明
+st.caption(f"💡 邏輯：當分數 <= {buy_threshold}，每 {buy_interval} 天買進 1/{buy_batches} 資金。若脫離藍燈區尚未買滿，則一次補滿(歐印)。賣出同理。")
 
 ###############################################################
 # 回測與繪圖
 ###############################################################
 
 if st.button("開始回測 🚀", type="primary"):
-    with st.spinner("正在計算..."):
+    with st.spinner("正在模擬分批交易..."):
         # 1. 準備資料
         df_price = df_check_p.loc[str(start_date):str(end_date)]
         df_score = df_check_s
@@ -160,25 +176,122 @@ if st.button("開始回測 🚀", type="primary"):
         df["Score_Raw"] = df_score_daily["Price"]
         
         # 3. 處理延遲 (固定 2 個月)
-        # 1月分數(1/1) -> 3月交易(3/1)，相差約 40 個交易日
         shift_days = 40 
         df["Score_Signal"] = df["Score_Raw"].shift(shift_days)
         df = df.dropna()
 
         if df.empty: st.error("資料不足"); st.stop()
 
-        # 2. 訊號
-        current_pos = 1 if "已持有" in initial_pos_option else 0
-        pos_list = []
-        for s in df["Score_Signal"].values:
-            if s <= buy_threshold: current_pos = 1
-            elif s >= sell_threshold: current_pos = 0
-            pos_list.append(current_pos)
-        df["Position"] = pos_list
+        # ==========================================
+        # 核心邏輯：分批進出狀態機
+        # ==========================================
+        
+        # 初始狀態
+        # Position 代表持倉比例 (0.0 ~ 1.0)
+        current_pos = 1.0 if "已持有" in initial_pos_option else 0.0
+        
+        pos_series = []
+        
+        # 狀態變數
+        # mode: 'neutral', 'buying', 'selling'
+        mode = 'neutral'
+        
+        # 記錄上次交易的 index (整數位置)
+        last_trade_idx = -9999
+        
+        # 目標與進度
+        target_pos = current_pos
+        batch_count_done = 0 
+        
+        dates = df.index
+        scores = df["Score_Signal"].values
+        
+        for i in range(len(df)):
+            s = scores[i]
+            
+            # --- 判斷觸發條件 ---
+            
+            # 1. 藍燈區 (買進訊號)
+            if s <= buy_threshold:
+                # 如果之前在賣出模式 or 空手/半倉，且還沒滿倉 -> 啟動買進模式
+                if mode != 'buying' and current_pos < 1.0:
+                    mode = 'buying'
+                    batch_count_done = 0 # 重置進度
+                    last_trade_idx = i - buy_interval - 1 # 讓它第一天就能買
+            
+            # 2. 紅燈區 (賣出訊號)
+            elif s >= sell_threshold:
+                # 如果之前在買進模式 or 持有/半倉，且還有貨 -> 啟動賣出模式
+                if mode != 'selling' and current_pos > 0.0:
+                    mode = 'selling'
+                    batch_count_done = 0
+                    last_trade_idx = i - sell_interval - 1
+            
+            # 3. 綠燈/中間區 (脫離極端值)
+            else:
+                # 規則：直到綠燈歐印 / 直到綠燈清空
+                if mode == 'buying':
+                    # 原本在買，現在脫離藍燈 -> 一次補滿
+                    current_pos = 1.0
+                    mode = 'neutral'
+                elif mode == 'selling':
+                    # 原本在賣，現在脫離紅燈 -> 一次清空
+                    current_pos = 0.0
+                    mode = 'neutral'
+            
+            # --- 執行分批動作 ---
+            
+            if mode == 'buying':
+                # 檢查是否滿倉
+                if current_pos >= 1.0:
+                    current_pos = 1.0
+                    mode = 'neutral' # 任務完成
+                else:
+                    # 檢查時間間隔
+                    if (i - last_trade_idx) >= buy_interval:
+                        # 執行買進一份
+                        # 每份大小 = 100% / 總次數
+                        step_size = 1.0 / buy_batches
+                        current_pos += step_size
+                        if current_pos > 1.0: current_pos = 1.0 # 修正浮點數誤差
+                        
+                        last_trade_idx = i
+                        batch_count_done += 1
+                        
+                        # 檢查是否買完次數
+                        if batch_count_done >= buy_batches:
+                            current_pos = 1.0 # 確保最後滿倉
+                            mode = 'neutral'
+
+            elif mode == 'selling':
+                # 檢查是否空倉
+                if current_pos <= 0.0:
+                    current_pos = 0.0
+                    mode = 'neutral'
+                else:
+                    # 檢查時間間隔
+                    if (i - last_trade_idx) >= sell_interval:
+                        # 執行賣出一份
+                        step_size = 1.0 / sell_batches
+                        current_pos -= step_size
+                        if current_pos < 0.0: current_pos = 0.0
+                        
+                        last_trade_idx = i
+                        batch_count_done += 1
+                        
+                        if batch_count_done >= sell_batches:
+                            current_pos = 0.0
+                            mode = 'neutral'
+            
+            pos_series.append(current_pos)
+            
+        df["Position"] = pos_series
         
         # 3. 績效
         df["Ret"] = df["Close"].pct_change().fillna(0)
+        # 策略報酬 = 昨天收盤後的持倉比例 * 今天漲跌
         df["Strategy_Ret"] = df["Position"].shift(1) * df["Ret"]
+        
         df["Equity_Strategy"] = initial_capital * (1 + df["Strategy_Ret"]).cumprod()
         df["Equity_Benchmark"] = initial_capital * (1 + df["Ret"]).cumprod()
 
@@ -202,42 +315,46 @@ if st.button("開始回測 🚀", type="primary"):
             return f"""<div class="kpi-card"><div class="kpi-lbl">{l}</div><div class="kpi-val">{vs}</div><div class="kpi-sub">基準: {bs}</div></div>"""
 
         r1 = st.columns(4)
-        with r1[0]: st.markdown(kpi("總報酬率", ret_s, ret_b), unsafe_allow_html=True)
-        with r1[1]: st.markdown(kpi("CAGR (年化)", cagr_s, cagr_b), unsafe_allow_html=True)
+        with r1[0]: st.markdown(kpi("期末總資產", df["Equity_Strategy"].iloc[-1], df["Equity_Benchmark"].iloc[-1], False), unsafe_allow_html=True)
+        with r1[1]: st.markdown(kpi("年化報酬 (CAGR)", cagr_s, cagr_b), unsafe_allow_html=True)
         with r1[2]: st.markdown(kpi("最大回撤", mdd_s, mdd_b), unsafe_allow_html=True)
         with r1[3]: st.markdown(kpi("夏普值", sharpe_s, sharpe_b, False), unsafe_allow_html=True)
 
         st.markdown("---")
 
         # ---------------------------------------------------------
-        # 📊 雙圖表合併顯示
+        # 📊 雙圖表
         # ---------------------------------------------------------
         tab1, tab2 = st.tabs(["🚦 買賣點位與燈號 (主圖)", "💰 資金成長曲線"])
 
         with tab1:
-            # 準備買賣點
-            buys = df[(df["Position"] == 1) & (df["Position"].shift(1) == 0)]
-            sells = df[(df["Position"] == 0) & (df["Position"].shift(1) == 1)]
+            # 準備買賣點 (因為是分批，所以會有 0.2, 0.4, 0.6 這種持倉變化)
+            # 我們標記 "倉位增加" 為買，"倉位減少" 為賣
+            pos_diff = df["Position"].diff().fillna(0)
+            buys = df[pos_diff > 0.01] # 買進點
+            sells = df[pos_diff < -0.01] # 賣出點
 
-            # 建立雙軸圖表
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
                                 vertical_spacing=0.05, row_heights=[0.7, 0.3],
-                                subplot_titles=(f"{ticker} 股價與進出場點", "景氣對策信號 (五色區間)"))
+                                subplot_titles=(f"{ticker} 股價與分批進出點", "景氣對策信號"))
 
-            # 1. 上圖：股價 + 買賣點
+            # 1. 上圖
             fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="股價", line=dict(color="#333", width=1)), row=1, col=1)
             
+            # 買點 (Size 代表買進力度，如果一次買滿 Size 就大)
             fig.add_trace(go.Scatter(
-                x=buys.index, y=buys["Close"], mode="markers", name="買進 (藍燈)",
-                marker=dict(symbol="triangle-up", color="#0044FF", size=12, line=dict(width=1, color="white"))
+                x=buys.index, y=buys["Close"], mode="markers", name="買進動作",
+                marker=dict(symbol="triangle-up", color="#0044FF", size=8, line=dict(width=1, color="white")),
+                text=pos_diff[pos_diff>0].apply(lambda x: f"加碼 {x:.0%}")
             ), row=1, col=1)
             
             fig.add_trace(go.Scatter(
-                x=sells.index, y=sells["Close"], mode="markers", name="賣出 (紅燈)",
-                marker=dict(symbol="triangle-down", color="#FF0044", size=12, line=dict(width=1, color="white"))
+                x=sells.index, y=sells["Close"], mode="markers", name="賣出動作",
+                marker=dict(symbol="triangle-down", color="#FF0044", size=8, line=dict(width=1, color="white")),
+                text=pos_diff[pos_diff<0].apply(lambda x: f"減碼 {abs(x):.0%}")
             ), row=1, col=1)
 
-            # 2. 下圖：分數 + 五色背景
+            # 2. 下圖
             fig.add_trace(go.Scatter(x=df.index, y=df["Score_Signal"], name="分數", line=dict(color="#555", width=2)), row=2, col=1)
             
             bands = [
@@ -264,28 +381,31 @@ if st.button("開始回測 🚀", type="primary"):
             fig_eq = go.Figure()
             fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], name="策略資產", line=dict(color="#00C853", width=2)))
             fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Benchmark"], name="買進持有", line=dict(color="#B0BEC5", width=2, dash='dot')))
+            
+            # 加入持倉比例副圖 (Area chart)
+            fig_eq.add_trace(go.Scatter(x=df.index, y=df["Position"]*df["Equity_Strategy"].max()/2, name="持倉水位(示意)", 
+                                        line=dict(width=0), fill='tozeroy', fillcolor='rgba(0,0,255,0.1)'))
+            
             fig_eq.update_layout(height=450, template="plotly_white", hovermode="x unified", title="資產成長比較")
             st.plotly_chart(fig_eq, use_container_width=True)
 
         # 交易列表
-        st.markdown("### 📋 交易明細")
-        trades = []
-        temp_buy = None
-        signals = df[df["Position"] != df["Position"].shift(1)]
+        st.markdown("### 📋 資金變動明細")
+        # 找出倉位有變動的日子
+        changes = df[df["Position"].diff().abs() > 0.001].copy()
+        changes["動作"] = changes["Position"].diff().apply(lambda x: "買進/加碼" if x>0 else "賣出/減碼")
+        changes["變動幅度"] = changes["Position"].diff().abs()
+        changes["目前持倉"] = changes["Position"]
         
-        if not df.empty and df["Position"].iloc[0] == 1 and (df.index[0] not in signals.index):
-             temp_buy = (df.index[0], df["Close"].iloc[0])
-
-        for date, row in signals.iterrows():
-            if row["Position"] == 1: 
-                temp_buy = (date, row["Close"])
-            elif row["Position"] == 0 and temp_buy:
-                b_d, b_p = temp_buy
-                ret = (row["Close"]-b_p)/b_p
-                trades.append({"買入": b_d.strftime("%Y-%m-%d"), "買價": b_p, "賣出": date.strftime("%Y-%m-%d"), "賣價": row["Close"], "報酬率": ret})
-                temp_buy = None
-        
-        if trades:
-            st.dataframe(pd.DataFrame(trades).style.format({"買價":"{:.2f}","賣價":"{:.2f}","報酬率":"{:.2%}"}).background_gradient(cmap="RdYlGn", subset=["報酬率"]), use_container_width=True)
+        if not changes.empty:
+            df_log = changes[["Close", "動作", "變動幅度", "目前持倉", "Score_Signal"]]
+            df_log.columns = ["成交價", "動作", "加減碼比例", "持倉水位", "當時燈號分"]
+            
+            st.dataframe(
+                df_log.style
+                .format({"成交價":"{:.2f}", "加減碼比例":"{:.1%}", "持倉水位":"{:.1%}", "當時燈號分":"{:.0f}"})
+                .background_gradient(cmap="Blues", subset=["持倉水位"]),
+                use_container_width=True
+            )
         else:
-            st.info("區間內無完整一進一出之交易")
+            st.info("區間內無交易動作")
