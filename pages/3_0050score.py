@@ -102,14 +102,13 @@ def load_csv_smart(symbol: str) -> pd.DataFrame:
 # UI 設定
 ###############################################################
 
-st.divider()
 score_file = "SCORE" 
 
 col1, col2 = st.columns(2)
 with col1: 
-    ticker = st.selectbox("📈 交易標的", ["0050.TW", "006208.TW", "QQQ", "SPY"], index=0)
+    ticker = st.selectbox("📈 交易標的", ["0050.TW", "006208.TW"], index=0)
 with col2: 
-    initial_pos_option = st.radio("🚀 初始部位狀態", ["空手 (等待訊號)", "已持有 (滿倉起跑)"], horizontal=True)
+    initial_pos_option = st.radio("🚀 初始部位狀態", [ "已持有 (滿倉起跑)","空手 (等待訊號)"], horizontal=True)
 
 df_check_p = load_csv_smart(ticker)
 df_check_s = load_csv_smart(score_file)
@@ -130,9 +129,6 @@ col_d1, col_d2, col_d3 = st.columns(3)
 with col_d1: start_date = st.date_input("開始日期", value=valid_start, min_value=valid_start, max_value=valid_end)
 with col_d2: end_date = st.date_input("結束日期", value=valid_end, min_value=valid_start, max_value=valid_end)
 with col_d3: initial_capital = st.number_input("初始本金", value=1_000_000, step=100_000)
-
-st.markdown("---")
-st.subheader("⚙️ 進出策略參數")
 
 c1, c2 = st.columns(2)
 with c1:
