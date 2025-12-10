@@ -107,14 +107,29 @@ def load_csv_smart(symbol: str) -> pd.DataFrame:
 # UI 設定
 ###############################################################
 
+st.divider()
 score_file = "SCORE" 
+
+# 1. 定義對照表 (Key 是程式要用的代號, Value 是顯示給人看的名稱)
+ticker_map = {
+    "0050.TW": "0050 元大寶來台灣卓越50證券投資信託基金",
+    "006208.TW": "006208 富邦台灣采吉50基金"
+}
 
 col1, col2 = st.columns(2)
 with col1: 
-    ticker = st.selectbox("📈 交易標的", ["0050.TW", "006208.TW"], index=0)
-with col2: 
-    initial_pos_option = st.radio("🚀 初始部位狀態", [ "已持有 (滿倉起跑)","空手 (等待訊號)"], horizontal=True)
+    # 2. 修改 selectbox
+    ticker = st.selectbox(
+        "📈 交易標的", 
+        options=list(ticker_map.keys()),  # 選項清單給 Key (0050.TW...)
+        format_func=lambda x: ticker_map.get(x), # 顯示時轉換成中文名稱
+        index=0
+    )
 
+with col2: 
+    initial_pos_option = st.radio("🚀 初始部位狀態", ["已持有 (滿倉起跑)","空手 (等待訊號)" ], horizontal=True)
+
+# 這裡 ticker 變數依然會是 "0050.TW" 或 "006208.TW"，所以讀檔邏輯不用改
 df_check_p = load_csv_smart(ticker)
 df_check_s = load_csv_smart(score_file)
 
