@@ -273,6 +273,7 @@ page_files = sorted(glob.glob(os.path.join(pages_dir, "*.py")))
 HIDE_STRATEGIES = [
     "temp_test",       # 舉例：測試中的檔案
     "old_strategy",    # 舉例：淘汰的策略
+    "Basic0050score",    # 舉例：國發會景氣對策信(基本版)
 
 ]
 
