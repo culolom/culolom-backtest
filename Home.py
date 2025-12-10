@@ -273,7 +273,7 @@ page_files = sorted(glob.glob(os.path.join(pages_dir, "*.py")))
 HIDE_STRATEGIES = [
     "temp_test",       # 舉例：測試中的檔案
     "old_strategy",    # 舉例：淘汰的策略
-    "3_0050score_basic" # 舉例：不想顯示這個基本版
+
 ]
 
 # 2. 定義「美化資訊」 (這是為了讓卡片漂亮，有 icon 和描述)
