@@ -315,6 +315,10 @@ for file_path in page_files:
     # 取得檔名 (不含路徑與副檔名)，例如 "3_0050score"
     filename = os.path.basename(file_path).replace(".py", "")
     
+    # 👉 【修改點】加入過濾判斷
+    if filename in HIDE_STRATEGIES:
+        continue  # 如果在黑名單內，直接跳過，不產生卡片
+    
     # 嘗試從 META_INFO 抓取漂亮的資訊，抓不到就用預設值
     info = META_INFO.get(filename, {
         "name": filename,           # 預設名稱：直接顯示檔名
