@@ -404,7 +404,6 @@ if st.button("開始回測 🚀", type="primary"):
 
 with st.expander("📊 數據說明：股價還原與拆分處理邏輯"):
     st.markdown("""
-    #### 🛠 股價數據處理機制
     本系統使用的股價數據 (`Close`) 經過以下雙重校正，專為**量化回測**設計：
 
     **1. 含息報酬 (Total Return)**
