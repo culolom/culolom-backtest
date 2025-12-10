@@ -262,25 +262,4 @@ if st.button("開始回測 🚀", type="primary"):
             fig_eq.update_layout(height=450, template="plotly_white", hovermode="x unified", title="資產成長比較")
             st.plotly_chart(fig_eq, use_container_width=True)
 
-        # 交易列表
-        st.markdown("### 📋 交易明細")
-        trades = []
-        temp_buy = None
-        signals = df[df["Position"] != df["Position"].shift(1)]
         
-        if not df.empty and df["Position"].iloc[0] == 1 and (df.index[0] not in signals.index):
-             temp_buy = (df.index[0], df["Close"].iloc[0])
-
-        for date, row in signals.iterrows():
-            if row["Position"] == 1: 
-                temp_buy = (date, row["Close"])
-            elif row["Position"] == 0 and temp_buy:
-                b_d, b_p = temp_buy
-                ret = (row["Close"]-b_p)/b_p
-                trades.append({"買入": b_d.strftime("%Y-%m-%d"), "買價": b_p, "賣出": date.strftime("%Y-%m-%d"), "賣價": row["Close"], "報酬率": ret})
-                temp_buy = None
-        
-        if trades:
-            st.dataframe(pd.DataFrame(trades).style.format({"買價":"{:.2f}","賣價":"{:.2f}","報酬率":"{:.2%}"}).background_gradient(cmap="RdYlGn", subset=["報酬率"]), use_container_width=True)
-        else:
-            st.info("區間內無完整一進一出之交易")
