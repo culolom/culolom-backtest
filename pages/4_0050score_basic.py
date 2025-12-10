@@ -212,9 +212,9 @@ if st.button("開始回測 🚀", type="primary"):
 
         r1 = st.columns(4)
         with r1[0]: st.markdown(kpi("期末總資產", df["Equity_Strategy"].iloc[-1], df["Equity_Benchmark"].iloc[-1], False), unsafe_allow_html=True)
-        with r1[0]: st.markdown(kpi("總報酬率", ret_s, ret_b), unsafe_allow_html=True)
-        with r1[1]: st.markdown(kpi("CAGR (年化)", cagr_s, cagr_b), unsafe_allow_html=True)
-        with r1[2]: st.markdown(kpi("最大回撤", mdd_s, mdd_b), unsafe_allow_html=True)
+        with r1[1]: st.markdown(kpi("總報酬率", ret_s, ret_b), unsafe_allow_html=True)
+        with r1[2]: st.markdown(kpi("CAGR (年化)", cagr_s, cagr_b), unsafe_allow_html=True)
+        with r1[3]: st.markdown(kpi("最大回撤", mdd_s, mdd_b), unsafe_allow_html=True)
 
         st.markdown("---")
 
