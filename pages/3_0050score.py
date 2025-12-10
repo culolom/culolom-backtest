@@ -351,16 +351,4 @@ if st.button("開始回測 🚀", type="primary"):
                                  yaxis2=dict(title="持倉比例", overlaying="y", side="right", range=[0, 1.2], showgrid=False))
             st.plotly_chart(fig_eq, use_container_width=True)
 
-        # 交易列表
-        st.markdown("### 📋 資金變動明細")
-        changes = df[df["Position"].diff().abs() > 0.001].copy()
-        changes["動作"] = changes["Position"].diff().apply(lambda x: "買進/加碼" if x>0 else "賣出/減碼")
-        changes["變動幅度"] = changes["Position"].diff().abs()
-        changes["目前持倉"] = changes["Position"]
         
-        if not changes.empty:
-            df_log = changes[["Close", "動作", "變動幅度", "目前持倉", "Score_Signal"]]
-            df_log.columns = ["成交價", "動作", "加減碼比例", "持倉水位", "當時燈號分"]
-            st.dataframe(df_log.style.format({"成交價":"{:.2f}", "加減碼比例":"{:.1%}", "持倉水位":"{:.1%}", "當時燈號分":"{:.0f}"}).background_gradient(cmap="Blues", subset=["持倉水位"]), use_container_width=True)
-        else:
-            st.info("區間內無交易動作")
