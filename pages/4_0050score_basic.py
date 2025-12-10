@@ -106,6 +106,11 @@ def load_csv_smart(symbol: str) -> pd.DataFrame:
 
 st.divider()
 score_file = "SCORE" 
+# 1. 定義對照表 (Key 是程式要用的代號, Value 是顯示給人看的名稱)
+ticker_map = {
+    "0050.TW": "0050 元大寶來台灣卓越50證券投資信託基金",
+    "006208.TW": "006208 富邦台灣采吉50基金"
+}
 
 col1, col2 = st.columns(2)
 with col1: 
