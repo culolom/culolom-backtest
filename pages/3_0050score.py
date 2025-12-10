@@ -12,16 +12,7 @@ from plotly.subplots import make_subplots
 from pathlib import Path
 import sys
 
-# ------------------------------------------------------
-# 🔒 驗證守門員
-# ------------------------------------------------------
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-try:
-    import auth
-    if not auth.check_password():
-        st.stop()
-except ImportError:
-    pass 
+
 
 ###############################################################
 # 設定
@@ -111,7 +102,6 @@ def load_csv_smart(symbol: str) -> pd.DataFrame:
 # UI 設定
 ###############################################################
 
-st.divider()
 score_file = "SCORE" 
 
 col1, col2 = st.columns(2)
@@ -148,8 +138,6 @@ st.info("""
 (例如：1月分數 → 2/27 公佈 → 3/1 進場，資料延遲約 2 個月)
 """)
 
-st.markdown("---")
-st.subheader("⚙️ 進出策略參數")
 
 c1, c2 = st.columns(2)
 with c1:
