@@ -1,5 +1,5 @@
 ###############################################################
-# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (視覺化增強版)
+# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (真實延遲版)
 ###############################################################
 
 import os
@@ -131,10 +131,17 @@ with col_d1: start_date = st.date_input("開始日期", value=valid_start, min_v
 with col_d2: end_date = st.date_input("結束日期", value=valid_end, min_value=valid_start, max_value=valid_end)
 with col_d3: initial_capital = st.number_input("初始本金", value=1_000_000, step=100_000)
 
-col_p1, col_p2, col_p3 = st.columns(3)
+# 補充說明與參數
+st.info("""
+💡 **交易規則說明**：
+景氣對策信號通常於每月 **27號** 公佈「上個月」的分數。
+本策略設定為 **「公佈日下個月的第一個交易日」** 進行買賣，以符合真實操作。
+(例如：1月分數 -> 2/27 公佈 -> 3/1 進場，資料延遲約 2 個月)
+""")
+
+col_p1, col_p2 = st.columns(2)
 with col_p1: buy_threshold = st.number_input("🔵 買進門檻 (<=)", 9, 45, 16)
 with col_p2: sell_threshold = st.number_input("🔴 賣出門檻 (>=)", 9, 45, 32)
-with col_p3: lag_months = st.number_input("⏳ 訊號延遲 (月)", 0, 3, 1)
 
 ###############################################################
 # 回測與繪圖
@@ -152,7 +159,9 @@ if st.button("開始回測 🚀", type="primary"):
         df_score_daily = df_score.reindex(df.index, method='ffill')
         df["Score_Raw"] = df_score_daily["Price"]
         
-        shift_days = int(lag_months * 20)
+        # 3. 處理延遲 (固定 2 個月)
+        # 1月分數(1/1) -> 3月交易(3/1)，相差約 40 個交易日
+        shift_days = 40 
         df["Score_Signal"] = df["Score_Raw"].shift(shift_days)
         df = df.dropna()
 
@@ -201,7 +210,7 @@ if st.button("開始回測 🚀", type="primary"):
         st.markdown("---")
 
         # ---------------------------------------------------------
-        # 📊 雙圖表合併顯示 (核心修改)
+        # 📊 雙圖表合併顯示
         # ---------------------------------------------------------
         tab1, tab2 = st.tabs(["🚦 買賣點位與燈號 (主圖)", "💰 資金成長曲線"])
 
@@ -210,7 +219,7 @@ if st.button("開始回測 🚀", type="primary"):
             buys = df[(df["Position"] == 1) & (df["Position"].shift(1) == 0)]
             sells = df[(df["Position"] == 0) & (df["Position"].shift(1) == 1)]
 
-            # 建立雙軸圖表 (上面是股價，下面是燈號)
+            # 建立雙軸圖表
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
                                 vertical_spacing=0.05, row_heights=[0.7, 0.3],
                                 subplot_titles=(f"{ticker} 股價與進出場點", "景氣對策信號 (五色區間)"))
@@ -218,13 +227,11 @@ if st.button("開始回測 🚀", type="primary"):
             # 1. 上圖：股價 + 買賣點
             fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="股價", line=dict(color="#333", width=1)), row=1, col=1)
             
-            # 買點 (藍三角)
             fig.add_trace(go.Scatter(
                 x=buys.index, y=buys["Close"], mode="markers", name="買進 (藍燈)",
                 marker=dict(symbol="triangle-up", color="#0044FF", size=12, line=dict(width=1, color="white"))
             ), row=1, col=1)
             
-            # 賣點 (紅三角)
             fig.add_trace(go.Scatter(
                 x=sells.index, y=sells["Close"], mode="markers", name="賣出 (紅燈)",
                 marker=dict(symbol="triangle-down", color="#FF0044", size=12, line=dict(width=1, color="white"))
@@ -233,7 +240,6 @@ if st.button("開始回測 🚀", type="primary"):
             # 2. 下圖：分數 + 五色背景
             fig.add_trace(go.Scatter(x=df.index, y=df["Score_Signal"], name="分數", line=dict(color="#555", width=2)), row=2, col=1)
             
-            # 繪製五色背景 (9-16藍, 17-22黃藍, 23-31綠, 32-37黃紅, 38-45紅)
             bands = [
                 (9, 16, "藍", "#2E86C1"), (17, 22, "黃藍", "#76D7C4"), 
                 (23, 31, "綠", "#28B463"), (32, 37, "黃紅", "#F1C40F"), 
@@ -245,7 +251,6 @@ if st.button("開始回測 🚀", type="primary"):
                     row=2, col=1
                 )
 
-            # 買賣門檻線
             fig.add_hline(y=buy_threshold, line_dash="dash", line_color="blue", row=2, col=1)
             fig.add_hline(y=sell_threshold, line_dash="dash", line_color="red", row=2, col=1)
 
@@ -266,10 +271,8 @@ if st.button("開始回測 🚀", type="primary"):
         st.markdown("### 📋 交易明細")
         trades = []
         temp_buy = None
-        # 處理訊號轉換點
         signals = df[df["Position"] != df["Position"].shift(1)]
         
-        # 補上第一筆持倉 (如果一開始就是持有)
         if not df.empty and df["Position"].iloc[0] == 1 and (df.index[0] not in signals.index):
              temp_buy = (df.index[0], df["Close"].iloc[0])
 
