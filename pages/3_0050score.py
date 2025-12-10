@@ -111,9 +111,9 @@ score_file = "SCORE"
 
 col1, col2 = st.columns(2)
 with col1: 
-    ticker = st.selectbox("📈 交易標的", ["0050.TW", "006208.TW", "QQQ", "SPY"], index=0)
+    ticker = st.selectbox("📈 交易標的", ["0050.TW", "006208.TW"], index=0)
 with col2: 
-    initial_pos_option = st.radio("🚀 初始部位狀態", ["空手 (等待訊號)", "已持有 (滿倉起跑)"], horizontal=True)
+    initial_pos_option = st.radio("🚀 初始部位狀態", [ "已持有 (滿倉起跑)","空手 (等待訊號)"], horizontal=True)
 
 df_check_p = load_csv_smart(ticker)
 df_check_s = load_csv_smart(score_file)
