@@ -1,5 +1,5 @@
 ###############################################################
-# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (五色燈號 + 初始部位版)
+# pages/4_Macro_Strategy.py — 國發會景氣燈號策略 (視覺化增強版)
 ###############################################################
 
 import os
@@ -8,19 +8,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from pathlib import Path
 import sys
 
-# ------------------------------------------------------
-# 🔒 驗證守門員
-# ------------------------------------------------------
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-try:
-    import auth
-    if not auth.check_password():
-        st.stop()
-except ImportError:
-    pass 
+
 
 ###############################################################
 # 設定
@@ -43,24 +35,17 @@ with st.sidebar:
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
 st.markdown("<h1 style='margin-bottom:0.5em;'>🚦 國發會景氣燈號策略 (Macro Strategy)</h1>", unsafe_allow_html=True)
-st.markdown("""
-<b>股市名言：「藍燈買股票，紅燈數鈔票」。利用總體經濟指標進行長線逆勢操作。</b>
-""", unsafe_allow_html=True)
+st.markdown("<b>股市名言：「藍燈買股票，紅燈數鈔票」。</b>", unsafe_allow_html=True)
 
 # 燈號說明
 st.info("""
-**🚦 官方燈號定義對照表：**
-* 🔵 **藍燈 (9-16分)**：景氣低迷 (適合佈局)
-* 🔵🟡 **黃藍燈 (17-22分)**：景氣轉向 (注意觀察)
-* 🟢 **綠燈 (23-31分)**：景氣穩定
-* 🟡🔴 **黃紅燈 (32-37分)**：景氣轉熱 (注意風險)
-* 🔴 **紅燈 (38-45分)**：景氣過熱 (適合減碼)
+**🚦 官方燈號定義：** 🔵藍燈(9-16) | 🔵🟡黃藍(17-22) | 🟢綠燈(23-31) | 🟡🔴黃紅(32-37) | 🔴紅燈(38-45)
 """)
 
 DATA_DIR = Path("data")
 
 ###############################################################
-# 資料處理 (萬能日期解析)
+# 資料處理
 ###############################################################
 
 def parse_magic_date(x):
@@ -118,21 +103,13 @@ def load_csv_smart(symbol: str) -> pd.DataFrame:
 ###############################################################
 
 st.divider()
-
-# 固定使用 SCORE
 score_file = "SCORE" 
 
 col1, col2 = st.columns(2)
 with col1: 
-    # 修改點：使用 Selectbox 並加入 006208
     ticker = st.selectbox("📈 交易標的", ["0050.TW", "006208.TW", "QQQ", "SPY"], index=0)
 with col2: 
-    # 修改點：新增初始部位選擇
-    initial_pos_option = st.radio(
-        "🚀 初始部位狀態", 
-        ["空手 (等待第一個藍燈訊號)", "已持有 (假設第一天就滿倉)"],
-        horizontal=True
-    )
+    initial_pos_option = st.radio("🚀 初始部位狀態", ["空手 (等待訊號)", "已持有 (滿倉起跑)"], horizontal=True)
 
 df_check_p = load_csv_smart(ticker)
 df_check_s = load_csv_smart(score_file)
@@ -144,7 +121,7 @@ if not df_check_p.empty and not df_check_s.empty:
     v_end = min(df_check_p.index.max().date(), df_check_s.index.max().date())
     if v_start <= v_end:
         valid_start, valid_end = v_start, v_end
-        st.info(f"📌 {ticker} + 景氣分數 共同資料區間：{valid_start} ~ {valid_end}")
+        st.info(f"📌 資料區間：{valid_start} ~ {valid_end}")
     else:
         st.error("❌ 資料日期無交集")
         st.stop()
@@ -155,8 +132,8 @@ with col_d2: end_date = st.date_input("結束日期", value=valid_end, min_value
 with col_d3: initial_capital = st.number_input("初始本金", value=1_000_000, step=100_000)
 
 col_p1, col_p2, col_p3 = st.columns(3)
-with col_p1: buy_threshold = st.number_input("🔵 買進門檻 (分數 <= ?)", 9, 45, 16)
-with col_p2: sell_threshold = st.number_input("🔴 賣出門檻 (分數 >= ?)", 9, 45, 32)
+with col_p1: buy_threshold = st.number_input("🔵 買進門檻 (<=)", 9, 45, 16)
+with col_p2: sell_threshold = st.number_input("🔴 賣出門檻 (>=)", 9, 45, 32)
 with col_p3: lag_months = st.number_input("⏳ 訊號延遲 (月)", 0, 3, 1)
 
 ###############################################################
@@ -164,7 +141,8 @@ with col_p3: lag_months = st.number_input("⏳ 訊號延遲 (月)", 0, 3, 1)
 ###############################################################
 
 if st.button("開始回測 🚀", type="primary"):
-    with st.spinner("正在繪製五色燈號圖表..."):
+    with st.spinner("正在計算..."):
+        # 1. 準備資料
         df_price = df_check_p.loc[str(start_date):str(end_date)]
         df_score = df_check_s
         
@@ -180,28 +158,22 @@ if st.button("開始回測 🚀", type="primary"):
 
         if df.empty: st.error("資料不足"); st.stop()
 
-        # 訊號產生 (修改點：根據使用者選擇設定初始狀態)
+        # 2. 訊號
         current_pos = 1 if "已持有" in initial_pos_option else 0
         pos_list = []
-        
         for s in df["Score_Signal"].values:
-            if s <= buy_threshold: 
-                current_pos = 1 # 藍燈買進/續抱
-            elif s >= sell_threshold: 
-                current_pos = 0 # 紅燈賣出/空手
-            # 其他情況維持 current_pos 不變
-            
+            if s <= buy_threshold: current_pos = 1
+            elif s >= sell_threshold: current_pos = 0
             pos_list.append(current_pos)
-            
         df["Position"] = pos_list
         
-        # 績效
+        # 3. 績效
         df["Ret"] = df["Close"].pct_change().fillna(0)
         df["Strategy_Ret"] = df["Position"].shift(1) * df["Ret"]
         df["Equity_Strategy"] = initial_capital * (1 + df["Strategy_Ret"]).cumprod()
         df["Equity_Benchmark"] = initial_capital * (1 + df["Ret"]).cumprod()
 
-        # KPI
+        # 4. KPI
         def calc_metrics(s):
             tr = (s.iloc[-1]/initial_capital)-1
             days = (s.index[-1]-s.index[0]).days
@@ -214,19 +186,10 @@ if st.button("開始回測 🚀", type="primary"):
         ret_s, cagr_s, mdd_s, sharpe_s = calc_metrics(df["Equity_Strategy"])
         ret_b, cagr_b, mdd_b, sharpe_b = calc_metrics(df["Equity_Benchmark"])
 
-        # KPI 卡片
-        st.markdown("""
-        <style>
-            .kpi-card { background-color: var(--secondary-background-color); border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1); }
-            .kpi-val { font-size: 1.6rem; font-weight: 700; color: var(--text-color); }
-            .kpi-lbl { font-size: 0.9rem; opacity: 0.7; }
-            .kpi-sub { font-size: 0.8rem; color: #666; margin-top: 5px; }
-        </style>
-        """, unsafe_allow_html=True)
-        
+        # 顯示 KPI
+        st.markdown("""<style>.kpi-card {background-color: var(--secondary-background-color); border-radius: 12px; padding: 15px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(128,128,128,0.1);} .kpi-val {font-size: 1.6rem; font-weight: 700;} .kpi-lbl {opacity: 0.7;} .kpi-sub {font-size: 0.8rem; color: #666;}</style>""", unsafe_allow_html=True)
         def kpi(l, v, b, p=True):
-            vs = f"{v:.1%}" if p else f"{v:.2f}"
-            bs = f"{b:.1%}" if p else f"{b:.2f}"
+            vs, bs = (f"{v:.1%}", f"{b:.1%}") if p else (f"{v:.2f}", f"{b:.2f}")
             return f"""<div class="kpi-card"><div class="kpi-lbl">{l}</div><div class="kpi-val">{vs}</div><div class="kpi-sub">基準: {bs}</div></div>"""
 
         r1 = st.columns(4)
@@ -237,71 +200,78 @@ if st.button("開始回測 🚀", type="primary"):
 
         st.markdown("---")
 
-        # 圖表
-        tab1, tab2 = st.tabs(["💰 資金與五色燈號", "📊 交易點位"])
+        # ---------------------------------------------------------
+        # 📊 雙圖表合併顯示 (核心修改)
+        # ---------------------------------------------------------
+        tab1, tab2 = st.tabs(["🚦 買賣點位與燈號 (主圖)", "💰 資金成長曲線"])
 
         with tab1:
+            # 準備買賣點
+            buys = df[(df["Position"] == 1) & (df["Position"].shift(1) == 0)]
+            sells = df[(df["Position"] == 0) & (df["Position"].shift(1) == 1)]
+
+            # 建立雙軸圖表 (上面是股價，下面是燈號)
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                                vertical_spacing=0.05, row_heights=[0.7, 0.3],
+                                subplot_titles=(f"{ticker} 股價與進出場點", "景氣對策信號 (五色區間)"))
+
+            # 1. 上圖：股價 + 買賣點
+            fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="股價", line=dict(color="#333", width=1)), row=1, col=1)
+            
+            # 買點 (藍三角)
+            fig.add_trace(go.Scatter(
+                x=buys.index, y=buys["Close"], mode="markers", name="買進 (藍燈)",
+                marker=dict(symbol="triangle-up", color="#0044FF", size=12, line=dict(width=1, color="white"))
+            ), row=1, col=1)
+            
+            # 賣點 (紅三角)
+            fig.add_trace(go.Scatter(
+                x=sells.index, y=sells["Close"], mode="markers", name="賣出 (紅燈)",
+                marker=dict(symbol="triangle-down", color="#FF0044", size=12, line=dict(width=1, color="white"))
+            ), row=1, col=1)
+
+            # 2. 下圖：分數 + 五色背景
+            fig.add_trace(go.Scatter(x=df.index, y=df["Score_Signal"], name="分數", line=dict(color="#555", width=2)), row=2, col=1)
+            
+            # 繪製五色背景 (9-16藍, 17-22黃藍, 23-31綠, 32-37黃紅, 38-45紅)
+            bands = [
+                (9, 16, "藍", "#2E86C1"), (17, 22, "黃藍", "#76D7C4"), 
+                (23, 31, "綠", "#28B463"), (32, 37, "黃紅", "#F1C40F"), 
+                (38, 55, "紅", "#E74C3C")
+            ]
+            for y0, y1, txt, color in bands:
+                fig.add_hrect(
+                    y0=y0, y1=y1, fillcolor=color, opacity=0.2, layer="below", 
+                    row=2, col=1
+                )
+
+            # 買賣門檻線
+            fig.add_hline(y=buy_threshold, line_dash="dash", line_color="blue", row=2, col=1)
+            fig.add_hline(y=sell_threshold, line_dash="dash", line_color="red", row=2, col=1)
+
+            fig.update_layout(height=600, template="plotly_white", hovermode="x unified", showlegend=True)
+            fig.update_yaxes(title_text="股價", row=1, col=1)
+            fig.update_yaxes(title_text="分數", range=[9, 48], row=2, col=1)
+            
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab2:
             fig_eq = go.Figure()
             fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], name="策略資產", line=dict(color="#00C853", width=2)))
             fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Benchmark"], name="買進持有", line=dict(color="#B0BEC5", width=2, dash='dot')))
-            fig_eq.update_layout(height=400, template="plotly_white", hovermode="x unified", title="策略績效")
+            fig_eq.update_layout(height=450, template="plotly_white", hovermode="x unified", title="資產成長比較")
             st.plotly_chart(fig_eq, use_container_width=True)
 
-            # 副圖：五色燈號
-            fig_s = go.Figure()
-            fig_s.add_trace(go.Scatter(x=df.index, y=df["Score_Signal"], name="景氣分數", line=dict(color="#333", width=2)))
-            
-            # 定義燈號區間與顏色 (使用標準定義)
-            # 9-16 藍, 17-22 黃藍, 23-31 綠, 32-37 黃紅, 38-45 紅
-            bands = [
-                (9, 16, "藍燈", "#2E86C1"),
-                (17, 22, "黃藍燈", "#76D7C4"),
-                (23, 31, "綠燈", "#28B463"),
-                (32, 37, "黃紅燈", "#F1C40F"),
-                (38, 55, "紅燈", "#E74C3C")
-            ]
-            
-            for y0, y1, label, color in bands:
-                fig_s.add_hrect(
-                    y0=y0, y1=y1, 
-                    fillcolor=color, opacity=0.15, layer="below", 
-                    annotation_text=label, annotation_position="top left"
-                )
-
-            # 使用者的買賣設定線
-            fig_s.add_hline(y=buy_threshold, line_dash="dash", line_color="blue", annotation_text="設定買點")
-            fig_s.add_hline(y=sell_threshold, line_dash="dash", line_color="red", annotation_text="設定賣點")
-
-            fig_s.update_layout(height=350, template="plotly_white", title="景氣對策信號走勢 (五色區間)", yaxis=dict(range=[9, 48]))
-            st.plotly_chart(fig_s, use_container_width=True)
-
-        with tab2:
-            buys = df[(df["Position"] == 1) & (df["Position"].shift(1) == 0)]
-            sells = df[(df["Position"] == 0) & (df["Position"].shift(1) == 1)]
-            
-            fig_pt = go.Figure()
-            fig_pt.add_trace(go.Scatter(x=df.index, y=df["Close"], name="股價", line=dict(color="#333", width=1)))
-            fig_pt.add_trace(go.Scatter(x=buys.index, y=buys["Close"], mode="markers", name="買進", marker=dict(symbol="triangle-up", color="blue", size=10)))
-            fig_pt.add_trace(go.Scatter(x=sells.index, y=sells["Close"], mode="markers", name="賣出", marker=dict(symbol="triangle-down", color="red", size=10)))
-            fig_pt.update_layout(height=450, template="plotly_white", hovermode="x unified", title="進出點位標記")
-            st.plotly_chart(fig_pt, use_container_width=True)
-
-        # 交易表
-        st.markdown("### 📋 歷年交易紀錄")
+        # 交易列表
+        st.markdown("### 📋 交易明細")
         trades = []
         temp_buy = None
-        
-        # 處理第一筆就持有的情況 (如果使用者選「已持有」，且第一天沒有買進訊號，我們也把它當作一次買入)
-        # 但通常為了表格好看，我們只列出「訊號改變」的點
-        # 這裡的邏輯是找出 Position 變動的點
+        # 處理訊號轉換點
         signals = df[df["Position"] != df["Position"].shift(1)]
         
-        # 如果第一天就是 Position=1 (已持有)，我們手動補一個買入點在第一天
-        if not df.empty and df["Position"].iloc[0] == 1:
-             # 把第一天加入 signals 處理序列 (如果它沒在 signals 裡的話)
-             if df.index[0] not in signals.index:
-                 # 這裡簡單處理：直接初始化 temp_buy
-                 temp_buy = (df.index[0], df["Close"].iloc[0])
+        # 補上第一筆持倉 (如果一開始就是持有)
+        if not df.empty and df["Position"].iloc[0] == 1 and (df.index[0] not in signals.index):
+             temp_buy = (df.index[0], df["Close"].iloc[0])
 
         for date, row in signals.iterrows():
             if row["Position"] == 1: 
@@ -315,4 +285,4 @@ if st.button("開始回測 🚀", type="primary"):
         if trades:
             st.dataframe(pd.DataFrame(trades).style.format({"買價":"{:.2f}","賣價":"{:.2f}","報酬率":"{:.2%}"}).background_gradient(cmap="RdYlGn", subset=["報酬率"]), use_container_width=True)
         else:
-            st.info("無完整交易")
+            st.info("區間內無完整一進一出之交易")
