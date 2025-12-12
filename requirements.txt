@@ -6,3 +6,4 @@ plotly
 matplotlib
 requests
 curl_cffi
+FinMind
