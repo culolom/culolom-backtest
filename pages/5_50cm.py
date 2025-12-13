@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 vs 00631L SMA 策略機率統計 & 延遲分析
+# app.py — ETF SMA 策略戰情室 (多標的通用版)
 ###############################################################
 
 import streamlit as st
@@ -12,173 +12,266 @@ from datetime import datetime, timedelta
 
 # 1. 頁面設定
 st.set_page_config(
-    page_title="0050 vs 00631L SMA 戰情室",
+    page_title="ETF SMA 戰情室 (通用版)",
     layout="wide",
 )
 
+# ===============================================================
+# 全域設定：ETF 對照表
+# ===============================================================
+ETF_MAPPING = {
+    "🇹🇼 台股 - 0050 (元大台灣50)": {
+        "symbol": "0050.TW",
+        "leverage_options": {
+            "00631L (元大台灣50正2)": "00631L.TW",
+            "00663L (國泰臺灣加權正2)": "00663L.TW"
+        }
+    },
+    "🇺🇸 美股 - QQQ (納斯達克100)": {
+        "symbol": "QQQ",
+        "leverage_options": {
+            "QLD (ProShares 兩倍做多)": "QLD",
+            "TQQQ (ProShares 三倍做多)": "TQQQ"
+        }
+    },
+    "🇺🇸 美股 - SPY (標普500)": {
+        "symbol": "SPY",
+        "leverage_options": {
+            "SSO (ProShares 兩倍做多)": "SSO",
+            "UPRO (ProShares 三倍做多)": "UPRO"
+        }
+    },
+    "🇺🇸 美股 - VTI (整體股市)": {
+        "symbol": "VTI",
+        "leverage_options": {
+            "SSO (因無VTI正2，暫用SPY正2代替)": "SSO" 
+        }
+    }
+}
+
 with st.sidebar:
-    # 如果你有 Home.py 請保留這行，若無請註解
-    # st.page_link("Home.py", label="回到戰情室", icon="🏠")
-    st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
-      
-st.title("📊 0050 vs 00631L — SMA 深度量化分析")
+    st.divider()
+
+st.title("📊 原型 vs 槓桿 ETF — SMA 深度量化分析")
 
 # ===============================================================
-# 新增功能：日期狀態管理與快速按鈕邏輯
+# 區塊 1: 標的選擇與區間偵測
 # ===============================================================
 
-# 1. 初始化 session_state (若尚未設定，給定預設值)
+# 建立兩欄選擇器
+sel_col1, sel_col2 = st.columns(2)
+
+with sel_col1:
+    # 選擇原型
+    proto_keys = list(ETF_MAPPING.keys())
+    selected_proto_name = st.selectbox("原型 ETF (訊號來源)", proto_keys)
+    proto_symbol = ETF_MAPPING[selected_proto_name]["symbol"]
+
+with sel_col2:
+    # 根據原型，更新槓桿選項
+    lev_options = ETF_MAPPING[selected_proto_name]["leverage_options"]
+    selected_lev_name = st.selectbox("槓桿 ETF (實際進出場標的)", list(lev_options.keys()))
+    lev_symbol = lev_options[selected_lev_name]
+
+# ---------------------------------------------------------------
+# 自動偵測可回測區間 (Metadata Fetch)
+# ---------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def get_common_date_range(sym1, sym2):
+    """
+    快速抓取兩檔股票的歷史資料，找出共同的最早開始日期。
+    """
+    try:
+        # 下載 max 歷史資料 (只抓 Date 索引即可，但 yfinance 下載會有資料)
+        df1 = yf.download(sym1, period="max", progress=False, auto_adjust=False)
+        df2 = yf.download(sym2, period="max", progress=False, auto_adjust=False)
+        
+        if df1.empty or df2.empty:
+            return None, None
+            
+        # 處理 MultiIndex (如果有的話)
+        if isinstance(df1.columns, pd.MultiIndex): df1 = df1.xs("Close", axis=1, level=0, drop_level=True)
+        if isinstance(df2.columns, pd.MultiIndex): df2 = df2.xs("Close", axis=1, level=0, drop_level=True)
+        
+        start1 = df1.index.min().date()
+        start2 = df2.index.min().date()
+        end1 = df1.index.max().date()
+        end2 = df2.index.max().date()
+        
+        # 取兩者較晚的開始日期 (Intersection)
+        common_start = max(start1, start2)
+        common_end = min(end1, end2)
+        
+        return common_start, common_end
+    except Exception as e:
+        return None, None
+
+# 執行區間偵測
+with st.spinner("正在偵測可回測區間..."):
+    min_date, max_date = get_common_date_range(proto_symbol, lev_symbol)
+
+# 顯示藍色資訊條 (仿照截圖)
+if min_date and max_date:
+    st.info(f"📌 **可回測區間** ： {min_date} ~ {max_date}")
+    # 將最早已知日期存入 session_state 供「全都要」按鈕使用
+    st.session_state['data_min_date'] = min_date
+else:
+    st.error("❌ 無法抓取標的資料，請確認代號正確或網路連線。")
+    st.stop() # 若無資料則停止執行後續
+
+# ===============================================================
+# 區塊 2: 日期選擇與按鈕控制
+# ===============================================================
+
+# 1. 初始化 session_state
 if 'start_date' not in st.session_state:
     st.session_state['start_date'] = pd.to_datetime("2015-01-01").date()
 if 'end_date' not in st.session_state:
     st.session_state['end_date'] = pd.to_datetime("today").date()
 
-# 2. 定義更新日期的 Callback 函數
+# 確保日期不會超出範圍 (例如切換標的後，舊日期可能太早)
+if st.session_state['start_date'] < min_date:
+    st.session_state['start_date'] = min_date
+
+# 2. 定義更新日期的 Callback
 def update_dates(years=None, is_all=False):
     today = pd.to_datetime("today").date()
-    st.session_state['end_date'] = today
+    # 限制結束日期不超過資料極限
+    st.session_state['end_date'] = min(today, max_date) if max_date else today
     
     if is_all:
-        # 設定為 00631L 上市附近日期或您想要的起始日
-        st.session_state['start_date'] = pd.to_datetime("2014-10-31").date()
+        # 使用剛剛偵測到的最早日期
+        available_min = st.session_state.get('data_min_date', pd.to_datetime("2010-01-01").date())
+        st.session_state['start_date'] = available_min
     elif years:
-        # 計算 N 年前的日期
-        start = today - pd.DateOffset(years=years)
-        st.session_state['start_date'] = start.date()
+        target_start = today - pd.DateOffset(years=years)
+        # 確保不早於可回測的最早日期
+        final_start = max(target_start.date(), min_date) if min_date else target_start.date()
+        st.session_state['start_date'] = final_start
 
-# 3. 顯示快速選擇按鈕 (仿照截圖樣式)
+# 3. 顯示快速按鈕
 st.subheader("🛠️ 參數設定")
 btn_col1, btn_col2, btn_col3, btn_col4, btn_col5 = st.columns(5)
 
-with btn_col1:
-    st.button("一年", on_click=update_dates, kwargs={'years': 1}, use_container_width=True)
-with btn_col2:
-    st.button("三年", on_click=update_dates, kwargs={'years': 3}, use_container_width=True)
-with btn_col3:
-    st.button("五年", on_click=update_dates, kwargs={'years': 5}, use_container_width=True)
-with btn_col4:
-    st.button("十年", on_click=update_dates, kwargs={'years': 10}, use_container_width=True)
-with btn_col5:
-    st.button("全都要", on_click=update_dates, kwargs={'is_all': True}, use_container_width=True)
+with btn_col1: st.button("一年", on_click=update_dates, kwargs={'years': 1}, use_container_width=True)
+with btn_col2: st.button("三年", on_click=update_dates, kwargs={'years': 3}, use_container_width=True)
+with btn_col3: st.button("五年", on_click=update_dates, kwargs={'years': 5}, use_container_width=True)
+with btn_col4: st.button("十年", on_click=update_dates, kwargs={'years': 10}, use_container_width=True)
+with btn_col5: st.button("全都要", on_click=update_dates, kwargs={'is_all': True}, use_container_width=True)
 
-# 顯示目前的比較日期 (純文字顯示，增加視覺確認)
-current_start = st.session_state['start_date']
-current_end = st.session_state['end_date']
-st.caption(f"📅 目前設定區間：{current_start} — {current_end}")
+# 顯示目前設定顯示文字
+st.caption(f"📅 目前設定分析區間：{st.session_state['start_date']} — {st.session_state['end_date']}")
 
-# ===============================================================
-# 原有的 Form 表單 (微調以接收 session_state)
-# ===============================================================
-
+# 4. 表單與執行按鈕
 with st.form("param_form"):
     c1, c2, c3 = st.columns(3)
-    
     with c1:
-        # 注意：這裡加上 key，讓它自動連結 session_state
-        start_date = st.date_input("開始日期", key="start_date")
+        start_date = st.date_input("開始日期", key="start_date", min_value=min_date, max_value=max_date)
     with c2:
-        end_date = st.date_input("結束日期", key="end_date")
+        end_date = st.date_input("結束日期", key="end_date", min_value=min_date, max_value=max_date)
     with c3:
         sma_window = st.number_input("SMA 均線週期 (日)", min_value=10, max_value=500, value=200, step=10)
     
     submitted = st.form_submit_button("🚀 開始量化回測", use_container_width=True)
 
-###############################################################
-# 資料下載函數
-###############################################################
+# ===============================================================
+# 資料處理與分析核心 (通用化)
+# ===============================================================
 @st.cache_data
-def load_data(start, end):
-    tickers = ["0050.TW", "00631L.TW"]
+def load_analysis_data(start, end, p_sym, l_sym):
+    tickers = [p_sym, l_sym]
     try:
-        raw = yf.download(tickers, start=start, end=end, auto_adjust=False)
+        raw = yf.download(tickers, start=start, end=end, auto_adjust=False, progress=False)
     except Exception:
         return None
 
-    if raw.empty:
-        return None
+    if raw.empty: return None
 
     df = pd.DataFrame()
-    # 處理 yfinance 多層索引問題
-    if isinstance(raw.columns, pd.MultiIndex):
-        try:
+    
+    # 處理 yfinance 複雜的 MultiIndex 結構
+    target_col = "Adj Close" if "Adj Close" in str(raw.columns) else "Close"
+    
+    # 嘗試提取數據
+    try:
+        if isinstance(raw.columns, pd.MultiIndex):
+            # 優先找 Adj Close，沒有則找 Close
             if "Adj Close" in raw.columns.levels[0]:
                 df = raw["Adj Close"].copy()
             elif "Close" in raw.columns.levels[0]:
                 df = raw["Close"].copy()
             else:
-                df = raw.xs("Adj Close", axis=1, level=0, drop_level=True)
-        except:
-            try:
-                df = raw.xs("Close", axis=1, level=0, drop_level=True)
-            except:
-                return None
-    else:
-        if "Adj Close" in raw.columns:
-            df = raw[["Adj Close"]]
-        elif "Close" in raw.columns:
-            df = raw[["Close"]]
+                # 容錯處理，直接抓第一層
+                df = raw.xs(target_col, axis=1, level=0, drop_level=True)
         else:
-            df = raw
-            
+            df = raw[[target_col]] if target_col in raw.columns else raw
+    except:
+        return None
+
+    # 重命名欄位為通用名稱 (Base, Lev) 以利後續運算
+    # 這裡要做 mapping: {p_sym: "Base", l_sym: "Lev"}
+    # 注意: yfinance 下載回來的欄位名稱通常不帶 '.TW' (如果是台股有時會怪怪的)，需模糊比對
+    
     cols_map = {}
     for col in df.columns:
-        if "0050" in str(col): cols_map[col] = "0050"
-        elif "00631L" in str(col): cols_map[col] = "00631L"
+        col_str = str(col)
+        # 移除 .TW 後綴進行比對 (因為 yfinance columns 有時會省略)
+        clean_p = p_sym.replace(".TW", "")
+        clean_l = l_sym.replace(".TW", "")
+        
+        if clean_p in col_str: cols_map[col] = "Base"
+        elif clean_l in col_str: cols_map[col] = "Lev"
     
-    df = df.rename(columns=cols_map).dropna()
+    df = df.rename(columns=cols_map)
+    df = df.dropna()
     
-    if "0050" not in df.columns or "00631L" not in df.columns:
+    # 確保兩個欄位都存在
+    if "Base" not in df.columns or "Lev" not in df.columns:
         return None
         
     return df
 
-###############################################################
-# 核心邏輯
-###############################################################
 if submitted:
-    with st.spinner("正在進行 Quant 運算..."):
-        price = load_data(start_date, end_date)
+    with st.spinner(f"正在計算 {selected_proto_name} vs {selected_lev_name} ..."):
+        price = load_analysis_data(start_date, end_date, proto_symbol, lev_symbol)
         
         if price is None or price.empty:
-            st.error("❌ 無法下載資料，請檢查日期區間或網路連線。")
+            st.error("❌ 無法下載資料或資料不足，請檢查日期區間。")
         else:
+            # 為了顯示漂亮，定義顯示名稱
+            base_label = selected_proto_name.split(" ")[2] # 取出 0050 或 QQQ
+            lev_label = selected_lev_name.split(" ")[0]    # 取出 00631L 或 QLD
+
             # 1. 基礎指標計算
-            price["SMA_50"] = price["0050"].rolling(sma_window).mean()
-            price["SMA_L"]  = price["00631L"].rolling(sma_window).mean()
+            price["SMA_Base"] = price["Base"].rolling(sma_window).mean()
+            price["SMA_Lev"]  = price["Lev"].rolling(sma_window).mean()
             
             # 計算 Gap (乖離率)
-            price["Gap_50"] = (price["0050"] - price["SMA_50"]) / price["SMA_50"]
-            price["Gap_L"]  = (price["00631L"] - price["SMA_L"]) / price["SMA_L"]
+            price["Gap_Base"] = (price["Base"] - price["SMA_Base"]) / price["SMA_Base"]
+            price["Gap_Lev"]  = (price["Lev"] - price["SMA_Lev"]) / price["SMA_Lev"]
 
             df = price.dropna().copy()
             
-            st.success(f"✅ 數據區間: {df.index.min().date()} ~ {df.index.max().date()} (共 {len(df)} 交易日)")
+            st.success(f"✅ 分析完成！ 數據區間: {df.index.min().date()} ~ {df.index.max().date()} (共 {len(df)} 交易日)")
 
             # ==========================================
-            # PART A: SMA Gap 分佈圖 (乖離率視覺化)
+            # PART A: SMA Gap 分佈圖
             # ==========================================
-            st.subheader("📉 SMA Gap 乖離率分佈圖 (距離均線 %)")
-            st.markdown("""
-            此圖呈現 **「價格距離 200SMA 的百分比」**。
-            - **0 軸**：代表價格剛好在均線上（穿越點）。
-            - 觀察重點：誰的線先穿過 0 軸？以及兩者的開口大小。
-            """)
+            st.subheader(f"📉 SMA Gap 乖離率分佈圖 ({base_label} vs {lev_label})")
             
             fig_gap = go.Figure()
-            fig_gap.add_trace(go.Scatter(x=df.index, y=df["Gap_50"], name="0050 Gap%", 
+            fig_gap.add_trace(go.Scatter(x=df.index, y=df["Gap_Base"], name=f"{base_label} Gap%", 
                                          line=dict(color='blue', width=1.5)))
-            fig_gap.add_trace(go.Scatter(x=df.index, y=df["Gap_L"], name="00631L Gap%", 
+            fig_gap.add_trace(go.Scatter(x=df.index, y=df["Gap_Lev"], name=f"{lev_label} Gap%", 
                                          line=dict(color='red', width=1.5)))
             
-            # 加入 0 軸參考線
             fig_gap.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
             
             fig_gap.update_layout(
-                title="與 200SMA 的乖離程度比較 (大於0=多頭, 小於0=空頭)",
+                title=f"與 {sma_window}SMA 的乖離程度比較",
                 yaxis_tickformat=".1%",
                 hovermode="x unified",
                 height=400
@@ -186,147 +279,90 @@ if submitted:
             st.plotly_chart(fig_gap, use_container_width=True)
 
             # ==========================================
-            # PART B: 原始價格與 SMA 走勢對照 (新增圖表)
+            # PART B: 雙軸價格走勢
             # ==========================================
-            st.subheader(f"📈 原始價格與 {sma_window}SMA 走勢對照")
+            st.subheader(f"📈 價格走勢對照")
             
             fig_price = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # 0050 (左軸)
+            # 左軸 (Base)
             fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["0050"], name="0050 收盤價",
+                x=df.index, y=df["Base"], name=f"{base_label} 收盤價",
                 line=dict(color='rgba(0,0,255,0.5)', width=1)), secondary_y=False)
             fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["SMA_50"], name=f"0050 SMA",
+                x=df.index, y=df["SMA_Base"], name=f"{base_label} SMA",
                 line=dict(color='blue', width=2)), secondary_y=False)
             
-            # 00631L (右軸)
+            # 右軸 (Lev)
             fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["00631L"], name="00631L 收盤價",
+                x=df.index, y=df["Lev"], name=f"{lev_label} 收盤價",
                 line=dict(color='rgba(255,0,0,0.5)', width=1)), secondary_y=True)
             fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["SMA_L"], name=f"00631L SMA",
+                x=df.index, y=df["SMA_Lev"], name=f"{lev_label} SMA",
                 line=dict(color='red', width=2)), secondary_y=True)
             
             fig_price.update_layout(
-                title_text="雙軸價格走勢圖 (左軸: 0050 / 右軸: 00631L)",
+                title_text=f"左軸: {base_label} / 右軸: {lev_label}",
                 hovermode="x unified",
                 height=500
             )
-            fig_price.update_yaxes(title_text="0050 價格", secondary_y=False)
-            fig_price.update_yaxes(title_text="00631L 價格", secondary_y=True)
-            
             st.plotly_chart(fig_price, use_container_width=True)
 
             # ==========================================
             # PART C: 穿越時間差統計 (Lag Analysis)
             # ==========================================
             st.subheader("⏱️ 穿越延遲時間統計 (Time Lag Analysis)")
-            st.markdown("計算當 0050 發生穿越訊號時，00631L 是**提早 (Lead)** 還是 **延遲 (Lag)** 發生。")
+            
+            # 1. 偵測穿越
+            bull_Base = df["Base"] > df["SMA_Base"]
+            bull_Lev  = df["Lev"] > df["SMA_Lev"]
 
-            # 1. 偵測穿越點
-            # True if Price > SMA
-            bull_50 = df["0050"] > df["SMA_50"]
-            bull_L  = df["00631L"] > df["SMA_L"]
+            cross_up_Base = df[(bull_Base) & (~bull_Base.shift(1).fillna(True))].index
+            cross_up_Lev  = df[(bull_Lev) & (~bull_Lev.shift(1).fillna(True))].index
 
-            # 向上突破 (前一天 False, 今天 True)
-            cross_up_50 = df[(bull_50) & (~bull_50.shift(1).fillna(True))].index
-            cross_up_L  = df[(bull_L) & (~bull_L.shift(1).fillna(True))].index
+            cross_dn_Base = df[(~bull_Base) & (bull_Base.shift(1).fillna(False))].index
+            cross_dn_Lev  = df[(~bull_Lev) & (bull_Lev.shift(1).fillna(False))].index
 
-            # 向下跌破 (前一天 True, 今天 False)
-            cross_dn_50 = df[(~bull_50) & (bull_50.shift(1).fillna(False))].index
-            cross_dn_L  = df[(~bull_L) & (bull_L.shift(1).fillna(False))].index
-
-            # 2. 配對演算法 (以 0050 為基準，找前後 60 天內最近的 00631L 事件)
-            def calc_lag_stats(base_dates, target_dates, event_name):
+            # 2. 配對算法
+            def calc_lag_stats(base_dates, target_dates):
                 lags = []
                 for d in base_dates:
-                    # 找前後 60 天內的配對
                     candidates = [t for t in target_dates if abs((t - d).days) <= 60]
                     if candidates:
-                        # 找最近的一天
                         nearest = min(candidates, key=lambda x: abs((x - d).days))
-                        # 差距 = Target(L) - Base(50)
-                        # 負值 = L 日期較小 = L 提早發生
-                        # 正值 = L 日期較大 = L 延遲發生
                         diff = (nearest - d).days
                         lags.append(diff)
-                
-                if not lags:
-                    return 0, 0, "無事件"
-                
-                avg_lag = np.mean(lags)
-                count = len(lags)
-                return avg_lag, count, lags
+                if not lags: return 0, 0
+                return np.mean(lags), len(lags)
 
-            # 計算統計
-            lag_up_val, count_up, lags_up = calc_lag_stats(cross_up_50, cross_up_L, "向上突破")
-            lag_dn_val, count_dn, lags_dn = calc_lag_stats(cross_dn_50, cross_dn_L, "向下跌破")
+            lag_up_val, count_up = calc_lag_stats(cross_up_Base, cross_up_Lev)
+            lag_dn_val, count_dn = calc_lag_stats(cross_dn_Base, cross_dn_Lev)
 
-            # 3. 呈現結果表格
-            col_stat1, col_stat2 = st.columns(2)
+            # 3. 結果呈現
+            c_stat1, c_stat2 = st.columns(2)
             
-            with col_stat1:
-                st.markdown("### 🔻 下跌趨勢 (跌破 200SMA)")
-                
-                status_text = ""
+            with c_stat1:
+                st.markdown("### 🔻 下跌趨勢 (跌破 SMA)")
                 if lag_dn_val < 0:
-                    status_text = f"⚡ 00631L 平均 **提早 {abs(lag_dn_val):.1f} 天** 轉空"
-                    color = "red"
+                    status = f"⚡ {lev_label} 提早 {abs(lag_dn_val):.1f} 天"
                 else:
-                    status_text = f"🐢 00631L 平均 **延遲 {lag_dn_val:.1f} 天** 轉空"
-                    color = "green"
-                    
-                st.info(f"""
-                **統計結果 ({count_dn} 次事件):**
-                
-                ### {status_text}
-                
-                (負值代表 00631L 對下跌更敏感)
-                """)
+                    status = f"🐢 {lev_label} 延遲 {lag_dn_val:.1f} 天"
+                st.info(f"**統計 {count_dn} 次事件:**\n### {status}")
 
-            with col_stat2:
-                st.markdown("### 🚀 上漲趨勢 (突破 200SMA)")
-                
-                status_text = ""
+            with c_stat2:
+                st.markdown("### 🚀 上漲趨勢 (突破 SMA)")
                 if lag_up_val > 0:
-                    status_text = f"🐢 00631L 平均 **延遲 {lag_up_val:.1f} 天** 轉多"
-                    color = "orange" # Warning color
+                    status = f"🐢 {lev_label} 延遲 {lag_up_val:.1f} 天"
+                    color = "orange"
                 else:
-                    status_text = f"⚡ 00631L 平均 **提早 {abs(lag_up_val):.1f} 天** 轉多"
-                    color = "blue"
-                
-                st.warning(f"""
-                **統計結果 ({count_up} 次事件):**
-                
-                ### {status_text}
-                
-                (正值代表 00631L 需要更多時間修復均線)
-                """)
+                    status = f"⚡ {lev_label} 提早 {abs(lag_up_val):.1f} 天"
+                st.warning(f"**統計 {count_up} 次事件:**\n### {status}")
 
-            # 詳細數據表格
-            st.markdown("#### 📜 穿越事件詳細數據")
-            summary_data = {
-                "事件類型": ["00631L 跌破 200SMA", "00631L 突破 200SMA"],
-                "基準 (0050)": ["0050 跌破時", "0050 突破時"],
-                "平均時間差 (天)": [f"{lag_dn_val:.1f} 天", f"{lag_up_val:.1f} 天"],
-                "量化解讀": [
-                    "00631L 因槓桿放大跌幅，通常會**先跌破**均線 (負值)",
-                    "00631L 因波動耗損，通常需**更久**才能漲回均線 (正值)"
-                ]
-            }
-            st.table(pd.DataFrame(summary_data))
-
-            # ==========================================
-            # 簡單總結
-            # ==========================================
-            st.markdown("---")
-            st.info("""
-            **🎯 最終量化結論：**
-            1. **下跌不對稱性**：從 Gap 圖可見，00631L 下跌時乖離率擴大極快，導致它比 0050 更早跌破均線（保護機制反應快）。
-            2. **上漲滯後性**：0050 穿越 0 軸轉正時，00631L 往往還在水下（Gap < 0），這就是著名的「波動率拖累 (Volatility Drag)」。
-            3. **操作啟示**：若以 200SMA 為進出依據，操作 00631L 會比 0050 頻繁停損（早破），且較晚進場（晚穿）。
-            """)
+            st.table(pd.DataFrame({
+                "事件": [f"{lev_label} 跌破", f"{lev_label} 突破"],
+                "基準": [f"{base_label} 跌破時", f"{base_label} 突破時"],
+                "平均時差": [f"{lag_dn_val:.1f} 天", f"{lag_up_val:.1f} 天"]
+            }))
 
 else:
-    st.info("👆 請在上方設定參數，並點擊「🚀 開始量化回測」按鈕以查看報告。")
+    st.info("👆 請選擇上方標的與參數，並點擊「🚀 開始量化回測」")
