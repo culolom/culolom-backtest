@@ -8,32 +8,80 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from datetime import datetime, timedelta
 
 # 1. 頁面設定
 st.set_page_config(
     page_title="0050 vs 00631L SMA 戰情室",
     layout="wide",
-
 )
+
 with st.sidebar:
-    st.page_link("Home.py", label="回到戰情室", icon="🏠")
+    # 如果你有 Home.py 請保留這行，若無請註解
+    # st.page_link("Home.py", label="回到戰情室", icon="🏠")
     st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
-     
+      
 st.title("📊 0050 vs 00631L — SMA 深度量化分析")
 
-# 2. 上方控制面板
+# ===============================================================
+# 新增功能：日期狀態管理與快速按鈕邏輯
+# ===============================================================
+
+# 1. 初始化 session_state (若尚未設定，給定預設值)
+if 'start_date' not in st.session_state:
+    st.session_state['start_date'] = pd.to_datetime("2015-01-01").date()
+if 'end_date' not in st.session_state:
+    st.session_state['end_date'] = pd.to_datetime("today").date()
+
+# 2. 定義更新日期的 Callback 函數
+def update_dates(years=None, is_all=False):
+    today = pd.to_datetime("today").date()
+    st.session_state['end_date'] = today
+    
+    if is_all:
+        # 設定為 00631L 上市附近日期或您想要的起始日
+        st.session_state['start_date'] = pd.to_datetime("2014-10-31").date()
+    elif years:
+        # 計算 N 年前的日期
+        start = today - pd.DateOffset(years=years)
+        st.session_state['start_date'] = start.date()
+
+# 3. 顯示快速選擇按鈕 (仿照截圖樣式)
+st.subheader("🛠️ 參數設定")
+btn_col1, btn_col2, btn_col3, btn_col4, btn_col5 = st.columns(5)
+
+with btn_col1:
+    st.button("一年", on_click=update_dates, kwargs={'years': 1}, use_container_width=True)
+with btn_col2:
+    st.button("三年", on_click=update_dates, kwargs={'years': 3}, use_container_width=True)
+with btn_col3:
+    st.button("五年", on_click=update_dates, kwargs={'years': 5}, use_container_width=True)
+with btn_col4:
+    st.button("十年", on_click=update_dates, kwargs={'years': 10}, use_container_width=True)
+with btn_col5:
+    st.button("全都要", on_click=update_dates, kwargs={'is_all': True}, use_container_width=True)
+
+# 顯示目前的比較日期 (純文字顯示，增加視覺確認)
+current_start = st.session_state['start_date']
+current_end = st.session_state['end_date']
+st.caption(f"📅 目前設定區間：{current_start} — {current_end}")
+
+# ===============================================================
+# 原有的 Form 表單 (微調以接收 session_state)
+# ===============================================================
+
 with st.form("param_form"):
-    st.subheader("🛠️ 參數設定")
     c1, c2, c3 = st.columns(3)
     
     with c1:
-        start_date = st.date_input("開始日期", pd.to_datetime("2015-01-01"))
+        # 注意：這裡加上 key，讓它自動連結 session_state
+        start_date = st.date_input("開始日期", key="start_date")
     with c2:
-        end_date = st.date_input("結束日期", pd.to_datetime("today"))
+        end_date = st.date_input("結束日期", key="end_date")
     with c3:
         sma_window = st.number_input("SMA 均線週期 (日)", min_value=10, max_value=500, value=200, step=10)
     
@@ -54,6 +102,7 @@ def load_data(start, end):
         return None
 
     df = pd.DataFrame()
+    # 處理 yfinance 多層索引問題
     if isinstance(raw.columns, pd.MultiIndex):
         try:
             if "Adj Close" in raw.columns.levels[0]:
