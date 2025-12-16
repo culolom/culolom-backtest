@@ -28,11 +28,14 @@ if os.path.exists(font_path):
 st.set_page_config(page_title="景氣燈號策略", page_icon="🚦", layout="wide")
 
 with st.sidebar:
-    st.page_link("Home.py", label="回到戰情室", icon="🏠")
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    
+    st.info("💡 **提示**\n本平台僅供策略研究與回測驗證，不代表投資建議。")
+    st.divider()
 
 st.markdown("<h1 style='margin-bottom:0.5em;'>🚦 國發會景氣燈號策略</h1>", unsafe_allow_html=True)
 st.markdown("<b>進階策略：「藍燈分批買，紅燈分批賣」。平滑成本，降低風險。</b>", unsafe_allow_html=True)
