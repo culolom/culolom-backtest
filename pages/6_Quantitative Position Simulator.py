@@ -96,7 +96,7 @@ with st.container(border=True):
     c1, c2 = st.columns([1, 1.5])
     
     with c1:
-        watch_list = ["QQQ", "SPY", "0050.TW", "VT", "VTI", "GLD"]
+        watch_list = ["QQQ", "SPY", "0050.TW", "BTC-USD", "VOO", "GLD"]
         target_symbol = st.selectbox("選擇標的 (Symbol)", watch_list, index=0)
         st.markdown("<br>", unsafe_allow_html=True)
         start_btn = st.button("開始分析 🚀", type="primary") 
