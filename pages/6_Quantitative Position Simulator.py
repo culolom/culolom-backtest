@@ -59,14 +59,9 @@ st.markdown("""
         .comparison-table td { text-align: center; padding: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
         .comparison-table td.metric-name { text-align: left; font-weight: 500; background-color: rgba(128,128,128,0.02); width: 25%; }
         
-        /* Metric 卡片優化 */
         div[data-testid="stMetric"] {
-            background-color: #f8f9fa;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid #eee;
+            background-color: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #eee;
         }
-        
         div.stButton > button { border-radius: 8px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
@@ -147,22 +142,19 @@ if start_btn and target_symbol:
         except: df_monthly = df_daily['Price'].resample('M').last().to_frame()
         
         # 3. 計算「現況」波動率 (使用最近 21 個交易日)
-        recent_daily_returns = df_daily['Price'].pct_change().tail(21) # 近一個月
+        recent_daily_returns = df_daily['Price'].pct_change().tail(21)
         current_daily_std = recent_daily_returns.std()
         current_ann_vol = current_daily_std * np.sqrt(252)
         
-        # 4. ★★★ 新增：計算「近12個月」的現況指標 ★★★
-        # (1) 近12個月報酬率 (Current 12M Return)
+        # 4. 計算「近12個月」的現況指標
         if len(df_daily) > 252:
             curr_12m_ret = (df_daily['Price'].iloc[-1] / df_daily['Price'].iloc[-252]) - 1
-            # (2) 近12個月波動率 (Current 12M Volatility)
             last_12m_daily_rets = df_daily['Price'].pct_change().tail(252)
             curr_12m_vol = last_12m_daily_rets.std() * np.sqrt(252)
         else:
             curr_12m_ret = 0
             curr_12m_vol = 0
             
-        # (3) 現況凱利計算 (Snapshot Kelly)
         var_12m = curr_12m_vol ** 2
         if var_12m > 0:
             kelly_12m_full = (curr_12m_ret - rf_rate) / var_12m
@@ -171,7 +163,7 @@ if start_btn and target_symbol:
         kelly_12m_half = kelly_12m_full * 0.5
 
         # -----------------------------------------------
-        # 顯示區塊 A: 數據區間 & 純現況基準
+        # 顯示區塊 A: 現況基準
         # -----------------------------------------------
         start_date = df_monthly.index[0]
         end_date = df_monthly.index[-1]
@@ -180,7 +172,6 @@ if start_btn and target_symbol:
         st.caption(f"📅 數據區間：{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')} (共 {data_years:.1f} 年)")
 
         st.markdown("### 📊 現況基準 (Benchmark): 近 12 個月表現")
-        
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("近12月報酬", f"{curr_12m_ret:.2%}", help="單純看過去一年的漲跌幅")
         m2.metric("近12月波動", f"{curr_12m_vol:.2%}", help="過去一年的年化標準差")
@@ -188,7 +179,7 @@ if start_btn and target_symbol:
         m4.metric("全凱利 (現況)", f"{kelly_12m_full:.2f} x", help="理論最大值 (高風險)")
         m5.metric("半凱利 (建議)", f"{kelly_12m_half:.2f} x", help="安全邊際建議值")
         
-        st.info("👆 此區塊僅基於「最近 12 個月」的表現計算，反映**純粹的近期動能**。請與下方的「混合策略」對照，若混合建議低於此值，代表歷史數據提示風險。")
+        st.info("👆 此區塊僅基於「最近 12 個月」的表現計算，反映**純粹的近期動能**。")
         st.divider()
 
         # -----------------------------------------------
@@ -220,15 +211,24 @@ if start_btn and target_symbol:
                     if count > 5:
                         avg_monthly_ret = target_returns.mean()
                         ann_ret = avg_monthly_ret * 12 
-                        std_monthly = target_returns.std()
-                        ann_vol = std_monthly * np.sqrt(12)
                     else:
-                        ann_ret, ann_vol = 0, 0
+                        ann_ret = 0
+                    
+                    # 混合公式計算: u (歷史) - r (現況) / sigma^2 (現況)
+                    # sigma 使用全域變數 current_ann_vol (來自日線)
+                    variance_current = current_ann_vol ** 2
+                    
+                    if variance_current > 0:
+                        optimal_lev = (ann_ret - rf_rate) / variance_current
+                    else:
+                        optimal_lev = 0
                     
                     return {
                         '回測設定': label, '排序': sort_idx,
-                        '歷史年化報酬(u)': ann_ret, 
-                        '歷史年化波動': ann_vol
+                        '歷史年化報酬(預期)': ann_ret, 
+                        '現況年化波動': current_ann_vol,
+                        '凱利 (全倉)': optimal_lev,
+                        '半凱利 (建議)': optimal_lev * 0.5
                     }
 
                 results_kelly.append(calc_leverage_stats(signal_trend, f"年線多 + {m}月續漲 (順勢)", m * 10 + 1))
@@ -254,16 +254,9 @@ if start_btn and target_symbol:
                         
                         match = res_df[res_df['回測設定'] == target_label]
                         if not match.empty:
-                            hist_u = match.iloc[0]['歷史年化報酬(u)']
+                            hist_u = match.iloc[0]['歷史年化報酬(預期)']
+                            half_kelly_lev = match.iloc[0]['半凱利 (建議)']
                             
-                            # 混合公式
-                            variance_current = current_ann_vol ** 2
-                            if variance_current > 0:
-                                optimal_lev = (hist_u - rf_rate) / variance_current
-                            else:
-                                optimal_lev = 0
-                                
-                            half_kelly_lev = optimal_lev * 0.5
                             current_suggestions.append(half_kelly_lev)
                             details_for_cards.append({
                                 'm': m, 'type': curr_type, 'icon': icon,
@@ -294,9 +287,9 @@ if start_btn and target_symbol:
                     st.info(f"""
                     **📊 參數詳解：為什麼是 {avg_leverage:.2f} 倍？**
                     
-                    * **分子 (獲利能力)**：參考 **歷史平均報酬 ($\mu$)**，這代表策略的長期期望值。
+                    * **分子 (獲利能力)**：參考 **歷史平均報酬 ($\mu$)**。
                     * **分母 (風險係數)**：使用 **近一個月實際波動率 ($\sigma_{{current}}$)** = `{current_ann_vol:.2%}`。
-                    * **邏輯**：即使長期好賺，但若「最近這一個月」震盪劇烈，系統仍會強制降槓桿。
+                    * **邏輯**：當前市場波動率若 **低於** 歷史平均，槓桿會自動 **放大**；反之若最近震盪劇烈，槓桿會自動 **縮小** 以保護本金。
                     
                     **💡 執行策略：**
                     建議配置 **現金 + 2倍槓桿ETF** 達成目標槓桿。例如買入 **{(avg_leverage/2)*100:.0f}%** 的正2 ETF。
@@ -329,11 +322,13 @@ if start_btn and target_symbol:
             st.markdown("<br>", unsafe_allow_html=True)
 
             if not res_df.empty:
-                st.markdown("<h3>📚 歷史數據資料庫 (僅供參考)</h3>", unsafe_allow_html=True)
-                st.caption("下表為「純歷史」數據，作為 $u$ (分子) 的參考來源。")
+                st.markdown("<h3>📚 動態凱利計算總表 (Dynamic Kelly Summary)</h3>", unsafe_allow_html=True)
+                st.caption(f"下表以「現況波動率 {current_ann_vol:.1%}」為分母，結合歷史報酬，算出當下槓桿。")
                 metrics_map = {
-                    "歷史年化報酬(u)": {"fmt": lambda x: f"{x:.2%}"},
-                    "歷史年化波動":    {"fmt": lambda x: f"{x:.2%}"},
+                    "歷史年化報酬(預期)": {"fmt": lambda x: f"{x:.2%}"},
+                    "現況年化波動":      {"fmt": lambda x: f"{x:.2%}"},
+                    "凱利 (全倉)":       {"fmt": lambda x: f"{x:.2f} x"},
+                    "半凱利 (建議)":     {"fmt": lambda x: f"{x:.2f} x"},
                 }
                 html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
                 for name in res_df['回測設定']:
@@ -347,7 +342,11 @@ if start_btn and target_symbol:
                         val = res_df.loc[res_df['回測設定'] == name, metric].values[0]
                         vals.append(val)
                     for val in vals:
-                        html += f"<td>{config['fmt'](val)}</td>"
+                        display_text = config["fmt"](val)
+                        if "凱利" in metric:
+                            if val > 1.5: display_text = f"<span style='color:#2962FF; font-weight:900'>{display_text}</span>"
+                            elif val <= 0: display_text = f"<span style='color:#D32F2F; font-weight:bold'>0x</span>"
+                        html += f"<td>{display_text}</td>"
                     html += "</tr>"
                 html += "</tbody></table>"
                 st.markdown(html, unsafe_allow_html=True)
