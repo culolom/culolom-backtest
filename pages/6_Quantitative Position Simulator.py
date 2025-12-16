@@ -1,6 +1,7 @@
 import os
 import sys
 import datetime as dt
+from dateutil.relativedelta import relativedelta
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -62,7 +63,10 @@ st.markdown("""
         div[data-testid="stMetric"] {
             background-color: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #eee;
         }
-        div.stButton > button { border-radius: 8px; font-weight: bold; }
+        div.stButton > button { border-radius: 8px; font-weight: bold; width: 100%; }
+        
+        /* 日期選擇區塊樣式 */
+        .date-selector-label { font-size: 0.9rem; font-weight: 600; margin-bottom: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -71,6 +75,7 @@ st.markdown("""
 # ------------------------------------------------------
 DATA_DIR = Path("data")
 
+@st.cache_data(ttl=3600) # 加入快取避免重複讀取
 def load_csv(symbol: str) -> pd.DataFrame:
     path = DATA_DIR / f"{symbol}.csv"
     if not path.exists(): return pd.DataFrame()
@@ -91,15 +96,25 @@ with st.sidebar:
 st.markdown("<h1 style='margin-bottom:0.1em;'>🎚️ 動態凱利倉位模擬器</h1>", unsafe_allow_html=True)
 st.caption("混合策略：**歷史預期報酬 ($\mu$)** vs **現況波動率 ($\sigma_{current}$)**")
 
+# ★★★ 控制面板區塊 ★★★
 with st.container(border=True):
     st.markdown("#### ⚙️ 模擬參數設定")
+    
+    # 上半部：標的與利率
     c1, c2 = st.columns([1, 1.5])
     
     with c1:
-        watch_list = ["QQQ", "SPY", "0050.TW", "BTC-USD", "VOO", "GLD"]
+        watch_list = ["QQQ", "SPY", "0050.TW", "VT", "VTI", "GLD"]
         target_symbol = st.selectbox("選擇標的 (Symbol)", watch_list, index=0)
-        st.markdown("<br>", unsafe_allow_html=True)
-        start_btn = st.button("開始分析 🚀", type="primary") 
+        
+        # 預先讀取資料以取得日期範圍
+        df_raw = load_csv(target_symbol)
+        if not df_raw.empty:
+            min_date = df_raw.index.min().date()
+            max_date = df_raw.index.max().date()
+        else:
+            min_date = dt.date(2000, 1, 1)
+            max_date = dt.date.today()
 
     with c2:
         rf_symbol = "預設 4%"
@@ -115,15 +130,53 @@ with st.container(border=True):
                     rf_symbol = sym
                     break
         
-        st.info(f"""
-        **📊 市場參數偵測**
-        * **無風險利率 ($r$)**: `{rf_rate:.2%}` (來源: {rf_symbol})
-        * **主要趨勢 (N)**: `12 個月` (年線固定)
-        * **短期濾網 (M)**: `1, 3, 6, 9 個月` (固定參數)
-        """)
-        
+        st.info(f"**市場參數**：無風險利率 `{rf_rate:.2%}` ({rf_symbol}) | 主要趨勢 `12個月` | 短期濾網 `1,3,6,9個月`")
         fixed_n = 12
         selected_m = [1, 3, 6, 9]
+
+    # 下半部：時間區間選擇 (新增功能)
+    st.markdown("---")
+    st.markdown("<div class='date-selector-label'>📅 選擇回測時間區間</div>", unsafe_allow_html=True)
+    
+    # 使用 session_state 來管理日期，以便按鈕可以更新它
+    if 'start_d' not in st.session_state: st.session_state.start_d = min_date
+    if 'end_d' not in st.session_state: st.session_state.end_d = max_date
+    
+    # 確保切換股票時，日期不會卡在舊的範圍外 (重置邏輯)
+    if st.session_state.end_d > max_date: st.session_state.end_d = max_date
+    if st.session_state.start_d < min_date: st.session_state.start_d = min_date
+
+    # 快速選單按鈕
+    b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
+    
+    def set_date_range(years=None, all_data=False):
+        st.session_state.end_d = max_date
+        if all_data:
+            st.session_state.start_d = min_date
+        else:
+            new_start = max_date - relativedelta(years=years)
+            st.session_state.start_d = max(new_start, min_date) # 確保不超出最早日期
+
+    if b_col1.button("1 年"): set_date_range(years=1)
+    if b_col2.button("3 年"): set_date_range(years=3)
+    if b_col3.button("5 年"): set_date_range(years=5)
+    if b_col4.button("10 年"): set_date_range(years=10)
+    if b_col5.button("全部"): set_date_range(all_data=True)
+
+    # 日期選擇器 (與 Session State 連動)
+    # 這裡我們使用 columns 來讓它置中或調整寬度
+    d_col1, d_col2 = st.columns([3, 1])
+    with d_col1:
+        date_range = st.date_input(
+            "自訂範圍",
+            value=(st.session_state.start_d, st.session_state.end_d),
+            min_value=min_date,
+            max_value=max_date,
+            label_visibility="collapsed"
+        )
+    
+    with d_col2:
+        start_btn = st.button("開始分析 🚀", type="primary")
 
 # ------------------------------------------------------
 # 5. 主程式執行邏輯
@@ -132,21 +185,39 @@ if start_btn and target_symbol:
     
     st.divider() 
 
-    with st.spinner(f"正在計算：歷史期望值 vs 近期波動率..."):
-        # 1. 讀取標的
-        df_daily = load_csv(target_symbol)
-        if df_daily.empty: st.error(f"找不到 {target_symbol}.csv"); st.stop()
+    # 處理日期輸入
+    if isinstance(date_range, tuple):
+        if len(date_range) == 2:
+            req_start, req_end = date_range
+        elif len(date_range) == 1:
+            req_start = date_range[0]
+            req_end = max_date
+        else:
+            req_start, req_end = min_date, max_date
+    else:
+        req_start, req_end = min_date, max_date
 
+    with st.spinner(f"正在計算區間 {req_start} ~ {req_end} 的動態凱利模型..."):
+        # 1. 讀取標的 (已在上面讀過，但這裡要過濾)
+        if df_raw.empty: st.error(f"找不到 {target_symbol}.csv"); st.stop()
+        
+        # ★★★ 關鍵：根據選擇的時間進行切片 ★★★
+        # 注意：為了讓「起始日」的年線動能計算正確，我們需要「往前多抓一年」的資料
+        # 否則切片後的第一天會因為沒有前12個月資料而變成 NaN
+        buffer_start = req_start - relativedelta(months=13)
+        df_daily = df_raw.loc[buffer_start : req_end].copy()
+        
         # 2. 轉月線 (歷史回測用)
         try: df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except: df_monthly = df_daily['Price'].resample('M').last().to_frame()
         
-        # 3. 計算「現況」波動率 (使用最近 21 個交易日)
+        # 3. 計算「現況」波動率 (使用選定區間內 最後 21 個交易日)
+        # 如果使用者選的結束時間是 2020年，這裡就會用 2020年當時的波動率，達成「時光機」回測效果
         recent_daily_returns = df_daily['Price'].pct_change().tail(21)
         current_daily_std = recent_daily_returns.std()
         current_ann_vol = current_daily_std * np.sqrt(252)
         
-        # 4. 計算「近12個月」的現況指標
+        # 4. 計算「近12個月」的現況指標 (基於選定區間的最後一天)
         if len(df_daily) > 252:
             curr_12m_ret = (df_daily['Price'].iloc[-1] / df_daily['Price'].iloc[-252]) - 1
             last_12m_daily_rets = df_daily['Price'].pct_change().tail(252)
@@ -163,30 +234,37 @@ if start_btn and target_symbol:
         kelly_12m_half = kelly_12m_full * 0.5
 
         # -----------------------------------------------
-        # 顯示區塊 A: 現況基準
+        # 顯示區塊 A: 現況基準 (顯示使用者選擇的區間)
         # -----------------------------------------------
-        start_date = df_monthly.index[0]
-        end_date = df_monthly.index[-1]
-        data_years = (end_date - start_date).days / 365.25
+        # 重新校正顯示用的開始時間 (因為前面多抓了 buffer)
+        display_start = max(req_start, df_monthly.index[0].date())
+        data_years = (req_end - display_start).days / 365.25
         
-        st.caption(f"📅 數據區間：{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')} (共 {data_years:.1f} 年)")
+        st.caption(f"📅 分析區間：{display_start} ~ {req_end} (共 {data_years:.1f} 年)")
 
-        st.markdown("### 📊 現況基準 (Benchmark): 近 12 個月表現")
+        st.markdown(f"### 📊 區間期末基準 (Benchmark @ {req_end})")
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("近12月報酬", f"{curr_12m_ret:.2%}", help="單純看過去一年的漲跌幅")
-        m2.metric("近12月波動", f"{curr_12m_vol:.2%}", help="過去一年的年化標準差")
+        m1.metric("近12月報酬", f"{curr_12m_ret:.2%}", help="區間結束時的過去一年漲跌幅")
+        m2.metric("近12月波動", f"{curr_12m_vol:.2%}", help="區間結束時的年化標準差")
         m3.metric("無風險利率", f"{rf_rate:.2%}", help=f"來自 {rf_symbol}")
-        m4.metric("全凱利 (現況)", f"{kelly_12m_full:.2f} x", help="理論最大值 (高風險)")
+        m4.metric("全凱利 (現況)", f"{kelly_12m_full:.2f} x", help="理論最大值")
         m5.metric("半凱利 (建議)", f"{kelly_12m_half:.2f} x", help="安全邊際建議值")
         
-        st.info("👆 此區塊僅基於「最近 12 個月」的表現計算，反映**純粹的近期動能**。")
         st.divider()
 
         # -----------------------------------------------
         # 繼續原本的邏輯
         # -----------------------------------------------
+        # 注意：計算動能時，我們會基於 df_monthly (已包含 buffer)
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
+        
+        # 但統計「歷史期望值」時，我們應該只統計「使用者選擇區間內」的數據？
+        # 凱利公式的精神是利用「長期的歷史機率」來決定「當下的注碼」。
+        # 因此，通常 u (歷史報酬) 會用「所有可用歷史」來算會比較準，
+        # 但為了符合您「回測」的需求 (例如假裝我在 2020)，我們應該只使用截至 req_end 為止的數據。
+        # 程式碼上方已經做了 df_daily = df_raw.loc[... : req_end]，所以 df_monthly 也是截止到 req_end 的。
+        # 這意味著：所有的歷史統計 u，都是基於「那一天之前」的數據，完全符合 Backtest 不看未來數據的原則！
         
         tab_lev, tab_horizon = st.tabs(["🎚️ 動態槓桿決策", "🔭 長線機率展望"])
 
@@ -205,6 +283,7 @@ if start_btn and target_symbol:
                 signal_pullback = signal_long & (momentum_short < 0)
                 
                 def calc_leverage_stats(signal_series, label, sort_idx):
+                    # 這裡的 target_returns 已經被限制在 req_end 之前了
                     target_returns = df_m1.loc[signal_series, 'Next_Month_Return'].dropna()
                     count = len(target_returns)
                     
@@ -214,8 +293,7 @@ if start_btn and target_symbol:
                     else:
                         ann_ret = 0
                     
-                    # 混合公式計算: u (歷史) - r (現況) / sigma^2 (現況)
-                    # sigma 使用全域變數 current_ann_vol (來自日線)
+                    # 混合公式
                     variance_current = current_ann_vol ** 2
                     
                     if variance_current > 0:
@@ -236,6 +314,7 @@ if start_btn and target_symbol:
             
             res_df = pd.DataFrame(results_kelly).sort_values(by='排序')
             
+            # 計算該區間「最後一天」的動能狀態
             curr_long_mom = momentum_long.iloc[-1] if len(df_monthly) > fixed_n else 0
             current_suggestions = []
             details_for_cards = [] 
@@ -269,7 +348,7 @@ if start_btn and target_symbol:
                 avg_leverage = 0 
 
             # UI 顯示
-            st.markdown("### 🚀 當下綜合操作建議 (Dynamic Kelly)")
+            st.markdown(f"### 🚀 區間期末綜合建議 (Action @ {req_end})")
             
             if curr_long_mom > 0:
                 col_action, col_info = st.columns([1, 2])
@@ -279,27 +358,25 @@ if start_btn and target_symbol:
                     <div class='action-card'>
                         <div class='action-title'>🔥 綜合建議槓桿</div>
                         <div class='action-value'>{avg_leverage:.2f} 倍</div>
-                        <div class='action-sub'>以「現況波動率 ({current_ann_vol:.1%})」動態調整</div>
+                        <div class='action-sub'>現況波動率: {current_ann_vol:.1%}</div>
                     </div>
                     """, unsafe_allow_html=True)
                     
                 with col_info:
                     st.info(f"""
-                    **📊 參數詳解：為什麼是 {avg_leverage:.2f} 倍？**
+                    **📊 模擬情境說明**
                     
-                    * **分子 (獲利能力)**：參考 **歷史平均報酬 ($\mu$)**。
-                    * **分母 (風險係數)**：使用 **近一個月實際波動率 ($\sigma_{{current}}$)** = `{current_ann_vol:.2%}`。
-                    * **邏輯**：當前市場波動率若 **低於** 歷史平均，槓桿會自動 **放大**；反之若最近震盪劇烈，槓桿會自動 **縮小** 以保護本金。
-                    
-                    **💡 執行策略：**
-                    建議配置 **現金 + 2倍槓桿ETF** 達成目標槓桿。例如買入 **{(avg_leverage/2)*100:.0f}%** 的正2 ETF。
+                    假設時間停留在 **{req_end}**：
+                    * 當時的年線趨勢為 **多頭**。
+                    * 當時的市場波動率為 **{current_ann_vol:.1%}**。
+                    * 根據截至當時的歷史數據，系統建議開 **{avg_leverage:.2f} 倍** 槓桿。
                     """)
             else:
-                st.error("🛑 目前主要趨勢為空頭 (Yearly Bear)。建議：0x (空手)。")
+                st.error(f"🛑 在 {req_end} 時，主要趨勢為空頭 (Yearly Bear)。建議：0x (空手)。")
 
             st.divider()
 
-            st.markdown("### 🔍 各週期詳細訊號 (Hybrid Calculation)")
+            st.markdown("### 🔍 各週期詳細訊號")
             if curr_long_mom > 0 and details_for_cards:
                 cols = st.columns(4)
                 for idx, item in enumerate(details_for_cards):
@@ -313,7 +390,7 @@ if start_btn and target_symbol:
                             <div style='font-size:0.85em; color:#555'>歷史期望報酬: {item['u']:.1%}</div>
                             <hr style='margin:5px 0'>
                             <div style='margin-top:8px;'>
-                                <span style='font-size:0.8em'>動態建議:</span><br>
+                                <span style='font-size:0.8em'>建議:</span><br>
                                 <span style='font-size:1.4em; font-weight:900; color:{color}'>{lev:.2f}x</span>
                             </div>
                         </div>
@@ -322,8 +399,7 @@ if start_btn and target_symbol:
             st.markdown("<br>", unsafe_allow_html=True)
 
             if not res_df.empty:
-                st.markdown("<h3>📚 動態凱利計算總表 (Dynamic Kelly Summary)</h3>", unsafe_allow_html=True)
-                st.caption(f"下表以「現況波動率 {current_ann_vol:.1%}」為分母，結合歷史報酬，算出當下槓桿。")
+                st.markdown("<h3>📚 動態凱利計算總表</h3>", unsafe_allow_html=True)
                 metrics_map = {
                     "歷史年化報酬(預期)": {"fmt": lambda x: f"{x:.2%}"},
                     "現況年化波動":      {"fmt": lambda x: f"{x:.2%}"},
@@ -352,7 +428,7 @@ if start_btn and target_symbol:
                 st.markdown(html, unsafe_allow_html=True)
 
         # ==============================================================================
-        # TAB 2: 長線機率展望 (維持不變)
+        # TAB 2: 長線機率展望
         # ==============================================================================
         with tab_horizon:
             df_m2 = df_monthly.copy()
