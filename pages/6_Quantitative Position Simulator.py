@@ -60,6 +60,7 @@ st.markdown("""
         .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); margin-bottom: 1rem; font-size: 0.95rem; }
         .comparison-table th { background-color: var(--secondary-background-color); padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128,0.1); }
         .comparison-table td { text-align: center; padding: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
+        .comparison-table td.metric-name { text-align: left; font-weight: 500; background-color: rgba(128,128,128,0.02); width: 25%; }
         
         div.stButton > button { border-radius: 8px; font-weight: bold; }
     </style>
@@ -144,6 +145,22 @@ if start_btn and target_symbol:
         try: df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except: df_monthly = df_daily['Price'].resample('M').last().to_frame()
         
+        # ★★★ 新增：計算並顯示回測時間區間 ★★★
+        start_date = df_monthly.index[0]
+        end_date = df_monthly.index[-1]
+        data_years = (end_date - start_date).days / 365.25
+        current_price = df_monthly['Price'].iloc[-1]
+        
+        # 顯示資料狀態列
+        st.info(f"""
+        📅 **回測數據區間**：`{start_date.strftime('%Y-%m-%d')}` ~ `{end_date.strftime('%Y-%m-%d')}` (共 {data_years:.1f} 年) 
+        💰 **最新收盤價**：`{current_price:,.2f}`
+        """)
+
+        # 檢查資料長度警示
+        if data_years < 3:
+            st.warning("⚠️ **注意：資料長度不足 3 年！** 部分長週期 (如 9個月濾網 + 12個月展望) 可能會因為樣本不足而無法顯示或出現空白。建議更新為更長歷史的 CSV 檔。")
+        
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
@@ -199,40 +216,34 @@ if start_btn and target_symbol:
             # 2. ★★★ 計算「當下」的綜合建議 ★★★
             curr_long_mom = momentum_long.iloc[-1] if len(df_monthly) > fixed_n else 0
             
-            # 用來儲存當下各週期的建議槓桿
             current_suggestions = []
             
             if curr_long_mom > 0:
-                # 只有多頭才計算
                 for m in selected_m:
                     if len(df_monthly) > m:
                         curr_short_mom = df_monthly['Price'].pct_change(periods=m).iloc[-1]
-                        # 判斷是順勢還是拉回
                         if curr_short_mom > 0:
                             target_label = f"年線多 + {m}月續漲 (順勢)"
                         else:
                             target_label = f"年線多 + {m}月回檔 (低接)"
                         
-                        # 查表
                         match = res_df[res_df['回測設定'] == target_label]
                         if not match.empty:
                             lev = match.iloc[0]['建議槓桿 (半凱利)']
                             current_suggestions.append(lev)
             
-            # 計算平均
             if current_suggestions:
                 avg_leverage = sum(current_suggestions) / len(current_suggestions)
             else:
-                avg_leverage = 0 # 空頭或無資料
+                avg_leverage = 0 
                 
-            # 3. ★★★ 顯示「最終綜合決策」卡片 ★★★
+            # 3. 顯示綜合決策卡片
             st.markdown("### 🚀 當下綜合操作建議 (Current Action)")
             
             if curr_long_mom > 0:
                 col_action, col_details = st.columns([1, 2])
                 
                 with col_action:
-                    # 顯示大大的數字
                     st.markdown(f"""
                     <div class='action-card'>
                         <div class='action-title'>🔥 綜合建議槓桿</div>
@@ -242,22 +253,19 @@ if start_btn and target_symbol:
                     """, unsafe_allow_html=True)
                     
                 with col_details:
-                    # 顯示曝險建議
                     exposure_pct = avg_leverage * 100
                     cash_pct = max(0, 100 - exposure_pct)
                     
                     if avg_leverage < 1:
                         advice = f"建議買入 **{exposure_pct:.0f}%** 的 {target_symbol}，保留 **{cash_pct:.0f}%** 現金 (或買美債)。"
                     elif 1 <= avg_leverage < 2:
-                        advice = f"建議使用 **現金 + 2倍槓桿ETF** 組合。<br>例如：買入本金 **{(avg_leverage/2)*100:.0f}%** 的正2 ETF (如QLD)，保留其餘現金。"
+                        advice = f"建議使用 **現金 + 2倍槓桿ETF** 組合。<br>例如：買入本金 **{(avg_leverage/2)*100:.0f}%** 的正2 ETF (如QLD/00631L)，保留其餘現金。"
                     else:
                         advice = f"建議積極操作，可考慮融資或高比例正2 ETF。"
 
                     st.info(f"""
                     **💡 執行策略 (空手資金 $10,000 為例)：**
-                    
                     {advice}
-                    
                     *此數值綜合考量了 {selected_m} 個月的長短週期信號，能平衡「順勢追價」與「拉回波動」的風險。*
                     """)
             else:
@@ -334,7 +342,7 @@ if start_btn and target_symbol:
                 st.markdown(html, unsafe_allow_html=True)
 
         # ==============================================================================
-        # TAB 2: 長線機率展望 (保持不變)
+        # TAB 2: 長線機率展望
         # ==============================================================================
         with tab_horizon:
             df_m2 = df_monthly.copy()
