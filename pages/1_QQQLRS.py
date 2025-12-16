@@ -11,9 +11,10 @@ import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 from pathlib import Path
+import sys
 
 ###############################################################
-# 字型設定 (維持不變，確保中文顯示正常)
+# 字型設定
 ###############################################################
 
 font_path = "./NotoSansTC-Bold.ttf"
@@ -37,26 +38,52 @@ st.set_page_config(
     page_icon="🦅",
     layout="wide",
 )
+
 # ------------------------------------------------------
-# 🔒 驗證守門員 (必須放在 set_page_config 之後，sidebar 之前)
+# 🔒 驗證守門員
 # ------------------------------------------------------
-import sys
 # 讓 pages 資料夾能讀到根目錄的 auth.py
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import auth 
 
 if not auth.check_password():
     st.stop()  # 驗證沒過就停止執行
-# ------------------------------------------------------
 
+# ------------------------------------------------------
+# 🔧 [新增] 自定義函式：強制在當前分頁開啟連結 (target="_self")
+# ------------------------------------------------------
+def st_page_link_self(url, label, icon):
+    st.markdown(f'''
+        <a href="{url}" target="_self" style="
+            display: inline-flex;
+            align-items: center;
+            width: 100%;
+            padding: 0.5rem;
+            margin-bottom: 0.25rem;
+            text-decoration: none;
+            color: inherit; 
+            border-radius: 0.375rem;
+            transition: background-color 0.2s;
+        " onmouseover="this.style.backgroundColor='rgba(150, 150, 150, 0.1)'" 
+          onmouseout="this.style.backgroundColor='transparent'">
+            <span style="font-size: 1.2rem; margin-right: 0.5rem; display: flex; align-items: center;">{icon}</span>
+            <span style="font-weight: 500;">{label}</span>
+        </a>
+    ''', unsafe_allow_html=True)
+
+# ------------------------------------------------------
+# 側邊欄 (已修改)
+# ------------------------------------------------------
 with st.sidebar:
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    # 改用 st_page_link_self 取代 st.page_link
+    st_page_link_self("https://hamr-lab.com/warroom/", "回到戰情室", "🏠")
+    
     st.divider()
+    
     st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
-     
+    st_page_link_self("https://hamr-lab.com/", "回到官網首頁", "🏠")
+    st_page_link_self("https://www.youtube.com/@hamr-lab", "YouTube 頻道", "📺")
+    st_page_link_self("https://hamr-lab.com/contact", "問題回報 / 許願", "📝")
 
 st.markdown(
     "<h1 style='margin-bottom:0.5em;'>📊 QQQ LRS 動態槓桿策略回測</h1>",
