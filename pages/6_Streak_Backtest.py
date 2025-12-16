@@ -358,9 +358,6 @@ if st.button("開始回測 🚀") and target_symbol:
     if not res_df.empty:
         st.markdown("<h3>🎲 凱利公式詳細分析 (Kelly Analysis)</h3>", unsafe_allow_html=True)
         
-    # --- 修正後的 st.info 區塊 ---
-    if not res_df.empty:
-        st.markdown("<h3>🎲 凱利公式詳細分析 (Kelly Analysis)</h3>", unsafe_allow_html=True)
         
         # 修正重點：
         # 1. 移除 unsafe_allow_html=True 參數
