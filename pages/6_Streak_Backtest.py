@@ -1,5 +1,5 @@
 ###############################################################
-# pages/2_Momentum_Backtest.py — 雙動能 + 凱利公式資金管理
+# pages/2_Momentum_Backtest.py — 雙動能 + 凱利/半凱利資金管理
 ###############################################################
 
 import os
@@ -32,7 +32,7 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------
-# 🔒 驗證模組 (若無 auth.py 可自動跳過)
+# 🔒 驗證模組
 # ------------------------------------------------------
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
@@ -63,10 +63,10 @@ st.markdown(
 st.markdown(
     """
     <b>策略邏輯 (Markov Chain + Kelly)：</b><br>
-    1. <b>狀態定義</b>：鎖定 <b>年線多頭 (12月漲)</b>，並區分 <b>短期順勢 (M月漲)</b> 與 <b>短期回檔 (M月跌)</b> 兩種狀態。<br>
-    2. <b>資金管理</b>：利用 <b>凱利公式</b> 計算該狀態下的勝率與賠率，得出最佳資金下注比例。<br>
-       <span style="color:#00C853"><b>正凱利值</b></span>：具備數學優勢，可依比例下注。<br>
-       <span style="color:#D32F2F"><b>負凱利值</b></span>：期望值為負，應空手或避開。
+    1. <b>狀態定義</b>：鎖定 <b>年線多頭 (12月漲)</b>，並區分 <b>短期順勢 (M月漲)</b> 與 <b>短期回檔 (M月跌)</b>。<br>
+    2. <b>資金管理</b>：利用 <b>凱利公式</b> 計算最佳下注比例。系統同時提供 <b>「全凱利 (理論值)」</b> 與 <b>「半凱利 (實戰建議)」</b>。<br>
+       <span style="color:#00C853"><b>正凱利值</b></span>：具備數學優勢。<br>
+       <span style="color:#D32F2F"><b>負凱利值</b></span>：期望值為負，應避開。
     """,
     unsafe_allow_html=True,
 )
@@ -92,7 +92,6 @@ def load_csv(symbol: str) -> pd.DataFrame:
     df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
     df = df.sort_index()
     
-    # 優先使用 Adj Close
     if "Adj Close" in df.columns:
         df["Price"] = df["Adj Close"]
     elif "Close" in df.columns:
@@ -115,17 +114,14 @@ with col1:
     target_symbol = st.selectbox("選擇回測標的", csv_files, index=0)
 
 with col2:
-    # A. 長期趨勢固定為 12 個月
     st.info("🔒 **主要趨勢 (N)**：固定鎖定為 **12 個月** (年線多頭確認)")
     fixed_n = 12
     
-    # B. 短期濾網複選
     default_short = [1, 3] 
     selected_m = st.multiselect(
         "設定短期濾網月數 (M) - 自動計算凱利值", 
         [1, 2, 3, 4, 5, 6, 9], 
-        default=default_short,
-        help="選擇 3，系統會計算「年線漲且近3月漲」與「年線漲但近3月跌」的凱利優勢"
+        default=default_short
     )
 
 ###############################################################
@@ -207,7 +203,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 ###############################################################
-# 5. 主程式邏輯 (含凱利公式計算)
+# 5. 主程式邏輯 (含半凱利計算)
 ###############################################################
 
 if st.button("開始回測 🚀") and target_symbol:
@@ -223,37 +219,29 @@ if st.button("開始回測 🚀") and target_symbol:
         end_date = df_daily.index.max().strftime('%Y-%m-%d')
         total_years = (df_daily.index.max() - df_daily.index.min()).days / 365.25
 
-        # 轉月線
         try:
             df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except Exception:
             df_monthly = df_daily['Price'].resample('M').last().to_frame()
             
-        # 計算下個月報酬 (Target)
         df_monthly['Next_Month_Return'] = df_monthly['Price'].pct_change().shift(-1)
         
         results = []
         
-        # --- 1. 計算主要趨勢 (N=12) ---
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
-        # --- 2. 迴圈跑不同短期濾網 M ---
         for m in sorted(selected_m):
             momentum_short = df_monthly['Price'].pct_change(periods=m)
             
-            # 狀態 A: 順勢
             signal_trend = signal_long & (momentum_short > 0)
-            # 狀態 B: 拉回
             signal_pullback = signal_long & (momentum_short < 0)
             
-            # --- 核心：凱利公式計算函式 ---
             def calc_stats_kelly(signal_series, label, sort_idx):
                 target_returns = df_monthly.loc[signal_series, 'Next_Month_Return'].dropna()
                 count = len(target_returns)
                 
                 if count > 0:
-                    # 分離賺錢與賠錢的月份
                     wins = target_returns[target_returns > 0]
                     losses = target_returns[target_returns <= 0]
                     
@@ -263,34 +251,33 @@ if st.button("開始回測 🚀") and target_symbol:
                     win_rate = win_count / count
                     avg_ret = target_returns.mean()
                     
-                    # 計算平均獲利與平均虧損 (絕對值)
                     avg_win_pct = wins.mean() if win_count > 0 else 0
                     avg_loss_pct = abs(losses.mean()) if loss_count > 0 else 0
                     
-                    # 計算賠率 (Odds / Payoff Ratio)
                     if avg_loss_pct > 0:
                         payoff_ratio = avg_win_pct / avg_loss_pct
                     else:
                         payoff_ratio = 0 
 
-                    # 計算凱利值 (Kelly Fraction)
-                    # f = p - (q / b)
+                    # 計算 全凱利 (Full Kelly)
                     if payoff_ratio > 0:
                         kelly_pct = win_rate - ((1 - win_rate) / payoff_ratio)
                     else:
                         kelly_pct = 0
                     
-                    # 極端值處理
-                    if win_count == 0: kelly_pct = -1.0 # 必輸
-                    if loss_count == 0: kelly_pct = 1.0 # 必勝
+                    if win_count == 0: kelly_pct = -1.0 
+                    if loss_count == 0: kelly_pct = 1.0 
+
+                    # 計算 半凱利 (Half Kelly)
+                    # 如果凱利值是負的，半凱利依然是負的(無意義)，如果是正的，則減半
+                    half_kelly_pct = kelly_pct * 0.5
 
                     med_ret = target_returns.median()
                     max_ret = target_returns.max()
                     min_ret = target_returns.min()
                 else:
-                    # 無發生次數
                     win_rate, avg_ret, med_ret, max_ret, min_ret = 0, 0, 0, 0, 0
-                    avg_win_pct, avg_loss_pct, payoff_ratio, kelly_pct = 0, 0, 0, 0
+                    avg_win_pct, avg_loss_pct, payoff_ratio, kelly_pct, half_kelly_pct = 0, 0, 0, 0, 0
                 
                 return {
                     '回測設定': label,
@@ -300,7 +287,8 @@ if st.button("開始回測 🚀") and target_symbol:
                     '發生次數': count,
                     '勝率': win_rate,
                     '賠率 (盈虧比)': payoff_ratio,
-                    '凱利值 (建議倉位)': kelly_pct,
+                    '凱利值 (理論全倉)': kelly_pct,
+                    '半凱利 (建議穩健)': half_kelly_pct, # 新增欄位
                     '平均獲利': avg_win_pct,
                     '平均虧損': avg_loss_pct,
                     '平均報酬': avg_ret,
@@ -325,8 +313,8 @@ if st.button("開始回測 🚀") and target_symbol:
 
     st.success(f"📅 **回測區間**：{start_date} ~ {end_date} (共 {total_years:.1f} 年)")
     
-    # --- KPI 卡片 (改為顯示最佳凱利策略) ---
-    best_strategy = res_df.loc[res_df['凱利值 (建議倉位)'].idxmax()] if not res_df.empty else None
+    # KPI 改為顯示「半凱利」
+    best_strategy = res_df.loc[res_df['半凱利 (建議穩健)'].idxmax()] if not res_df.empty else None
     
     col_kpi = st.columns(4)
     
@@ -345,29 +333,27 @@ if st.button("開始回測 🚀") and target_symbol:
         st.markdown(simple_card("基準月勝率", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
     with col_kpi[2]:
         if best_strategy is not None:
-            st.markdown(simple_card("🔥 最佳凱利策略", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
+            st.markdown(simple_card("🔥 最佳策略", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
     with col_kpi[3]:
         if best_strategy is not None:
-            k_val = best_strategy['凱利值 (建議倉位)']
-            # 顯示半凱利作為安全建議
-            st.markdown(simple_card("最佳凱利值", f"{k_val:.1%}", "(理論全倉比例)"), unsafe_allow_html=True)
+            # 這裡顯示半凱利
+            hk_val = best_strategy['半凱利 (建議穩健)']
+            st.markdown(simple_card("最佳半凱利", f"{hk_val:.1%}", "(穩健倉位建議)"), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom: 30px'></div>", unsafe_allow_html=True)
 
-    # --- 凱利公式詳細表格 ---
+    # --- 表格 ---
     if not res_df.empty:
         st.markdown("<h3>🎲 凱利公式詳細分析 (Kelly Analysis)</h3>", unsafe_allow_html=True)
         
-        
-        # 修正重點：
-        # 1. 移除 unsafe_allow_html=True 參數
-        # 2. 將 HTML span 標籤改為 Streamlit Markdown 顏色語法 :green[] 與 :red[]
+        # 修正後的 info (使用 Markdown 顏色語法)
         st.info("""
         **指標說明：**
-        * **賠率 (盈虧比)**：平均獲利 / 平均虧損。數值 > 1 代表賺多賠少。
-        * **凱利值 (Kelly %)**：數學上的最佳下注比例。
-            * :green[**綠色**]：期望值為正，具備數學優勢，可進場。
-            * :red[**紅色**]：期望值為負，應避開 (Do Not Bet)。
+        * **賠率 (盈虧比)**：平均獲利 / 平均虧損。
+        * **凱利值 (Kelly)**：
+            * :green[**綠色**]：期望值為正，可進場。
+            * :red[**紅色**]：期望值為負，應避開。
+        * **半凱利 (Half-Kelly)**：全凱利 x 0.5，波動較小，適合實戰資金配置。
         """)
 
         metrics_map = {
@@ -376,12 +362,12 @@ if st.button("開始回測 🚀") and target_symbol:
             "賠率 (盈虧比)":  {"fmt": lambda x: f"{x:.2f}",   "high_is_good": True},
             "平均獲利":      {"fmt": lambda x: f"<span style='color:#00CC96'>+{x:.2%}</span>", "high_is_good": True},
             "平均虧損":      {"fmt": lambda x: f"<span style='color:#EF553B'>-{x:.2%}</span>", "high_is_good": False},
-            "凱利值 (建議倉位)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "凱利值 (理論全倉)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "半凱利 (建議穩健)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True}, # 新欄位
         }
 
         html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
         
-        # 產生表頭
         for name in res_df['回測設定']:
             if "回檔" in name:
                 html += f"<th style='color:#E65100; background-color:rgba(255,167,38,0.1)'>{name}</th>"
@@ -389,15 +375,13 @@ if st.button("開始回測 🚀") and target_symbol:
                 html += f"<th style='color:#1B5E20; background-color:rgba(102,187,106,0.1)'>{name}</th>"
         html += "</tr></thead><tbody>"
 
-        # 產生內容
         for metric, config in metrics_map.items():
             html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
             
             vals = res_df[metric].values
             
-            # 決定誰是冠軍 (Best Value)
             if metric == "平均虧損": 
-                 best_val = min(vals) # 虧損越小越好
+                 best_val = min(vals)
             else:
                  best_val = max(vals)
             
@@ -405,21 +389,20 @@ if st.button("開始回測 🚀") and target_symbol:
                 display_text = config["fmt"](val)
                 count = res_df['發生次數'].iloc[i]
                 
-                # --- 特殊邏輯 ---
-                # 1. 凱利值顏色與警示
-                if metric == "凱利值 (建議倉位)":
+                # 特殊邏輯
+                if "凱利" in metric:
                     if val > 0:
-                        display_text = f"<span style='color:#00C853; font-weight:bold'>{display_text}</span>"
+                        # 讓半凱利顯示得更醒目一點
+                        weight = "900" if "半凱利" in metric else "bold" 
+                        display_text = f"<span style='color:#00C853; font-weight:{weight}'>{display_text}</span>"
                     else:
-                        display_text = f"<span style='color:#D32F2F; font-weight:bold'>避開 ({display_text})</span>"
+                        display_text = f"<span style='color:#D32F2F; font-weight:bold'>避開</span>"
                 
-                # 2. 樣本不足警示
-                if count < 10 and metric == "凱利值 (建議倉位)":
-                     display_text += " <span style='font-size:0.8em; color:gray'>(樣本不足)</span>"
+                if count < 10 and "凱利" in metric:
+                     display_text += " <span style='font-size:0.8em; color:gray'>(少)</span>"
 
-                # 3. 頒發獎盃 (排除凱利值為負的情況)
                 is_winner = (val == best_val) and (metric != "發生次數") and (metric != "平均獲利") and (metric != "平均虧損")
-                if metric == "凱利值 (建議倉位)" and val <= 0: is_winner = False
+                if "凱利" in metric and val <= 0: is_winner = False
 
                 if is_winner:
                     display_text += " <span class='trophy-icon'>🏆</span>"
