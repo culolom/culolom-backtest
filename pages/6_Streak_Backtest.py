@@ -1,5 +1,5 @@
 ###############################################################
-# Momentum_Backtest.py — 年線多頭架構下的：追漲 vs 低接
+# pages/2_Momentum_Backtest.py — 雙動能配置：順勢 vs 拉回決策輔助
 ###############################################################
 
 import os
@@ -26,8 +26,8 @@ else:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(
-    page_title="趨勢策略對決",
-    page_icon="⚔️",
+    page_title="雙動能決策輔助",
+    page_icon="⚖️",
     layout="wide",
 )
 
@@ -56,16 +56,17 @@ with st.sidebar:
 # 主標題
 # ------------------------------------------------------
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚔️ 順勢追漲 vs 拉回低接 (Trend Following vs Buy the Dip)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>⚖️ 雙動能配置決策：順勢追高 vs 拉回低接</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-    <b>策略大前提 (固定)：</b> 確認 <b>過去 12 個月</b> 漲幅 > 0 (年線多頭)。<br>
-    <b>短期濾網對決：</b><br>
-    🚀 <b>順勢 (Momentum)</b>：短期 M 個月 <b>續漲 (>0)</b> 才進場（強者恆強）。<br>
-    🛡️ <b>拉回 (Pullback)</b>：短期 M 個月 <b>下跌 (<0)</b> 才進場（多頭回檔、乖離修正）。
+    <b>策略邏輯 (Dual Momentum)：</b><br>
+    1. <b>絕對動能 (Absolute)</b>：鎖定 <b>過去 12 個月</b> 漲幅 > 0 (確保年線多頭架構)。<br>
+    2. <b>微操作判斷</b>：當資產符合年線多頭，但 <b>短期 M 個月</b> 出現變化時，歷史數據支持哪種動作？<br>
+       🚀 <b>順勢 (Momentum)</b>：短期續漲，強者恆強。<br>
+       🛡️ <b>拉回 (Pullback)</b>：短期回檔，低接機會 (均值回歸)。
     """,
     unsafe_allow_html=True,
 )
@@ -120,10 +121,10 @@ with col2:
     # B. 短期濾網改為複選
     default_short = [1, 3] # 預設測試 1個月, 3個月
     selected_m = st.multiselect(
-        "設定短期濾網月數 (M) - 系統將自動比較「漲」與「跌」", 
+        "設定短期濾網月數 (M) - 自動比較「續漲」與「回檔」", 
         [1, 2, 3, 4, 5, 6, 9], 
         default=default_short,
-        help="選擇 1，系統會同時跑「年線漲+上月漲」與「年線漲+上月跌」兩種策略"
+        help="例如選 3，系統會分析「年線漲且近3月漲」vs「年線漲但近3月跌」的績效差異"
     )
 
 ###############################################################
@@ -191,7 +192,7 @@ st.markdown("""
             text-align: left;
             font-weight: 500;
             background-color: rgba(128,128,128, 0.02);
-            width: 25%;
+            width: 20%;
         }
         .comparison-table tr:hover td {
             background-color: rgba(128,128,128, 0.05);
@@ -205,12 +206,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 ###############################################################
-# 5. 主程式邏輯 (核心修改：產生兩種情境)
+# 5. 主程式邏輯
 ###############################################################
 
 if st.button("開始回測 🚀") and target_symbol:
     
-    with st.spinner(f"正在分析 {target_symbol} (年線多頭 + 順勢/拉回對照)..."):
+    with st.spinner(f"正在診斷 {target_symbol} 順勢與逆勢特性..."):
         df_daily = load_csv(target_symbol)
         
         if df_daily.empty:
@@ -221,6 +222,7 @@ if st.button("開始回測 🚀") and target_symbol:
         end_date = df_daily.index.max().strftime('%Y-%m-%d')
         total_years = (df_daily.index.max() - df_daily.index.min()).days / 365.25
 
+        # 轉月線
         try:
             df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except Exception:
@@ -231,6 +233,7 @@ if st.button("開始回測 🚀") and target_symbol:
         results = []
         
         # --- 1. 計算主要趨勢訊號 (N=12) ---
+        # 邏輯：現在價格 > 12個月前價格
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
@@ -239,14 +242,13 @@ if st.button("開始回測 🚀") and target_symbol:
             
             momentum_short = df_monthly['Price'].pct_change(periods=m)
             
-            # --- 情境 A: 順勢 (短期也漲) ---
+            # --- 情境 A: 順勢 (年線漲 + 短期漲) ---
             signal_trend = signal_long & (momentum_short > 0)
             
-            # --- 情境 B: 拉回 (短期下跌) ---
-            # 這裡的邏輯是：年線是漲的(多頭)，但過去M個月是跌的(修正)
+            # --- 情境 B: 拉回 (年線漲 + 短期跌) ---
             signal_pullback = signal_long & (momentum_short < 0)
             
-            # 定義一個內部函式來重複計算邏輯
+            # 內部計算函式
             def calc_stats(signal_series, label, sort_idx):
                 target_returns = df_monthly.loc[signal_series, 'Next_Month_Return'].dropna()
                 count = len(target_returns)
@@ -263,7 +265,7 @@ if st.button("開始回測 🚀") and target_symbol:
                 
                 return {
                     '回測設定': label,
-                    '排序': sort_idx, # 用來讓圖表排列好看 (同一個M的順勢跟逆勢排在一起)
+                    '排序': sort_idx, 
                     '短期M': m,
                     '類型': '順勢' if '續漲' in label else '拉回',
                     '發生次數': count,
@@ -274,12 +276,10 @@ if st.button("開始回測 🚀") and target_symbol:
                     '最大跌幅': min_ret
                 }
 
-            # 加入順勢結果
+            # 加入結果
             results.append(calc_stats(signal_trend, f"年線多 + {m}月續漲 (順勢)", m * 10 + 1))
-            # 加入拉回結果
             results.append(calc_stats(signal_pullback, f"年線多 + {m}月回檔 (低接)", m * 10 + 2))
             
-        # 轉為 DataFrame 並排序
         res_df = pd.DataFrame(results).sort_values(by='排序')
         
         # 基礎樣本統計
@@ -298,7 +298,6 @@ if st.button("開始回測 🚀") and target_symbol:
     st.success(f"📅 **回測區間**：{start_date} ~ {end_date} (共 {total_years:.1f} 年)")
     
     # --- KPI 卡片 ---
-    # 找出「平均報酬」最高的策略
     best_strategy = res_df.loc[res_df['平均報酬'].idxmax()] if not res_df.empty else None
     
     col_kpi = st.columns(4)
@@ -317,7 +316,6 @@ if st.button("開始回測 🚀") and target_symbol:
         st.markdown(simple_card("基準月勝率 (Base)", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
     with col_kpi[2]:
         if best_strategy is not None:
-            # 顯示最佳策略名稱
             st.markdown(simple_card("🔥 平均報酬最高", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
     with col_kpi[3]:
         if best_strategy is not None:
@@ -325,7 +323,7 @@ if st.button("開始回測 🚀") and target_symbol:
 
     st.markdown("<div style='margin-bottom: 30px'></div>", unsafe_allow_html=True)
 
-    # --- 圖表區 (分組顯示) ---
+    # --- 圖表區 ---
     st.markdown("<h3>📊 順勢 vs 拉回：策略效果對決</h3>", unsafe_allow_html=True)
     
     tab1, tab2 = st.tabs(["勝率分析", "平均報酬分析"])
@@ -335,7 +333,7 @@ if st.button("開始回測 🚀") and target_symbol:
             fig_win = go.Figure()
             fig_win.add_hline(y=base_win_rate, line_dash="dash", line_color="gray", annotation_text="Buy & Hold 勝率")
             
-            # 自定義顏色：順勢用綠色系，拉回用橘色系
+            # 順勢=綠色, 拉回=橘色
             colors = ['#00CC96' if t == '順勢' else '#FFA15A' for t in res_df['類型']]
             
             fig_win.add_trace(go.Bar(
@@ -360,7 +358,7 @@ if st.button("開始回測 🚀") and target_symbol:
             fig_ret = go.Figure()
             fig_ret.add_hline(y=base_avg_ret, line_dash="dash", line_color="gray", annotation_text="Buy & Hold 平均報酬")
             
-            # 使用 Group Bar Chart 邏輯會比較亂，這裡維持簡單 Bar，用顏色區分
+            # 順勢=深藍, 拉回=深紅 (強調報酬)
             colors = ['#636EFA' if t == '順勢' else '#EF553B' for t in res_df['類型']]
 
             fig_ret.add_trace(go.Bar(
@@ -382,59 +380,57 @@ if st.button("開始回測 🚀") and target_symbol:
             )
             st.plotly_chart(fig_ret, use_container_width=True)
 
-# ... (前段程式碼不變) ...
+    # --- 表格 (含風險警示邏輯) ---
+    if not res_df.empty:
+        st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
+        
+        st.info("💡 **判讀技巧**：如果「拉回 (低接)」策略的 **平均報酬為負** (標示為 ⚠️)，代表該資產在多頭回檔時容易直接轉弱，建議 **避開接刀** 或 **減碼**。")
 
-        # --- 表格 ---
-        if not res_df.empty:
-            st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
+        metrics_map = {
+            "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
+            "勝率 (Win Rate)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "平均報酬":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "中位數報酬":    {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "最大漲幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "最大跌幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+        }
+
+        html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
+        
+        # 1. 產生表頭
+        for name in res_df['回測設定']:
+            if "回檔" in name:
+                html += f"<th style='color:#E65100; background-color:rgba(255,167,38,0.1)'>{name}</th>"
+            else:
+                html += f"<th style='color:#1B5E20; background-color:rgba(102,187,106,0.1)'>{name}</th>"
+        html += "</tr></thead><tbody>"
+
+        # 2. 產生內容
+        for metric, config in metrics_map.items():
+            html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
             
-            # 增加說明
-            st.info("💡 **判讀技巧**：如果「拉回 (低接)」策略的 **平均報酬為負**，代表該資產在多頭回檔時容易直接轉弱，建議 **避開** 或 **減碼**。")
-
-            metrics_map = {
-                "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
-                "勝率 (Win Rate)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-                "平均報酬":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-                "中位數報酬":    {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-                "最大漲幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-                "最大跌幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            }
-
-            html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
+            vals = res_df[metric].values
+            best_val = max(vals) if config["high_is_good"] else min(vals)
             
-            for name in res_df['回測設定']:
-                # 標題顏色區分
-                if "回檔" in name:
-                    html += f"<th style='color:#E65100; background-color:rgba(255,167,38,0.1)'>{name}</th>"
+            for i, val in enumerate(vals):
+                display_text = config["fmt"](val)
+                col_name = res_df['回測設定'].iloc[i]
+                
+                # ★★★ 風險警示邏輯 ★★★
+                # 如果是 平均報酬 且 小於 0 且 是回檔策略 -> 紅色警告
+                if metric == "平均報酬" and val < 0 and "回檔" in col_name:
+                    display_text = f"<span style='color:#D32F2F; font-weight:bold;'>⚠️ {display_text}</span>"
+                
+                # ★★★ 冠軍邏輯 ★★★
+                is_winner = (val == best_val) and (metric != "發生次數") and (metric != "最大跌幅")
+                if metric == "最大跌幅" and val == max(vals): is_winner = True
+
+                if is_winner:
+                    display_text += " <span class='trophy-icon'>🏆</span>"
+                    html += f"<td style='font-weight:bold; color:#00CC96;'>{display_text}</td>"
                 else:
-                    html += f"<th style='color:#1B5E20; background-color:rgba(102,187,106,0.1)'>{name}</th>"
-            html += "</tr></thead><tbody>"
-
-            for metric, config in metrics_map.items():
-                html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
-                
-                vals = res_df[metric].values
-                best_val = max(vals) if config["high_is_good"] else min(vals)
-                
-                # 針對每一欄位的值進行檢查
-                for i, val in enumerate(vals):
-                    display_text = config["fmt"](val)
-                    col_name = res_df['回測設定'].iloc[i]
-                    
-                    # 邏輯：如果是「平均報酬」且數值小於 0，且是「回檔」策略 -> 標示危險 ⚠️
-                    if metric == "平均報酬" and val < 0 and "回檔" in col_name:
-                        display_text = f"<span style='color:red; font-weight:bold'>⚠️ {display_text}</span>"
-                    
-                    # 冠軍獎盃邏輯
-                    is_winner = (val == best_val) and (metric != "發生次數") and (metric != "最大跌幅")
-                    if metric == "最大跌幅" and val == max(vals): is_winner = True
-
-                    if is_winner:
-                        display_text += " <span class='trophy-icon'>🏆</span>"
-                        html += f"<td style='font-weight:bold; color:#00CC96;'>{display_text}</td>"
-                    else:
-                        html += f"<td>{display_text}</td>"
-                html += "</tr>"
-                
-            html += "</tbody></table>"
-            st.write(html, unsafe_allow_html=True)
+                    html += f"<td>{display_text}</td>"
+            html += "</tr>"
+            
+        html += "</tbody></table>"
+        st.write(html, unsafe_allow_html=True)
