@@ -358,13 +358,20 @@ if st.button("開始回測 🚀") and target_symbol:
     if not res_df.empty:
         st.markdown("<h3>🎲 凱利公式詳細分析 (Kelly Analysis)</h3>", unsafe_allow_html=True)
         
+    # --- 修正後的 st.info 區塊 ---
+    if not res_df.empty:
+        st.markdown("<h3>🎲 凱利公式詳細分析 (Kelly Analysis)</h3>", unsafe_allow_html=True)
+        
+        # 修正重點：
+        # 1. 移除 unsafe_allow_html=True 參數
+        # 2. 將 HTML span 標籤改為 Streamlit Markdown 顏色語法 :green[] 與 :red[]
         st.info("""
         **指標說明：**
         * **賠率 (盈虧比)**：平均獲利 / 平均虧損。數值 > 1 代表賺多賠少。
         * **凱利值 (Kelly %)**：數學上的最佳下注比例。
-            * <span style='color:#00C853; font-weight:bold'>綠色</span>：期望值為正，可進場。
-            * <span style='color:#D32F2F; font-weight:bold'>紅色</span>：期望值為負，應避開 (Do Not Bet)。
-        """, unsafe_allow_html=True)
+            * :green[**綠色**]：期望值為正，具備數學優勢，可進場。
+            * :red[**紅色**]：期望值為負，應避開 (Do Not Bet)。
+        """)
 
         metrics_map = {
             "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
