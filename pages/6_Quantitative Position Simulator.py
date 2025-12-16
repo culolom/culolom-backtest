@@ -38,45 +38,30 @@ st.markdown("""
     <style>
         .block-container { padding-top: 2rem; }
         
-        /* 表格樣式優化 */
-        .comparison-table { 
-            width: 100%; 
-            border-collapse: separate; 
-            border-spacing: 0; 
-            border-radius: 12px; 
-            border: 1px solid var(--secondary-background-color); 
-            margin-bottom: 1rem; 
-            font-size: 0.95rem; 
+        /* 綜合建議卡片 */
+        .action-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-left: 6px solid #2962FF;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
-        .comparison-table th { 
-            background-color: var(--secondary-background-color); 
-            padding: 14px; 
-            text-align: center; 
-            font-weight: 600; 
-            border-bottom: 1px solid rgba(128,128,128,0.1); 
-        }
-        .comparison-table td { 
-            text-align: center; 
-            padding: 12px; 
-            border-bottom: 1px solid rgba(128,128,128,0.1); 
-        }
-        .comparison-table td.metric-name { 
-            text-align: left; 
-            font-weight: 500; 
-            background-color: rgba(128,128,128,0.02); 
-            width: 25%; 
-        }
+        .action-title { font-size: 1.1rem; font-weight: bold; color: #333; margin-bottom: 5px; }
+        .action-value { font-size: 2.5rem; font-weight: 900; color: #2962FF; margin: 0; line-height: 1.2; }
+        .action-sub { font-size: 0.9rem; color: #555; }
         
         /* 狀態卡片 */
         .status-card { padding: 15px; border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(128,128,128,0.2); }
         .status-bull { background-color: rgba(0, 200, 83, 0.1); border-left: 5px solid #00C853; }
         .status-bear { background-color: rgba(211, 47, 47, 0.1); border-left: 5px solid #D32F2F; }
+
+        /* 表格樣式 */
+        .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); margin-bottom: 1rem; font-size: 0.95rem; }
+        .comparison-table th { background-color: var(--secondary-background-color); padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128,0.1); }
+        .comparison-table td { text-align: center; padding: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
         
-        /* 按鈕樣式微調 (可選) */
-        div.stButton > button {
-            border-radius: 8px;
-            font-weight: bold;
-        }
+        div.stButton > button { border-radius: 8px; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -94,7 +79,7 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Price"]]
 
 # ------------------------------------------------------
-# 4. Sidebar & 頂部控制面板
+# 4. Sidebar & 控制面板
 # ------------------------------------------------------
 with st.sidebar:
     st.page_link("Home.py", label="回到戰情室", icon="🏠")
@@ -105,26 +90,20 @@ with st.sidebar:
 st.markdown("<h1 style='margin-bottom:0.1em;'>🎚️ 量化槓桿模擬器 (Continuous Kelly)</h1>", unsafe_allow_html=True)
 st.caption("基於 **歷史波動率** 與 **無風險利率 ($r$)** 計算最佳槓桿倍數")
 
-# ★★★ 控制面板區塊 ★★★
 with st.container(border=True):
     st.markdown("#### ⚙️ 模擬參數設定")
-    
-    # 修改佈局：兩欄式，左邊選標的，右邊顯示利率資訊
     c1, c2 = st.columns([1, 1.5])
     
     with c1:
         watch_list = ["QQQ", "SPY", "0050.TW", "VT", "VTI", "GLD"]
         target_symbol = st.selectbox("選擇標的 (Symbol)", watch_list, index=0)
-        
-        # ★★★ 1. 按鈕做短一點 (移除 use_container_width) ★★★
-        st.markdown("<br>", unsafe_allow_html=True) # 稍微空一行
+        st.markdown("<br>", unsafe_allow_html=True)
         start_btn = st.button("開始分析 🚀", type="primary") 
 
     with c2:
-        # ★★★ 自動偵測 Risk Free Rate (優先順序: BIL > SHV > SGOV) ★★★
+        # 自動偵測 Risk Free Rate
         rf_symbol = "預設 4%"
         rf_rate = 0.04
-        
         candidates = ["BIL", "SHV", "SGOV"]
         found_rf = False
         
@@ -133,14 +112,12 @@ with st.container(border=True):
             if not df_rf.empty:
                 try: df_rf_m = df_rf['Price'].resample('ME').last().to_frame()
                 except: df_rf_m = df_rf['Price'].resample('M').last().to_frame()
-                
                 if len(df_rf_m) > 12:
                     rf_rate = df_rf_m['Price'].pct_change(periods=12).iloc[-1]
                     rf_symbol = sym
                     found_rf = True
                     break
         
-        # 顯示利率資訊與固定參數說明
         st.info(f"""
         **📊 市場參數偵測**
         * **無風險利率 ($r$)**: `{rf_rate:.2%}` (來源: {rf_symbol})
@@ -149,7 +126,6 @@ with st.container(border=True):
         """)
         
         fixed_n = 12
-        # ★★★ 2. 短期濾網寫死 ★★★
         selected_m = [1, 3, 6, 9]
 
 # ------------------------------------------------------
@@ -159,23 +135,22 @@ if start_btn and target_symbol:
     
     st.divider() 
 
-    with st.spinner(f"正在分析 {target_symbol}，使用 {rf_symbol} ({rf_rate:.2%}) 作為資金成本..."):
+    with st.spinner(f"正在運算多週期綜合決策模型..."):
         # 1. 讀取標的
         df_daily = load_csv(target_symbol)
         if df_daily.empty: st.error(f"找不到 {target_symbol}.csv"); st.stop()
 
-        # 2. 轉月線 (共用)
+        # 2. 轉月線
         try: df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except: df_monthly = df_daily['Price'].resample('M').last().to_frame()
         
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
-        # 建立 Tabs
         tab_lev, tab_horizon = st.tabs(["🎚️ 最佳槓桿決策", "🔭 長線機率展望"])
 
         # ==============================================================================
-        # TAB 1: 最佳槓桿決策 (股市版連續凱利)
+        # TAB 1: 最佳槓桿決策
         # ==============================================================================
         with tab_lev:
             df_m1 = df_monthly.copy()
@@ -183,6 +158,7 @@ if start_btn and target_symbol:
             
             results_kelly = []
             
+            # 1. 先跑迴圈計算所有歷史數據 (建立查表資料庫)
             for m in sorted(selected_m):
                 momentum_short = df_m1['Price'].pct_change(periods=m)
                 signal_trend = signal_long & (momentum_short > 0)
@@ -195,10 +171,8 @@ if start_btn and target_symbol:
                     if count > 5:
                         avg_monthly_ret = target_returns.mean()
                         ann_ret = avg_monthly_ret * 12 
-                        
                         std_monthly = target_returns.std()
                         ann_vol = std_monthly * np.sqrt(12)
-                        
                         variance = ann_vol ** 2
                         
                         if variance > 0:
@@ -222,26 +196,83 @@ if start_btn and target_symbol:
             
             res_df = pd.DataFrame(results_kelly).sort_values(by='排序')
             
-            # --- Tab 1 UI: 現況與槓桿建議 ---
-            st.markdown("### 🧭 目前市場狀態與槓桿建議")
+            # 2. ★★★ 計算「當下」的綜合建議 ★★★
             curr_long_mom = momentum_long.iloc[-1] if len(df_monthly) > fixed_n else 0
             
+            # 用來儲存當下各週期的建議槓桿
+            current_suggestions = []
+            
             if curr_long_mom > 0:
-                st.markdown(
-                    f"""<div class='status-card status-bull'>
-                    <h3 style='margin:0; color:#1B5E20'>✅ 主要趨勢：多頭 (Yearly Bull)</h3>
-                    <p style='margin:5px 0 0 0'>過去12月漲幅: <b>+{curr_long_mom:.2%}</b> | 無風險利率 (BIL): <b>{rf_rate:.2%}</b></p>
-                    </div>""", unsafe_allow_html=True
-                )
+                # 只有多頭才計算
+                for m in selected_m:
+                    if len(df_monthly) > m:
+                        curr_short_mom = df_monthly['Price'].pct_change(periods=m).iloc[-1]
+                        # 判斷是順勢還是拉回
+                        if curr_short_mom > 0:
+                            target_label = f"年線多 + {m}月續漲 (順勢)"
+                        else:
+                            target_label = f"年線多 + {m}月回檔 (低接)"
+                        
+                        # 查表
+                        match = res_df[res_df['回測設定'] == target_label]
+                        if not match.empty:
+                            lev = match.iloc[0]['建議槓桿 (半凱利)']
+                            current_suggestions.append(lev)
+            
+            # 計算平均
+            if current_suggestions:
+                avg_leverage = sum(current_suggestions) / len(current_suggestions)
+            else:
+                avg_leverage = 0 # 空頭或無資料
                 
-                # 顯示卡片 (固定 4 個 column 因為 M 鎖定 4 個)
+            # 3. ★★★ 顯示「最終綜合決策」卡片 ★★★
+            st.markdown("### 🚀 當下綜合操作建議 (Current Action)")
+            
+            if curr_long_mom > 0:
+                col_action, col_details = st.columns([1, 2])
+                
+                with col_action:
+                    # 顯示大大的數字
+                    st.markdown(f"""
+                    <div class='action-card'>
+                        <div class='action-title'>🔥 綜合建議槓桿</div>
+                        <div class='action-value'>{avg_leverage:.2f} 倍</div>
+                        <div class='action-sub'>基於 4 個週期的平均權重</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                with col_details:
+                    # 顯示曝險建議
+                    exposure_pct = avg_leverage * 100
+                    cash_pct = max(0, 100 - exposure_pct)
+                    
+                    if avg_leverage < 1:
+                        advice = f"建議買入 **{exposure_pct:.0f}%** 的 {target_symbol}，保留 **{cash_pct:.0f}%** 現金 (或買美債)。"
+                    elif 1 <= avg_leverage < 2:
+                        advice = f"建議使用 **現金 + 2倍槓桿ETF** 組合。<br>例如：買入本金 **{(avg_leverage/2)*100:.0f}%** 的正2 ETF (如QLD)，保留其餘現金。"
+                    else:
+                        advice = f"建議積極操作，可考慮融資或高比例正2 ETF。"
+
+                    st.info(f"""
+                    **💡 執行策略 (空手資金 $10,000 為例)：**
+                    
+                    {advice}
+                    
+                    *此數值綜合考量了 {selected_m} 個月的長短週期信號，能平衡「順勢追價」與「拉回波動」的風險。*
+                    """)
+            else:
+                st.error("🛑 目前主要趨勢為空頭 (Yearly Bear)。綜合建議：**0x (空手/防禦)**。")
+
+            st.divider()
+
+            # --- 下方顯示細節卡片 ---
+            st.markdown("### 🔍 各週期詳細訊號")
+            if curr_long_mom > 0:
                 status_cols = st.columns(4)
-                
                 for idx, m in enumerate(sorted(selected_m)):
                     with status_cols[idx]:
                         if len(df_monthly) > m:
                             curr_short_mom = df_monthly['Price'].pct_change(periods=m).iloc[-1]
-                            
                             if curr_short_mom > 0:
                                 curr_type, icon = "順勢", "🚀"
                                 curr_label = f"年線多 + {m}月續漲 (順勢)"
@@ -250,41 +281,27 @@ if start_btn and target_symbol:
                                 curr_label = f"年線多 + {m}月回檔 (低接)"
                             
                             match = res_df[res_df['回測設定'] == curr_label]
-                            
                             if not match.empty:
                                 data = match.iloc[0]
                                 lev = data['建議槓桿 (半凱利)']
-                                
-                                # 顏色與文字邏輯
-                                lev_color = "#2962FF"
-                                if lev <= 0: lev_str = "0x (空手)"; lev_color="#D32F2F"
-                                elif lev < 1: lev_str = f"{lev:.2f}x (降低曝險)"; lev_color="#FF9800"
-                                else: lev_str = f"{lev:.2f} 倍"; 
+                                lev_color = "#2962FF" if lev >= 1 else "#FF9800"
                                 
                                 st.markdown(f"""
                                 <div style='border:1px solid #ddd; border-radius:8px; padding:15px; background-color:var(--secondary-background-color); height:100%'>
                                     <div style='font-size:0.9em; opacity:0.8'>短期濾網 ({m}個月)</div>
                                     <div style='font-size:1.3em; font-weight:bold; margin:5px 0'>{icon} {curr_type}</div>
-                                    <div style='font-size:0.85em; margin-bottom:5px'>年化報酬: {data['年化報酬']:.1%}</div>
-                                    <div style='font-size:0.85em; margin-bottom:5px'>年化波動: {data['年化波動']:.1%}</div>
+                                    <div style='font-size:0.85em;'>年化波動: {data['年化波動']:.1%}</div>
                                     <hr style='margin:5px 0'>
                                     <div style='margin-top:8px;'>
-                                        <span style='font-size:0.8em'>建議槓桿 (半凱利):</span><br>
-                                        <span style='font-size:1.5em; font-weight:900; color:{lev_color}'>{lev_str}</span>
+                                        <span style='font-size:0.8em'>單獨建議:</span><br>
+                                        <span style='font-size:1.4em; font-weight:900; color:{lev_color}'>{lev:.2f}x</span>
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
-            else:
-                st.markdown(
-                    f"""<div class='status-card status-bear'>
-                    <h3 style='margin:0; color:#B71C1C'>🛑 主要趨勢：空頭 (Yearly Bear)</h3>
-                    <p style='margin:5px 0 0 0'>過去12月跌幅: <b>{curr_long_mom:.2%}</b>。系統建議：0x (空手/防禦)。</p>
-                    </div>""", unsafe_allow_html=True
-                )
-
+            
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # --- Tab 1 UI: 歷史數據表 (★★★ 3. 確保表格顯示 ★★★) ---
+            # --- 歷史數據表 ---
             if not res_df.empty:
                 st.markdown("<h3>📊 歷史數據詳細分析表</h3>", unsafe_allow_html=True)
                 metrics_map = {
@@ -302,12 +319,10 @@ if start_btn and target_symbol:
 
                 for metric, config in metrics_map.items():
                     html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
-                    # 確保按照回測設定的順序抓取數據
                     vals = []
                     for name in res_df['回測設定']:
                         val = res_df.loc[res_df['回測設定'] == name, metric].values[0]
                         vals.append(val)
-
                     for val in vals:
                         display_text = config["fmt"](val)
                         if "槓桿" in metric:
@@ -316,11 +331,10 @@ if start_btn and target_symbol:
                         html += f"<td>{display_text}</td>"
                     html += "</tr>"
                 html += "</tbody></table>"
-                # 使用 st.markdown 渲染 HTML
                 st.markdown(html, unsafe_allow_html=True)
 
         # ==============================================================================
-        # TAB 2: 長線機率展望
+        # TAB 2: 長線機率展望 (保持不變)
         # ==============================================================================
         with tab_horizon:
             df_m2 = df_monthly.copy()
