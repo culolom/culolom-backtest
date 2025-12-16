@@ -26,7 +26,7 @@ else:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(
-    page_title="雙動能凱利決策",
+    page_title="雙動能凱利決策(短線空手專用)",
     page_icon="⚖️",
     layout="wide",
 )
@@ -56,7 +56,7 @@ with st.sidebar:
 # 主標題
 # ------------------------------------------------------
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚖️ 雙動能凱利決策 (Kelly Criterion)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>⚖️ 雙動能凱利決策(短線空手專用) (Kelly Criterion)</h1>",
     unsafe_allow_html=True,
 )
 
