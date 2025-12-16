@@ -24,7 +24,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-# 權限驗證
+# 權限驗證 (若無 auth.py 則跳過)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
@@ -37,12 +37,16 @@ except ImportError: pass
 st.markdown("""
     <style>
         .block-container { padding-top: 2rem; }
+        
+        /* KPI 卡片 */
         .kpi-card {
             background-color: var(--secondary-background-color);
             border-radius: 16px; padding: 24px 20px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.04); border: 1px solid rgba(128,128,128,0.1);
             display: flex; flex-direction: column; justify-content: space-between; height: 100%;
         }
+        
+        /* 表格樣式 */
         .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); margin-bottom: 1rem; font-size: 0.95rem; }
         .comparison-table th { background-color: var(--secondary-background-color); padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128,0.1); }
         .comparison-table td { text-align: center; padding: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
@@ -74,9 +78,9 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
 
 st.markdown("<h1 style='margin-bottom:0.1em;'>🎚️ 量化槓桿模擬器 (Continuous Kelly)</h1>", unsafe_allow_html=True)
-st.caption("基於 **歷史波動率** 與 **BIL 無風險利率** 計算最佳槓桿倍數")
+st.caption("基於 **歷史波動率** 與 **無風險利率 ($r$)** 計算最佳槓桿倍數")
 
-# ★★★ 控制面板 ★★★
+# ★★★ 控制面板區塊 ★★★
 with st.container(border=True):
     st.markdown("#### ⚙️ 模擬參數設定")
     
@@ -91,51 +95,61 @@ with st.container(border=True):
         selected_m = st.multiselect("短期濾網 (M)", [1, 2, 3, 4, 5, 6, 9], default=default_short)
         
     with c3:
-        # ★★★ 自動讀取 BIL ★★★
-        df_bil = load_csv("BIL")
-        rf_rate = 0.04 # 預設值
+        # ★★★ 自動偵測 Risk Free Rate (優先順序: BIL > SHV > SGOV) ★★★
+        # 嚴格避開 IEF，因為長債有久期風險與殖利率倒掛問題
+        rf_symbol = "預設 4%"
+        rf_rate = 0.04
         
-        if not df_bil.empty:
-            # 轉月線並計算近一年報酬
-            try: df_bil_m = df_bil['Price'].resample('ME').last().to_frame()
-            except: df_bil_m = df_bil['Price'].resample('M').last().to_frame()
-            
-            # 取得最新一筆的「年變動率」
-            if len(df_bil_m) > 12:
-                rf_rate = df_bil_m['Price'].pct_change(periods=12).iloc[-1]
-                st.success(f"📊 **無風險利率 (BIL)**\n\n**{rf_rate:.2%}** (自動偵測)")
-            else:
-                st.warning("⚠️ BIL 資料不足一年，使用預設 4%")
+        candidates = ["BIL", "SHV", "SGOV"] # 短債 ETF 清單
+        found_rf = False
+        
+        for sym in candidates:
+            df_rf = load_csv(sym)
+            if not df_rf.empty:
+                # 轉月線計算
+                try: df_rf_m = df_rf['Price'].resample('ME').last().to_frame()
+                except: df_rf_m = df_rf['Price'].resample('M').last().to_frame()
+                
+                # 若資料足夠長，計算過去12個月的變動率作為無風險利率
+                if len(df_rf_m) > 12:
+                    rf_rate = df_rf_m['Price'].pct_change(periods=12).iloc[-1]
+                    rf_symbol = sym
+                    found_rf = True
+                    break
+        
+        if found_rf:
+            st.success(f"📊 **無風險利率 ($r$)**\n\n**{rf_rate:.2%}** (來自 {rf_symbol})")
         else:
-            st.error("❌ 未找到 BIL.csv，使用預設 4%")
+            st.warning("⚠️ 無短債ETF，使用預設 4%")
             
         fixed_n = 12
 
     start_btn = st.button("計算最佳槓桿倍數 🚀", type="primary", use_container_width=True)
 
 # ------------------------------------------------------
-# 5. 主程式
+# 5. 主程式執行邏輯
 # ------------------------------------------------------
 if start_btn and target_symbol:
     
     st.divider() 
 
-    with st.spinner(f"正在分析 {target_symbol} 的波動率，並對照 BIL 利率 ({rf_rate:.2%})..."):
+    with st.spinner(f"正在分析 {target_symbol}，使用 {rf_symbol} ({rf_rate:.2%}) 作為資金成本..."):
         # 1. 讀取標的
         df_daily = load_csv(target_symbol)
         if df_daily.empty: st.error(f"找不到 {target_symbol}.csv"); st.stop()
 
-        # 2. 轉月線
+        # 2. 轉月線 (共用)
         try: df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except: df_monthly = df_daily['Price'].resample('M').last().to_frame()
         
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
+        # 建立 Tabs
         tab_lev, tab_horizon = st.tabs(["🎚️ 最佳槓桿決策", "🔭 長線機率展望"])
 
         # ==============================================================================
-        # TAB 1: 最佳槓桿決策 (股市版凱利)
+        # TAB 1: 最佳槓桿決策 (股市版連續凱利)
         # ==============================================================================
         with tab_lev:
             df_m1 = df_monthly.copy()
@@ -153,16 +167,15 @@ if start_btn and target_symbol:
                     count = len(target_returns)
                     
                     if count > 5:
-                        # 1. 年化報酬 (Arithmetic Mean)
+                        # 1. 計算年化報酬 (Arithmetic Mean)
                         avg_monthly_ret = target_returns.mean()
                         ann_ret = avg_monthly_ret * 12 
                         
-                        # 2. 年化波動率 (Std Dev)
+                        # 2. 計算年化波動率 (Std Dev)
                         std_monthly = target_returns.std()
                         ann_vol = std_monthly * np.sqrt(12)
                         
                         # 3. 連續凱利公式: f = (u - r) / sigma^2
-                        # 注意：這裡使用「目前的 BIL 利率」作為 r，來評估「現在」該開多少槓桿
                         variance = ann_vol ** 2
                         
                         if variance > 0:
@@ -173,14 +186,11 @@ if start_btn and target_symbol:
                             
                         # 安全邊際：半凱利
                         suggested_leverage = optimal_leverage * 0.5
-                        win_rate = (target_returns > 0).sum() / count
                     else:
-                        ann_ret, ann_vol, optimal_leverage, suggested_leverage, win_rate = 0,0,0,0,0
+                        ann_ret, ann_vol, optimal_leverage, suggested_leverage = 0,0,0,0
                     
                     return {
-                        '回測設定': label, '排序': sort_idx, '短期M': m,
-                        '類型': '順勢' if '續漲' in label else '拉回',
-                        '樣本數': count,
+                        '回測設定': label, '排序': sort_idx,
                         '年化報酬': ann_ret, '年化波動': ann_vol,
                         '理論最佳槓桿': optimal_leverage,
                         '建議槓桿 (半凱利)': suggested_leverage
@@ -191,12 +201,12 @@ if start_btn and target_symbol:
             
             res_df = pd.DataFrame(results_kelly).sort_values(by='排序')
             
-            # --- UI: 現況建議 ---
+            # --- Tab 1 UI: 現況與槓桿建議 ---
             st.markdown("### 🧭 目前市場狀態與槓桿建議")
             curr_long_mom = momentum_long.iloc[-1] if len(df_monthly) > fixed_n else 0
             
             if curr_long_mom > 0:
-                st.success(f"✅ 主要趨勢：多頭 | 過去12月漲幅: +{curr_long_mom:.2%} | **資金成本(Rf): {rf_rate:.2%}**")
+                st.success(f"✅ 主要趨勢：多頭 | 過去12月漲幅: +{curr_long_mom:.2%} | **無風險利率 ({rf_symbol}): {rf_rate:.2%}**")
                 
                 status_cols = st.columns(len(selected_m))
                 for idx, m in enumerate(sorted(selected_m)):
@@ -217,7 +227,7 @@ if start_btn and target_symbol:
                                 data = match.iloc[0]
                                 lev = data['建議槓桿 (半凱利)']
                                 
-                                # 顏色邏輯
+                                # 顏色與文字邏輯
                                 lev_color = "#2962FF"
                                 if lev <= 0: lev_str = "建議空手 (0x)"; lev_color="#D32F2F"
                                 elif lev < 1: lev_str = f"降低曝險 ({lev:.2f}x)"; lev_color="#FF9800"
@@ -241,7 +251,7 @@ if start_btn and target_symbol:
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # --- 表格 ---
+            # --- Tab 1 UI: 歷史數據表 ---
             if not res_df.empty:
                 st.markdown("<h3>📊 歷史數據詳細分析表</h3>", unsafe_allow_html=True)
                 metrics_map = {
@@ -268,15 +278,9 @@ if start_btn and target_symbol:
                         html += f"<td>{display_text}</td>"
                     html += "</tr>"
                 html += "</tbody></table>"
-                
-                st.info(f"""
-                **💡 槓桿計算說明**
-                * **資金成本 (Risk-Free Rate)**：目前採用 **BIL** 過去12個月報酬率 **{rf_rate:.2%}**。
-                * **意義**：當無風險利率上升 (如升息循環)，資金成本變貴，系統算出的最佳槓桿倍數會自動下降，提示您降低風險。
-                """)
 
         # ==============================================================================
-        # TAB 2: 長線機率展望 (維持原樣，補回完整代碼以防空白)
+        # TAB 2: 長線機率展望
         # ==============================================================================
         with tab_horizon:
             df_m2 = df_monthly.copy()
@@ -341,3 +345,11 @@ if start_btn and target_symbol:
                 with t2: plot_horizon_bar(3, t2)
                 with t3: plot_horizon_bar(6, t3)
                 with t4: plot_horizon_bar(12, t4)
+                
+                st.divider()
+                with st.expander("📄 點擊查看詳細數據表格 (原始資料)"):
+                    fmt_dict = {'發生次數': '{:.0f}'}
+                    for col in res_df_hz.columns:
+                        if '個月' in col or '勝率' in col or '報酬' in col:
+                            fmt_dict[col] = '{:.2%}'
+                    st.dataframe(res_df_hz.style.format(fmt_dict).background_gradient(subset=[f'勝率_{h}M' for h in horizons], cmap='Blues'), use_container_width=True)
