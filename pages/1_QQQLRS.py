@@ -50,7 +50,7 @@ if not auth.check_password():
 # ------------------------------------------------------
 
 with st.sidebar:
-    st.page_link("Home.py", label="回到戰情室", icon="🏠")
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
@@ -69,7 +69,7 @@ st.markdown(
 1️⃣ <b>原型 Buy & Hold</b>：持有 QQQ (納斯達克100 ETF)<br>
 2️⃣ <b>槓桿 Buy & Hold</b>：持有 QLD (2倍) 或 TQQQ (3倍)<br>
 3️⃣ <b>LRS 動態槓桿</b>：以 QQQ 200日均線為訊號，操作槓桿 ETF (站上均線持有槓桿，跌破均線空手或轉保守)<br>
-<small>（請確保 data 資料夾內有 QQQ.csv, QLD.csv, TQQQ.csv）</small>
+
 """,
     unsafe_allow_html=True,
 )
@@ -206,7 +206,7 @@ with col5:
 
 position_mode = st.radio(
     "策略初始狀態",
-    ["空手起跑（標準 LRS）", "一開始就全倉槓桿 ETF"],
+    ["一開始就全倉槓桿 ETF", "空手起跑（標準 LRS）"],
     index=0,
 )
 
