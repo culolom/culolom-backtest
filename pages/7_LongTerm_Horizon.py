@@ -1,5 +1,5 @@
 ###############################################################
-# pages/3_LongTerm_Horizon.py — 長線趨勢延續性 (熱力圖版)
+# pages/3_LongTerm_Horizon.py — 長線趨勢延續性 (熱力圖 + 直條圖整合版)
 ###############################################################
 
 import os
@@ -42,11 +42,9 @@ with st.sidebar:
 # ------------------------------------------------------
 st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 長線趨勢延續性 (Signal Horizon)</h1>", unsafe_allow_html=True)
 st.markdown("""
-    <b>視覺化解讀：</b><br>
-    使用 <b>熱力圖 (Heatmap)</b> 觀察策略隨時間推移的表現變化。<br>
-    👉 <b>橫軸</b>：持有時間 (1個月 $\\to$ 12個月)。<br>
-    👉 <b>縱軸</b>：不同的策略設定。<br>
-    尋找顏色 <b>「由淺變深」</b> 的路徑，代表該策略具有長線複利效應。
+    <b>雙視角分析：</b><br>
+    1. <b>🔥 熱力圖 (Heatmap)</b>：觀察策略隨時間推移的變化，尋找顏色變深的路徑。<br>
+    2. <b>📊 直條圖 (Bar Chart)</b>：針對特定持有期間 (如12個月)，直接比較各策略的績效排名。
 """, unsafe_allow_html=True)
 
 DATA_DIR = Path("data")
@@ -71,12 +69,11 @@ with col1:
     target_symbol = st.selectbox("選擇回測標的", csv_files, index=0)
 with col2:
     st.info("🔒 **主要趨勢 (N)**：固定鎖定為 **12 個月** (年線多頭)")
-    # 預設多選一點，方便比較長線效果
-    default_short = [1, 2, 3, 4, 5, 6]
+    default_short = [1, 2, 3, 4, 6]
     selected_m = st.multiselect("設定短期濾網 (M)", [1, 2, 3, 4, 5, 6, 9], default=default_short)
 
 if st.button("開始長線回測 🚀") and target_symbol:
-    with st.spinner("正在生成熱力圖數據..."):
+    with st.spinner("正在計算多週期未來回報..."):
         df_daily = load_csv(target_symbol)
         if df_daily.empty: st.stop()
 
@@ -115,11 +112,13 @@ if st.button("開始長線回測 🚀") and target_symbol:
                     if len(rets) > 0:
                         win_rate = (rets > 0).sum() / len(rets)
                         avg_ret = rets.mean()
-                        row_data[f'{h}個月'] = avg_ret # 為了熱力圖顯示方便，改短欄位名
+                        row_data[f'{h}個月'] = avg_ret # 熱力圖用
+                        row_data[f'報酬_{h}M'] = avg_ret # 直條圖用
                         row_data[f'勝率_{h}M'] = win_rate
                         if h == 1: valid_count = len(rets)
                     else:
                         row_data[f'{h}個月'] = np.nan
+                        row_data[f'報酬_{h}M'] = np.nan
                         row_data[f'勝率_{h}M'] = np.nan
 
                 row_data['發生次數'] = valid_count
@@ -129,15 +128,17 @@ if st.button("開始長線回測 🚀") and target_symbol:
         res_df = pd.DataFrame(results)
 
     # -----------------------------------------------------
-    # 視覺化展示：雙熱力圖
+    # 視覺化展示
     # -----------------------------------------------------
     
     if not res_df.empty:
         st.divider()
         
-        # 1. 報酬率熱力圖 (Return Heatmap)
-        st.markdown("### 🔥 累積報酬熱力圖 (Profitability)")
-        st.caption("觀察顏色變化：:green[**深綠色**] 代表高報酬，:red[**紅色**] 代表虧損。理想路徑是 **由左至右顏色變深綠**。")
+        # ==========================================
+        # 1. 上半部：熱力圖 (上帝視角)
+        # ==========================================
+        st.markdown("### 🔥 全局視野：熱力圖 (Heatmap)")
+        st.caption("透過顏色深淺，觀察策略從短期到長期的延續性。由左至右變深綠 = 長線金礦。")
 
         # 整理數據
         return_cols = ['1個月', '3個月', '6個月', '12個月']
@@ -153,41 +154,67 @@ if st.button("開始長線回測 🚀") and target_symbol:
             color_continuous_scale='RdYlGn', # 紅-黃-綠 配色
             aspect="auto"
         )
-        fig_ret.update_layout(height=150 + (len(res_df) * 30), xaxis_side="top") # x軸標籤放上面比較好對照
+        fig_ret.update_layout(height=150 + (len(res_df) * 30), xaxis_side="top")
         st.plotly_chart(fig_ret, use_container_width=True)
 
-        # 2. 勝率熱力圖 (Win Rate Heatmap)
-        st.markdown("### 🎯 勝率熱力圖 (Reliability)")
-        st.caption("觀察顏色變化：:blue[**深藍色**] 代表高勝率。這能幫助你判斷策略的穩定性。")
+        st.divider()
 
-        # 整理數據
-        win_cols = [f'勝率_{h}M' for h in horizons]
-        heatmap_win = res_df.set_index('策略')[win_cols]
-        heatmap_win.columns = ['1個月勝率', '3個月勝率', '6個月勝率', '12個月勝率'] # 顯示友善名稱
+        # ==========================================
+        # 2. 下半部：直條圖 (排行榜視角)
+        # ==========================================
+        st.markdown("### 📊 績效排行：分頁直條圖 (Rankings)")
+        st.caption("切換分頁，查看不同持有期間下的策略排名。")
 
-        # 繪圖
-        fig_win = px.imshow(
-            heatmap_win,
-            labels=dict(x="持有期間", y="策略設定", color="勝率"),
-            x=heatmap_win.columns,
-            y=heatmap_win.index,
-            text_auto='.1%',
-            color_continuous_scale='Blues', # 藍色系
-            aspect="auto",
-            range_color=[0.4, 0.8] # 固定顏色範圍 40%~80% 方便比較
-        )
-        fig_win.update_layout(height=150 + (len(res_df) * 30))
-        st.plotly_chart(fig_win, use_container_width=True)
+        # 建立 4 個 Tabs
+        tab1, tab2, tab3, tab4 = st.tabs(["1個月展望 (短線)", "3個月展望 (季)", "6個月展望 (半年)", "12個月展望 (長線)"])
+        
+        # 定義繪圖函式
+        def plot_horizon_bar(horizon_month, container):
+            col_name = f'報酬_{horizon_month}M'
+            
+            # 依照報酬率排序，讓強的排左邊
+            sorted_df = res_df.sort_values(by=col_name, ascending=False)
+            
+            fig = px.bar(
+                sorted_df, 
+                x='策略', 
+                y=col_name, 
+                color='類型', # 用類型來分顏色
+                text_auto='.1%',
+                title=f"持有 {horizon_month} 個月後的平均報酬排序",
+                # 自定義顏色：順勢用深綠，拉回用深橘紅
+                color_discrete_map={'順勢': '#00CC96', '拉回': '#EF553B'}
+            )
+            
+            fig.update_layout(
+                yaxis_tickformat='.1%',
+                xaxis_title="",
+                yaxis_title="平均累積報酬",
+                height=450,
+                showlegend=True
+            )
+            container.plotly_chart(fig, use_container_width=True)
+
+        # 分別繪製
+        with tab1: plot_horizon_bar(1, tab1)
+        with tab2: plot_horizon_bar(3, tab2)
+        with tab3: plot_horizon_bar(6, tab3)
+        with tab4: plot_horizon_bar(12, tab4)
 
     # -----------------------------------------------------
-    # 原始數據 (摺疊起來，讓想看細節的人再打開)
+    # 原始數據
     # -----------------------------------------------------
     st.divider()
     with st.expander("📄 點擊查看詳細數據表格 (原始資料)"):
         if not res_df.empty:
             fmt_dict = {'發生次數': '{:.0f}'}
             for col in res_df.columns:
-                if '個月' in col or '勝率' in col:
+                if '個月' in col or '勝率' in col or '報酬' in col:
                     fmt_dict[col] = '{:.2%}'
             
-            st.dataframe(res_df.style.format(fmt_dict), use_container_width=True)
+            # 使用 Pandas Styler 加上背景色 (Win Rate)
+            st.dataframe(
+                res_df.style.format(fmt_dict)
+                .background_gradient(subset=[f'勝率_{h}M' for h in horizons], cmap='Blues'),
+                use_container_width=True
+            )
