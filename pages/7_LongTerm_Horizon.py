@@ -108,7 +108,17 @@ with st.container(border=True):
     c1, c2, c3 = st.columns([1, 2, 1])
     
     with c1:
-        target_symbol = st.selectbox("選擇回測標的 (Symbol)", csv_files, index=0)
+        # 1. 在這裡輸入您想要預設的標的名稱 (必須與 data 資料夾內的檔名一致，不含 .csv)
+        default_name = "QQQ" ,"0050.TW"
+
+        # 2. 自動判斷該標的在清單中的位置
+        if default_name in csv_files:
+            target_index = csv_files.index(default_name)
+        else:
+            target_index = 0  # 如果找不到該檔案，就預設選第 1 個
+            
+        # 3. 將 index 參數設定為算出來的位置
+        target_symbol = st.selectbox("選擇回測標的 (Symbol)", csv_files, index=target_index)
     
     with c2:
         default_short = [1, 3]
