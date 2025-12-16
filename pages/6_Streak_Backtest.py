@@ -1,5 +1,5 @@
 ###############################################################
-# pages/2_Momentum_Backtest.py — 12月長趨勢 + 短期動能濾網最佳化
+# pages/2_Momentum_Backtest.py — 年線多頭架構下的：追漲 vs 低接
 ###############################################################
 
 import os
@@ -26,8 +26,8 @@ else:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(
-    page_title="趨勢動能優化",
-    page_icon="🚀",
+    page_title="趨勢策略對決",
+    page_icon="⚔️",
     layout="wide",
 )
 
@@ -56,16 +56,16 @@ with st.sidebar:
 # 主標題
 # ------------------------------------------------------
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>🚀 長期趨勢 + 短期動能最佳化 (Trend + Momentum)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>⚔️ 順勢追漲 vs 拉回低接 (Trend Following vs Buy the Dip)</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-    <b>策略邏輯：</b><br>
-    1. <b>主要趨勢 (固定)</b>：確認 <b>過去 12 個月</b> 漲幅 > 0 (年線多頭)。<br>
-    2. <b>短期濾網 (變數)</b>：測試搭配不同的 <b>短期 M 個月</b> 漲幅 > 0。<br>
-    目標是找出在「年線向上」的大前提下，搭配哪種短期動能進場，勝率與爆發力最強。
+    <b>策略大前提 (固定)：</b> 確認 <b>過去 12 個月</b> 漲幅 > 0 (年線多頭)。<br>
+    <b>短期濾網對決：</b><br>
+    🚀 <b>順勢 (Momentum)</b>：短期 M 個月 <b>續漲 (>0)</b> 才進場（強者恆強）。<br>
+    🛡️ <b>拉回 (Pullback)</b>：短期 M 個月 <b>下跌 (<0)</b> 才進場（多頭回檔、乖離修正）。
     """,
     unsafe_allow_html=True,
 )
@@ -99,7 +99,7 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Price"]]
 
 ###############################################################
-# 3. UI 輸入區 (邏輯修改處)
+# 3. UI 輸入區
 ###############################################################
 
 csv_files = get_all_csv_files()
@@ -118,12 +118,12 @@ with col2:
     fixed_n = 12
     
     # B. 短期濾網改為複選
-    default_short = [1, 2, 3] # 預設測試 1個月, 2個月, 3個月
+    default_short = [1, 3] # 預設測試 1個月, 3個月
     selected_m = st.multiselect(
-        "設定短期濾網月數 (M) - 可多選比較", 
-        [1, 2, 3, 4, 5, 6], 
+        "設定短期濾網月數 (M) - 系統將自動比較「漲」與「跌」", 
+        [1, 2, 3, 4, 5, 6, 9], 
         default=default_short,
-        help="例如選 1，代表除了年線向上外，上個月也必須是漲的才進場"
+        help="選擇 1，系統會同時跑「年線漲+上月漲」與「年線漲+上月跌」兩種策略"
     )
 
 ###############################################################
@@ -205,13 +205,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 ###############################################################
-# 5. 主程式邏輯 (修正：固定N，迴圈跑M)
+# 5. 主程式邏輯 (核心修改：產生兩種情境)
 ###############################################################
 
 if st.button("開始回測 🚀") and target_symbol:
     
-    with st.spinner(f"正在分析 {target_symbol} (固定趨勢12月 + 變動濾網)..."):
-        # 1. 讀取與時間處理
+    with st.spinner(f"正在分析 {target_symbol} (年線多頭 + 順勢/拉回對照)..."):
         df_daily = load_csv(target_symbol)
         
         if df_daily.empty:
@@ -222,67 +221,68 @@ if st.button("開始回測 🚀") and target_symbol:
         end_date = df_daily.index.max().strftime('%Y-%m-%d')
         total_years = (df_daily.index.max() - df_daily.index.min()).days / 365.25
 
-        # 2. 轉換為月線
         try:
             df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except Exception:
             df_monthly = df_daily['Price'].resample('M').last().to_frame()
             
-        # 計算「下個月」的報酬 (預測目標)
         df_monthly['Next_Month_Return'] = df_monthly['Price'].pct_change().shift(-1)
         
         results = []
         
-        # --- 計算主要趨勢訊號 (N=12) ---
-        # 這部分只需計算一次
+        # --- 1. 計算主要趨勢訊號 (N=12) ---
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
-        # 3. 迴圈跑不同的「短期濾網 M」
+        # --- 2. 迴圈跑不同的「短期濾網 M」 ---
         for m in sorted(selected_m):
             
-            # 計算短期動能訊號
             momentum_short = df_monthly['Price'].pct_change(periods=m)
-            signal_short = momentum_short > 0
             
-            # ★ 核心邏輯：主要趨勢(12) AND 短期動能(M)
-            final_signal = signal_long & signal_short
+            # --- 情境 A: 順勢 (短期也漲) ---
+            signal_trend = signal_long & (momentum_short > 0)
             
-            strategy_name = f"年線多頭 + {m}月續漲"
+            # --- 情境 B: 拉回 (短期下跌) ---
+            # 這裡的邏輯是：年線是漲的(多頭)，但過去M個月是跌的(修正)
+            signal_pullback = signal_long & (momentum_short < 0)
             
-            # 找出訊號成立時，「下個月」的表現
-            target_returns = df_monthly.loc[final_signal, 'Next_Month_Return'].dropna()
-            
-            count = len(target_returns)
-            
-            if count > 0:
-                win_count = target_returns[target_returns > 0].count()
-                win_rate = win_count / count
-                avg_ret = target_returns.mean()
-                med_ret = target_returns.median()
-                max_ret = target_returns.max()
-                min_ret = target_returns.min()
-            else:
-                win_rate = 0
-                avg_ret = 0
-                med_ret = 0
-                max_ret = 0
-                min_ret = 0
+            # 定義一個內部函式來重複計算邏輯
+            def calc_stats(signal_series, label, sort_idx):
+                target_returns = df_monthly.loc[signal_series, 'Next_Month_Return'].dropna()
+                count = len(target_returns)
+                
+                if count > 0:
+                    win_count = target_returns[target_returns > 0].count()
+                    win_rate = win_count / count
+                    avg_ret = target_returns.mean()
+                    med_ret = target_returns.median()
+                    max_ret = target_returns.max()
+                    min_ret = target_returns.min()
+                else:
+                    win_rate, avg_ret, med_ret, max_ret, min_ret = 0, 0, 0, 0, 0
+                
+                return {
+                    '回測設定': label,
+                    '排序': sort_idx, # 用來讓圖表排列好看 (同一個M的順勢跟逆勢排在一起)
+                    '短期M': m,
+                    '類型': '順勢' if '續漲' in label else '拉回',
+                    '發生次數': count,
+                    '勝率 (Win Rate)': win_rate,
+                    '平均報酬': avg_ret,
+                    '中位數報酬': med_ret,
+                    '最大漲幅': max_ret,
+                    '最大跌幅': min_ret
+                }
 
-            results.append({
-                '回測設定': strategy_name,
-                '短期M': m,
-                '發生次數': count,
-                '勝率 (Win Rate)': win_rate,
-                '平均報酬': avg_ret,
-                '中位數報酬': med_ret,
-                '最大漲幅': max_ret,
-                '最大跌幅': min_ret
-            })
+            # 加入順勢結果
+            results.append(calc_stats(signal_trend, f"年線多 + {m}月續漲 (順勢)", m * 10 + 1))
+            # 加入拉回結果
+            results.append(calc_stats(signal_pullback, f"年線多 + {m}月回檔 (低接)", m * 10 + 2))
             
-        res_df = pd.DataFrame(results)
+        # 轉為 DataFrame 並排序
+        res_df = pd.DataFrame(results).sort_values(by='排序')
         
-        # 4. 基礎樣本統計 (Base Rate)
+        # 基礎樣本統計
         base_returns = df_monthly['Next_Month_Return'].dropna()
         if not base_returns.empty:
             base_win_rate = base_returns[base_returns > 0].count() / len(base_returns)
@@ -298,9 +298,8 @@ if st.button("開始回測 🚀") and target_symbol:
     st.success(f"📅 **回測區間**：{start_date} ~ {end_date} (共 {total_years:.1f} 年)")
     
     # --- KPI 卡片 ---
-    # 找出「平均報酬」最高的策略 (通常這裡找報酬最高的比較有意義，因為大家都在多頭時進場，想知道誰最噴)
-    # 或者您想找勝率最高的也可以，這邊我設定為勝率
-    best_strategy = res_df.loc[res_df['勝率 (Win Rate)'].idxmax()] if not res_df.empty else None
+    # 找出「平均報酬」最高的策略
+    best_strategy = res_df.loc[res_df['平均報酬'].idxmax()] if not res_df.empty else None
     
     col_kpi = st.columns(4)
     
@@ -318,16 +317,16 @@ if st.button("開始回測 🚀") and target_symbol:
         st.markdown(simple_card("基準月勝率 (Base)", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
     with col_kpi[2]:
         if best_strategy is not None:
-            # 顯示最佳的短期 M
-            st.markdown(simple_card("🔥 最佳短期濾網", f"{best_strategy['短期M']} 個月"), unsafe_allow_html=True)
+            # 顯示最佳策略名稱
+            st.markdown(simple_card("🔥 平均報酬最高", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
     with col_kpi[3]:
         if best_strategy is not None:
-            st.markdown(simple_card("最佳組合勝率", f"{best_strategy['勝率 (Win Rate)']:.1%}"), unsafe_allow_html=True)
+            st.markdown(simple_card("該策略平均月酬", f"{best_strategy['平均報酬']:.2%}"), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom: 30px'></div>", unsafe_allow_html=True)
 
-    # --- 圖表區 ---
-    st.markdown("<h3>📊 各短期濾網效果比較 (前提：12月趨勢向上)</h3>", unsafe_allow_html=True)
+    # --- 圖表區 (分組顯示) ---
+    st.markdown("<h3>📊 順勢 vs 拉回：策略效果對決</h3>", unsafe_allow_html=True)
     
     tab1, tab2 = st.tabs(["勝率分析", "平均報酬分析"])
     
@@ -336,7 +335,8 @@ if st.button("開始回測 🚀") and target_symbol:
             fig_win = go.Figure()
             fig_win.add_hline(y=base_win_rate, line_dash="dash", line_color="gray", annotation_text="Buy & Hold 勝率")
             
-            colors = ['#EF553B' if val < base_win_rate else '#00CC96' for val in res_df['勝率 (Win Rate)']]
+            # 自定義顏色：順勢用綠色系，拉回用橘色系
+            colors = ['#00CC96' if t == '順勢' else '#FFA15A' for t in res_df['類型']]
             
             fig_win.add_trace(go.Bar(
                 x=res_df['回測設定'],
@@ -346,10 +346,10 @@ if st.button("開始回測 🚀") and target_symbol:
                 marker_color=colors
             ))
             fig_win.update_layout(
-                title="不同短期濾網的下月勝率",
+                title="不同策略情境的下月勝率",
                 yaxis_tickformat='.0%',
                 template="plotly_white",
-                height=400,
+                height=450,
                 xaxis_title="策略組合",
                 yaxis_title="勝率"
             )
@@ -360,26 +360,25 @@ if st.button("開始回測 🚀") and target_symbol:
             fig_ret = go.Figure()
             fig_ret.add_hline(y=base_avg_ret, line_dash="dash", line_color="gray", annotation_text="Buy & Hold 平均報酬")
             
+            # 使用 Group Bar Chart 邏輯會比較亂，這裡維持簡單 Bar，用顏色區分
+            colors = ['#636EFA' if t == '順勢' else '#EF553B' for t in res_df['類型']]
+
             fig_ret.add_trace(go.Bar(
                 x=res_df['回測設定'],
                 y=res_df['平均報酬'],
+                text=[f"{v:.2%}" for v in res_df['平均報酬']],
+                textposition='auto',
                 name='平均報酬',
-                marker_color='#636EFA'
-            ))
-            fig_ret.add_trace(go.Scatter(
-                x=res_df['回測設定'],
-                y=res_df['中位數報酬'],
-                mode='markers+lines',
-                name='中位數報酬',
-                line=dict(color='#FFA15A', width=2)
+                marker_color=colors
             ))
             
             fig_ret.update_layout(
-                title="不同短期濾網的下月平均報酬 vs 中位數",
+                title="不同策略情境的下月平均報酬",
                 yaxis_tickformat='.2%',
                 template="plotly_white",
-                height=400,
-                hovermode="x unified"
+                height=450,
+                xaxis_title="策略組合",
+                yaxis_title="平均報酬"
             )
             st.plotly_chart(fig_ret, use_container_width=True)
 
@@ -399,7 +398,11 @@ if st.button("開始回測 🚀") and target_symbol:
         html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
         
         for name in res_df['回測設定']:
-            html += f"<th>{name}</th>"
+            # 判斷標題顏色：拉回策略給個標示
+            if "回檔" in name:
+                html += f"<th style='color:#E65100; background-color:rgba(255,167,38,0.1)'>{name}</th>"
+            else:
+                html += f"<th style='color:#1B5E20; background-color:rgba(102,187,106,0.1)'>{name}</th>"
         html += "</tr></thead><tbody>"
 
         for metric, config in metrics_map.items():
