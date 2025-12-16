@@ -50,7 +50,7 @@ if not auth.check_password():
 # ------------------------------------------------------
 
 with st.sidebar:
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.page_link("Home.py", label="回到戰情室", icon="🏠")
     st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
