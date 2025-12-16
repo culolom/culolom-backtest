@@ -1,5 +1,5 @@
 ###############################################################
-# pages/2_Streak_Backtest.py — 連續上漲動能回測
+# pages/2_Streak_Backtest.py — 連續上漲動能回測 (完整版)
 ###############################################################
 
 import os
@@ -11,11 +11,13 @@ import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 from pathlib import Path
+import sys
 
 ###############################################################
-# 字型設定 (維持原樣)
+# 1. 字型與基本設定
 ###############################################################
 
+# 嘗試載入中文字型，避免 matplotlib 亂碼 (雖主要用 Plotly，但保留以防萬一)
 font_path = "./NotoSansTC-Bold.ttf"
 if os.path.exists(font_path):
     fm.fontManager.addfont(font_path)
@@ -24,10 +26,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-###############################################################
 # Streamlit 頁面設定
-###############################################################
-
 st.set_page_config(
     page_title="連漲動能回測",
     page_icon="🔥",
@@ -35,18 +34,19 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------
-# 🔒 驗證守門員 (保留您的驗證邏輯)
+# 🔒 驗證模組 (連接根目錄的 auth.py)
 # ------------------------------------------------------
-import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
     if not auth.check_password():
         st.stop()
 except ImportError:
-    pass # 如果沒有 auth.py 則跳過 (方便測試)
-# ------------------------------------------------------
+    pass # 若無 auth.py 則跳過，方便本機測試
 
+# ------------------------------------------------------
+# Sidebar 設定
+# ------------------------------------------------------
 with st.sidebar:
     st.page_link("Home.py", label="回到戰情室", icon="🏠")
     st.divider()
@@ -54,6 +54,9 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
+# ------------------------------------------------------
+# 主標題與說明
+# ------------------------------------------------------
 st.markdown(
     "<h1 style='margin-bottom:0.5em;'>🔥 連續上漲動能回測 (Monthly Streak)</h1>",
     unsafe_allow_html=True,
@@ -69,7 +72,7 @@ st.markdown(
 )
 
 ###############################################################
-# 資料讀取與處理
+# 2. 資料讀取函式
 ###############################################################
 
 DATA_DIR = Path("data")
@@ -83,27 +86,30 @@ def get_all_csv_files():
     return sorted(files)
 
 def load_csv(symbol: str) -> pd.DataFrame:
+    """讀取 CSV 並標準化欄位"""
     path = DATA_DIR / f"{symbol}.csv"
     if not path.exists():
         return pd.DataFrame()
 
     df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
     df = df.sort_index()
-    # 確保有 Price 欄位 (相容您的資料格式)
+    
+    # 優先使用 Adj Close，若無則用 Close
     if "Adj Close" in df.columns:
         df["Price"] = df["Adj Close"]
     elif "Close" in df.columns:
         df["Price"] = df["Close"]
+        
     return df[["Price"]]
 
 ###############################################################
-# UI 輸入區
+# 3. UI 輸入區
 ###############################################################
 
 csv_files = get_all_csv_files()
 
 if not csv_files:
-    st.error("⚠️ Data 資料夾內沒有 CSV 檔案，請先上傳數據。")
+    st.error("⚠️ Data 資料夾內沒有 CSV 檔案，請先上傳數據至 data/ 資料夾。")
     st.stop()
 
 col1, col2 = st.columns(2)
@@ -116,11 +122,12 @@ with col2:
     selected_periods = st.multiselect("設定連漲月數 (N)", [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 24], default=default_periods)
 
 ###############################################################
-# CSS 樣式 (保留原版高級 UI)
+# 4. CSS 樣式定義 (KPI 卡片 & 表格)
 ###############################################################
 
 st.markdown("""
     <style>
+        /* KPI 卡片樣式 */
         .kpi-card {
             background-color: var(--secondary-background-color);
             border-radius: 16px;
@@ -152,6 +159,41 @@ st.markdown("""
             font-family: 'Noto Sans TC', sans-serif;
             line-height: 1.2;
         }
+        /* 表格樣式 */
+        .comparison-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 12px;
+            border: 1px solid var(--secondary-background-color);
+            font-family: 'Noto Sans TC', sans-serif;
+            margin-bottom: 1rem;
+            font-size: 0.95rem;
+        }
+        .comparison-table th {
+            background-color: var(--secondary-background-color);
+            color: var(--text-color);
+            padding: 14px;
+            text-align: center;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
+        }
+        .comparison-table td {
+            text-align: center;
+            padding: 12px;
+            color: var(--text-color);
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
+        }
+        .comparison-table td.metric-name {
+            text-align: left;
+            font-weight: 500;
+            background-color: rgba(128,128,128, 0.02);
+            width: 20%;
+        }
+        .comparison-table tr:hover td {
+            background-color: rgba(128,128,128, 0.05);
+        }
+        /* 獎盃圖示特效 */
         .trophy-icon {
             margin-left: 6px;
             font-size: 1.1em;
@@ -161,7 +203,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 ###############################################################
-# 主程式邏輯
+# 5. 主程式邏輯 (計算與顯示)
 ###############################################################
 
 if st.button("開始回測 🚀") and target_symbol:
@@ -171,15 +213,19 @@ if st.button("開始回測 🚀") and target_symbol:
         df_daily = load_csv(target_symbol)
         
         if df_daily.empty:
-            st.error("讀取失敗或無數據")
+            st.error(f"讀取 {target_symbol} 失敗或無數據")
             st.stop()
 
-        # 2. 轉換為月線 (取每個月最後一天的價格)
-        # 使用 'ME' (Month End) 
+        # 2. 取得回測區間資訊
+        start_date = df_daily.index.min().strftime('%Y-%m-%d')
+        end_date = df_daily.index.max().strftime('%Y-%m-%d')
+        total_years = (df_daily.index.max() - df_daily.index.min()).days / 365.25
+
+        # 3. 轉換為月線 (取每個月最後一天的價格)
+        # 兼容 pandas 新舊版本 (新版用 'ME', 舊版用 'M')
         try:
             df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except Exception:
-            # 相容舊版 Pandas
             df_monthly = df_daily['Price'].resample('M').last().to_frame()
             
         # 計算月報酬
@@ -190,9 +236,10 @@ if st.button("開始回測 🚀") and target_symbol:
         
         results = []
         
-        # 3. 迴圈跑不同的「連漲月數」設定
+        # 4. 迴圈跑不同的「連漲月數」設定
         for n in sorted(selected_periods):
             # 核心邏輯：滾動視窗總和是否等於 n (True=1, False=0)
+            # 例如 window=3, sum=3 代表連續三個月都是 True
             streak_signal = is_positive.rolling(window=n).sum() == n
             
             # 找出訊號觸發後的「下個月」
@@ -229,15 +276,23 @@ if st.button("開始回測 🚀") and target_symbol:
         # 轉為 DataFrame
         res_df = pd.DataFrame(results)
         
-        # 4. 基礎樣本統計 (Base Rate) - 所有月份的平均表現
-        base_win_rate = len(df_monthly[df_monthly['Return'] > 0]) / len(df_monthly)
-        base_avg_ret = df_monthly['Return'].mean()
+        # 5. 計算基礎樣本統計 (Base Rate) - 所有月份的平均表現
+        if not df_monthly.empty:
+            base_win_rate = len(df_monthly[df_monthly['Return'] > 0]) / len(df_monthly)
+            base_avg_ret = df_monthly['Return'].mean()
+        else:
+            base_win_rate = 0
+            base_avg_ret = 0
 
     # -----------------------------------------------------
-    # 顯示結果區
+    # 6. 顯示結果區
     # -----------------------------------------------------
 
-    # --- KPI 卡片區 (顯示整體基準 vs 最佳策略) ---
+    # (新增) 顯示回測區間提示框
+    st.success(f"📅 **回測區間**：{start_date} ~ {end_date} (共 {total_years:.1f} 年)")
+
+    # --- KPI 卡片區 ---
+    # 找出勝率最高的策略
     best_strategy = res_df.loc[res_df['勝率 (Win Rate)'].idxmax()] if not res_df.empty else None
     
     col_kpi = st.columns(4)
@@ -251,7 +306,10 @@ if st.button("開始回測 🚀") and target_symbol:
         """
 
     with col_kpi[0]:
-        st.markdown(simple_card("總交易月數", f"{len(df_monthly):,} 月"), unsafe_allow_html=True)
+        # 標題帶入年份摘要
+        start_y = df_daily.index.min().year
+        end_y = df_daily.index.max().year
+        st.markdown(simple_card(f"總交易月數 ({start_y}-{end_y})", f"{len(df_monthly):,} 月"), unsafe_allow_html=True)
     with col_kpi[1]:
         st.markdown(simple_card("基準月勝率 (Base)", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
     with col_kpi[2]:
@@ -270,134 +328,116 @@ if st.button("開始回測 🚀") and target_symbol:
     
     with tab1:
         # 勝率 Bar Chart
-        fig_win = go.Figure()
-        # 加入基準線
-        fig_win.add_hline(y=base_win_rate, line_dash="dash", line_color="gray", annotation_text="基準勝率")
-        
-        colors = ['#EF553B' if val < base_win_rate else '#00CC96' for val in res_df['勝率 (Win Rate)']]
-        
-        fig_win.add_trace(go.Bar(
-            x=res_df['連漲月數'],
-            y=res_df['勝率 (Win Rate)'],
-            text=[f"{v:.1%}" for v in res_df['勝率 (Win Rate)']],
-            textposition='auto',
-            marker_color=colors
-        ))
-        fig_win.update_layout(
-            title="各連漲週期下個月上漲機率",
-            yaxis_tickformat='.0%',
-            template="plotly_white",
-            height=400
-        )
-        st.plotly_chart(fig_win, use_container_width=True)
+        if not res_df.empty:
+            fig_win = go.Figure()
+            # 加入基準線
+            fig_win.add_hline(y=base_win_rate, line_dash="dash", line_color="gray", annotation_text="基準勝率")
+            
+            # 顏色邏輯：高於基準綠色，低於基準紅色
+            colors = ['#EF553B' if val < base_win_rate else '#00CC96' for val in res_df['勝率 (Win Rate)']]
+            
+            fig_win.add_trace(go.Bar(
+                x=res_df['連漲月數'],
+                y=res_df['勝率 (Win Rate)'],
+                text=[f"{v:.1%}" for v in res_df['勝率 (Win Rate)']],
+                textposition='auto',
+                marker_color=colors
+            ))
+            fig_win.update_layout(
+                title="各連漲週期下個月上漲機率",
+                yaxis_tickformat='.0%',
+                template="plotly_white",
+                height=400,
+                xaxis_title="連漲設定",
+                yaxis_title="勝率"
+            )
+            st.plotly_chart(fig_win, use_container_width=True)
+        else:
+            st.info("無數據可繪製圖表")
 
     with tab2:
         # 報酬率 Bar Chart
-        fig_ret = go.Figure()
-        fig_ret.add_hline(y=base_avg_ret, line_dash="dash", line_color="gray", annotation_text="基準平均報酬")
-        
-        fig_ret.add_trace(go.Bar(
-            x=res_df['連漲月數'],
-            y=res_df['平均報酬'],
-            name='平均報酬',
-            marker_color='#636EFA'
-        ))
-        fig_ret.add_trace(go.Scatter(
-            x=res_df['連漲月數'],
-            y=res_df['中位數報酬'],
-            mode='markers+lines',
-            name='中位數報酬',
-            line=dict(color='#FFA15A', width=2)
-        ))
-        
-        fig_ret.update_layout(
-            title="各連漲週期下個月平均報酬 vs 中位數",
-            yaxis_tickformat='.2%',
-            template="plotly_white",
-            height=400,
-            hovermode="x unified"
-        )
-        st.plotly_chart(fig_ret, use_container_width=True)
-
-    # --- HTML 冠軍比較表格 (重構資料結構以符合您的 Table 樣式) ---
-    st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
-
-    # 1. 轉置 DataFrame 讓直行變成策略(N個月)，橫列變成指標
-    # 我們需要構建一個 dict 來生成 HTML
-    metrics_map = {
-        "發生次數": {"fmt": lambda x: f"{int(x):,}", "high_is_good": True}, # 次數多通常統計意義較大
-        "勝率 (Win Rate)": {"fmt": lambda x: f"{x:.2%}", "high_is_good": True},
-        "平均報酬": {"fmt": lambda x: f"{x:.2%}", "high_is_good": True},
-        "中位數報酬": {"fmt": lambda x: f"{x:.2%}", "high_is_good": True},
-        "最大漲幅": {"fmt": lambda x: f"{x:.2%}", "high_is_good": True},
-        "最大跌幅": {"fmt": lambda x: f"{x:.2%}", "high_is_good": True}, # 這裡是數值(負數)，通常希望越接近0越好(越大越好)
-    }
-
-    # CSS 樣式 (極簡版 Table)
-    st.markdown("""
-    <style>
-        .comparison-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            border-radius: 12px;
-            border: 1px solid var(--secondary-background-color);
-            font-family: 'Noto Sans TC', sans-serif;
-            margin-bottom: 1rem;
-            font-size: 0.95rem;
-        }
-        .comparison-table th {
-            background-color: var(--secondary-background-color);
-            color: var(--text-color);
-            padding: 14px;
-            text-align: center;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(128,128,128, 0.1);
-        }
-        .comparison-table td {
-            text-align: center;
-            padding: 12px;
-            color: var(--text-color);
-            border-bottom: 1px solid rgba(128,128,128, 0.1);
-        }
-        .comparison-table td.metric-name {
-            text-align: left;
-            font-weight: 500;
-            background-color: rgba(128,128,128, 0.02);
-            width: 20%;
-        }
-        .comparison-table tr:hover td {
-            background-color: rgba(128,128,128, 0.05);
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 生成 HTML
-    html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
-    
-    # 表頭 (策略名稱)
-    for name in res_df['連漲月數']:
-        html += f"<th>{name}</th>"
-    html += "</tr></thead><tbody>"
-
-    # 內容
-    for metric, config in metrics_map.items():
-        html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
-        
-        # 找出該列的最大值(用於頒發獎盃)
-        vals = res_df[metric].values
-        best_val = max(vals) if config["high_is_good"] else min(vals)
-        
-        for val in vals:
-            display_text = config["fmt"](val)
-            is_winner = (val == best_val)
+        if not res_df.empty:
+            fig_ret = go.Figure()
+            fig_ret.add_hline(y=base_avg_ret, line_dash="dash", line_color="gray", annotation_text="基準平均報酬")
             
-            if is_winner and metric != "發生次數": # 發生次數不一定要給獎盃
-                display_text += " <span class='trophy-icon'>🏆</span>"
-                html += f"<td style='font-weight:bold; color:#00CC96;'>{display_text}</td>"
-            else:
-                html += f"<td>{display_text}</td>"
-        html += "</tr>"
+            fig_ret.add_trace(go.Bar(
+                x=res_df['連漲月數'],
+                y=res_df['平均報酬'],
+                name='平均報酬',
+                marker_color='#636EFA'
+            ))
+            fig_ret.add_trace(go.Scatter(
+                x=res_df['連漲月數'],
+                y=res_df['中位數報酬'],
+                mode='markers+lines',
+                name='中位數報酬',
+                line=dict(color='#FFA15A', width=2)
+            ))
+            
+            fig_ret.update_layout(
+                title="各連漲週期下個月平均報酬 vs 中位數",
+                yaxis_tickformat='.2%',
+                template="plotly_white",
+                height=400,
+                hovermode="x unified",
+                xaxis_title="連漲設定",
+                yaxis_title="報酬率"
+            )
+            st.plotly_chart(fig_ret, use_container_width=True)
+        else:
+            st.info("無數據可繪製圖表")
+
+    # --- HTML 冠軍比較表格 ---
+    if not res_df.empty:
+        st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
+
+        # 定義指標與格式
+        metrics_map = {
+            "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
+            "勝率 (Win Rate)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "平均報酬":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "中位數報酬":    {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "最大漲幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "最大跌幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True}, # 這裡定義 "數值越大(越接近0或正)越好" 或是 "絕對值越小越好" 需看需求，目前簡單邏輯為數值越大越好
+        }
+
+        # 生成 HTML
+        html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
         
-    html += "</tbody></table>"
-    st.write(html, unsafe_allow_html=True)
+        # 表頭 (策略名稱)
+        for name in res_df['連漲月數']:
+            html += f"<th>{name}</th>"
+        html += "</tr></thead><tbody>"
+
+        # 內容
+        for metric, config in metrics_map.items():
+            html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
+            
+            # 找出該列的最佳值(用於頒發獎盃)
+            vals = res_df[metric].values
+            
+            if config["high_is_good"]:
+                best_val = max(vals)
+            else:
+                best_val = min(vals)
+            
+            for val in vals:
+                display_text = config["fmt"](val)
+                
+                # 判斷是否為冠軍 (排除發生次數，通常不比次數)
+                is_winner = (val == best_val) and (metric != "發生次數") and (metric != "最大跌幅") # 最大跌幅有點主觀，先不給獎盃，或視需求調整
+                
+                # 如果是最大跌幅，通常比較誰跌得少(數值最大，例如 -5% > -20%)，所以上面 high_is_good=True 是對的
+                if metric == "最大跌幅" and val == max(vals):
+                     is_winner = True
+
+                if is_winner:
+                    display_text += " <span class='trophy-icon'>🏆</span>"
+                    html += f"<td style='font-weight:bold; color:#00CC96;'>{display_text}</td>"
+                else:
+                    html += f"<td>{display_text}</td>"
+            html += "</tr>"
+            
+        html += "</tbody></table>"
+        st.write(html, unsafe_allow_html=True)
