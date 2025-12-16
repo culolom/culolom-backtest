@@ -1,5 +1,5 @@
 ###############################################################
-# pages/2_Momentum_Backtest.py — 動能趨勢回測 (Momentum)
+# pages/2_Momentum_Backtest.py — 動能趨勢回測 (Momentum) + 雙重濾網
 ###############################################################
 
 import os
@@ -98,7 +98,7 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Price"]]
 
 ###############################################################
-# 3. UI 輸入
+# 3. UI 輸入區 (新增雙重濾網選項)
 ###############################################################
 
 csv_files = get_all_csv_files()
@@ -113,8 +113,16 @@ with col1:
 
 with col2:
     # 修改預設值，這些是常用的動能週期
-    default_periods = [3, 6, 9, 10, 12]
-    selected_periods = st.multiselect("設定過去 N 個月漲幅 > 0", [1, 3, 6, 9, 10, 12, 18, 24], default=default_periods)
+    default_periods = [3, 6, 9, 12]
+    selected_periods = st.multiselect("設定主要趨勢月數 (N)", [1, 3, 6, 9, 10, 12, 18, 24], default=default_periods)
+    
+    # --- 新增：雙重確認濾網 UI ---
+    st.markdown("---")
+    use_double_filter = st.checkbox("✅ 開啟「雙重確認」濾網 (Double Confirmation)", value=False, help="同時滿足「長週期」與「短週期」漲幅皆 > 0 才進場")
+    
+    filter_period = 1
+    if use_double_filter:
+        filter_period = st.number_input("設定短期濾網月數 (M)", min_value=1, value=1, help="通常設為 1，代表除了看長線，也要確認上個月是漲的")
 
 ###############################################################
 # 4. CSS
@@ -195,7 +203,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 ###############################################################
-# 5. 主程式邏輯 (核心修改處)
+# 5. 主程式邏輯 (核心修改處：雙重條件)
 ###############################################################
 
 if st.button("開始回測 🚀") and target_symbol:
@@ -219,24 +227,31 @@ if st.button("開始回測 🚀") and target_symbol:
             df_monthly = df_daily['Price'].resample('M').last().to_frame()
             
         # 計算「下個月」的報酬 (這是我們要預測的目標)
-        # 這裡先算出單月漲跌幅，備用
         df_monthly['Next_Month_Return'] = df_monthly['Price'].pct_change().shift(-1)
         
         results = []
         
         # 3. 迴圈跑不同的「過去 N 個月漲幅」
         for n in sorted(selected_periods):
-            # ★★★ 核心修改處 ★★★
-            # 計算過去 N 個月的漲幅：(現在價格 - N個月前價格) / N個月前價格
-            # pct_change(n) 已經自動處理了 (P_t / P_{t-n}) - 1
-            momentum = df_monthly['Price'].pct_change(periods=n)
             
-            # 訊號：過去 N 個月累積報酬 > 0
-            signal = momentum > 0
+            # --- A. 主要條件：長期趨勢 ---
+            momentum_long = df_monthly['Price'].pct_change(periods=n)
+            signal_long = momentum_long > 0
             
-            # 我們要看的是：當「這個月」訊號成立時，「下個月」的表現
-            # 所以取出 signal 為 True 的那些月份，對應的 Next_Month_Return
-            target_returns = df_monthly.loc[signal, 'Next_Month_Return'].dropna()
+            # --- B. 次要條件：短期濾網 (如果有勾選) ---
+            if use_double_filter:
+                momentum_short = df_monthly['Price'].pct_change(periods=filter_period)
+                signal_short = momentum_short > 0
+                
+                # ★ 核心邏輯：兩者皆為 True 才持有
+                final_signal = signal_long & signal_short
+                strategy_name = f"過去{n}月且{filter_period}月皆漲"
+            else:
+                final_signal = signal_long
+                strategy_name = f"過去{n}月漲幅>0"
+            
+            # 找出訊號成立時，「下個月」的表現
+            target_returns = df_monthly.loc[final_signal, 'Next_Month_Return'].dropna()
             
             count = len(target_returns)
             
@@ -255,7 +270,7 @@ if st.button("開始回測 🚀") and target_symbol:
                 min_ret = 0
 
             results.append({
-                '回測設定': f"過去{n}月漲幅>0",
+                '回測設定': strategy_name,
                 'N': n,
                 '發生次數': count,
                 '勝率 (Win Rate)': win_rate,
@@ -268,7 +283,6 @@ if st.button("開始回測 🚀") and target_symbol:
         res_df = pd.DataFrame(results)
         
         # 4. 基礎樣本統計 (Base Rate)
-        # 也就是「買進持有 (Buy & Hold)」如果不看任何訊號，下個月上漲的機率
         base_returns = df_monthly['Next_Month_Return'].dropna()
         if not base_returns.empty:
             base_win_rate = base_returns[base_returns > 0].count() / len(base_returns)
@@ -282,6 +296,8 @@ if st.button("開始回測 🚀") and target_symbol:
     # -----------------------------------------------------
 
     st.success(f"📅 **回測區間**：{start_date} ~ {end_date} (共 {total_years:.1f} 年)")
+    if use_double_filter:
+        st.info(f"🛡️ **濾網已開啟**：除了主要趨勢外，系統額外檢查「過去 {filter_period} 個月」是否也上漲。這通常能避開長期趨勢轉折初期的假訊號。")
 
     # --- KPI 卡片 ---
     best_strategy = res_df.loc[res_df['勝率 (Win Rate)'].idxmax()] if not res_df.empty else None
@@ -302,7 +318,8 @@ if st.button("開始回測 🚀") and target_symbol:
         st.markdown(simple_card("基準月勝率 (Base)", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
     with col_kpi[2]:
         if best_strategy is not None:
-            st.markdown(simple_card("🔥 最佳動能週期", f"{best_strategy['N']} 個月"), unsafe_allow_html=True)
+            # 簡化顯示 best strategy name
+            st.markdown(simple_card("🔥 最佳勝率設定", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
     with col_kpi[3]:
         if best_strategy is not None:
             st.markdown(simple_card("該設定勝率", f"{best_strategy['勝率 (Win Rate)']:.1%}"), unsafe_allow_html=True)
@@ -329,11 +346,11 @@ if st.button("開始回測 🚀") and target_symbol:
                 marker_color=colors
             ))
             fig_win.update_layout(
-                title="各動能週期下個月上漲機率",
+                title="各策略設定下個月上漲機率",
                 yaxis_tickformat='.0%',
                 template="plotly_white",
                 height=400,
-                xaxis_title="策略設定 (過去 N 個月報酬 > 0)",
+                xaxis_title="策略設定",
                 yaxis_title="勝率"
             )
             st.plotly_chart(fig_win, use_container_width=True)
@@ -358,7 +375,7 @@ if st.button("開始回測 🚀") and target_symbol:
             ))
             
             fig_ret.update_layout(
-                title="各動能週期下個月平均報酬 vs 中位數",
+                title="各策略設定下個月平均報酬 vs 中位數",
                 yaxis_tickformat='.2%',
                 template="plotly_white",
                 height=400,
