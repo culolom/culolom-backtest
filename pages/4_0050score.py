@@ -28,7 +28,7 @@ if os.path.exists(font_path):
 st.set_page_config(page_title="景氣燈號策略", page_icon="🚦", layout="wide")
 
 with st.sidebar:
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.page_link("Home.py", label="回到戰情室", icon="🏠")
     st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
