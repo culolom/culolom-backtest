@@ -15,7 +15,7 @@ from pathlib import Path
 # ------------------------------------------------------
 st.set_page_config(page_title="雙動能全方位戰情室", page_icon="⚔️", layout="wide")
 
-# 字體設定
+# 字體設定 (嘗試載入繁體中文字體，若無則使用系統預設)
 font_path = "./NotoSansTC-Bold.ttf"
 if os.path.exists(font_path):
     fm.fontManager.addfont(font_path)
@@ -24,7 +24,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-# 權限驗證 (若無 auth.py 則跳過)
+# 權限驗證 (若您有 auth.py 模組則會執行，否則略過)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
@@ -36,7 +36,7 @@ except ImportError: pass
 # ------------------------------------------------------
 st.markdown("""
     <style>
-        /* 調整上方留白，讓控制面板更緊湊 */
+        /* 調整上方留白 */
         .block-container { padding-top: 2rem; }
         
         /* KPI 卡片 */
@@ -48,9 +48,8 @@ st.markdown("""
         }
         .kpi-label { font-size: 0.9rem; opacity: 0.8; font-weight: 500; }
         .kpi-value { font-size: 1.8rem; font-weight: 700; margin: 4px 0; color: var(--text-color); }
-        .kpi-sub { font-size: 0.8em; opacity: 0.7; }
         
-        /* 比較表格樣式 */
+        /* 表格樣式 */
         .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); margin-bottom: 1rem; font-size: 0.95rem; }
         .comparison-table th { background-color: var(--secondary-background-color); padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128,0.1); }
         .comparison-table td { text-align: center; padding: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
@@ -70,13 +69,11 @@ st.markdown("""
 # ------------------------------------------------------
 DATA_DIR = Path("data")
 
-def get_all_csv_files():
-    if not DATA_DIR.exists(): return []
-    return sorted([f.stem for f in DATA_DIR.glob("*.csv")])
-
 def load_csv(symbol: str) -> pd.DataFrame:
+    # 嘗試讀取 symbol.csv (例如 data/0050.TW.csv)
     path = DATA_DIR / f"{symbol}.csv"
     if not path.exists(): return pd.DataFrame()
+    
     df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
     # 兼容 Adj Close 與 Close
     if "Adj Close" in df.columns: df["Price"] = df["Adj Close"]
@@ -95,30 +92,17 @@ with st.sidebar:
 st.markdown("<h1 style='margin-bottom:0.1em;'>⚔️ 雙動能全方位戰情室</h1>", unsafe_allow_html=True)
 st.caption("整合 **凱利公式決策 (Kelly)** 與 **長線趨勢展望 (Horizon)** 的綜合分析工具")
 
-# ★★★ 控制面板區塊 ★★★
-csv_files = get_all_csv_files()
-if not csv_files:
-    st.error("⚠️ Data 資料夾內沒有 CSV 檔案。")
-    st.stop()
-
+# ★★★ 控制面板區塊 (Container) ★★★
 with st.container(border=True):
     st.markdown("#### ⚙️ 參數設定面板")
     
-    # 建立三欄佈局
+    # 建立三欄佈局 [1, 2, 1]
     c1, c2, c3 = st.columns([1, 2, 1])
     
     with c1:
-        # 1. 在這裡輸入您想要預設的標的名稱 (必須與 data 資料夾內的檔名一致，不含 .csv)
-        default_name = "QQQ" ,"0050.TW"
-
-        # 2. 自動判斷該標的在清單中的位置
-        if default_name in csv_files:
-            target_index = csv_files.index(default_name)
-        else:
-            target_index = 0  # 如果找不到該檔案，就預設選第 1 個
-            
-        # 3. 將 index 參數設定為算出來的位置
-        target_symbol = st.selectbox("選擇回測標的 (Symbol)", csv_files, index=target_index)
+        # 指定回測清單
+        watch_list = ["QQQ", "SPY", "0050.TW", "VT", "VTI", "GLD"]
+        target_symbol = st.selectbox("選擇回測標的 (Symbol)", watch_list, index=0)
     
     with c2:
         default_short = [1, 3]
@@ -128,7 +112,7 @@ with st.container(border=True):
         st.info("🔒 **主要趨勢 (N)**\n\n固定鎖定 **12 個月** (年線)")
         fixed_n = 12
 
-    # 按鈕
+    # 全寬按鈕
     start_btn = st.button("開始全方位分析 🚀", type="primary", use_container_width=True)
 
 # ------------------------------------------------------
@@ -136,21 +120,26 @@ with st.container(border=True):
 # ------------------------------------------------------
 if start_btn and target_symbol:
     
-    st.divider()
+    st.divider() # 分隔線
 
     with st.spinner(f"正在運算 {target_symbol} 的數據模型..."):
+        # 1. 讀取資料
         df_daily = load_csv(target_symbol)
-        if df_daily.empty: st.error("讀取失敗"); st.stop()
+        
+        # 檢查資料是否存在
+        if df_daily.empty:
+            st.error(f"⚠️ 找不到 `{target_symbol}.csv`。請檢查 `data` 資料夾內是否有此檔案。")
+            st.stop()
 
-        # 轉月線 (共用)
+        # 2. 轉月線 (共用)
         try: df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except: df_monthly = df_daily['Price'].resample('M').last().to_frame()
         
-        # 基礎訊號：長線趨勢 (N=12)
+        # 3. 基礎訊號：長線趨勢 (N=12)
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
-        # 建立 Tabs
+        # 4. 建立 Tabs 分頁
         tab_decision, tab_horizon = st.tabs(["⚖️ 凱利決策 & 現況診斷", "🔭 長線趨勢展望"])
 
         # ==============================================================================
@@ -167,7 +156,7 @@ if start_btn and target_symbol:
             for m in sorted(selected_m):
                 momentum_short = df_m1['Price'].pct_change(periods=m)
                 
-                # 順勢與拉回定義
+                # 定義訊號
                 signal_trend = signal_long & (momentum_short > 0)
                 signal_pullback = signal_long & (momentum_short < 0)
                 
@@ -219,7 +208,6 @@ if start_btn and target_symbol:
             
             last_date = df_monthly.index[-1]
             current_price = df_monthly['Price'].iloc[-1]
-            # 取得最新一期的 N 月動能
             curr_long_mom = momentum_long.iloc[-1] if len(df_monthly) > fixed_n else 0
             
             st.info(f"📅 **數據更新日期**：{last_date.strftime('%Y-%m-%d')} | **最新收盤價**：{current_price:,.2f}")
@@ -228,30 +216,25 @@ if start_btn and target_symbol:
             if curr_long_mom > 0:
                 st.markdown(f"""<div class='status-card status-bull'>
                     <h3 style='margin:0; color:#1B5E20'>✅ 主要趨勢：多頭 (Yearly Bull)</h3>
-                    <p style='margin:5px 0 0 0'>過去 12 個月漲幅：<b>+{curr_long_mom:.2%}</b>。符合進場大前提，請參考下方各週期的建議。</p>
+                    <p style='margin:5px 0 0 0'>過去 12 個月漲幅：<b>+{curr_long_mom:.2%}</b>。符合進場大前提。</p>
                     </div>""", unsafe_allow_html=True)
                 
+                # 動態產生小卡片
                 st.markdown("#### 🔍 各週期策略建議 (Actionable Insights)")
-                
-                # 動態產生欄位顯示小卡
                 status_cols = st.columns(len(selected_m))
                 
                 for idx, m in enumerate(sorted(selected_m)):
                     with status_cols[idx]:
                         if len(df_monthly) > m:
-                            # 取得最新一期的 M 月動能
                             curr_short_mom = df_monthly['Price'].pct_change(periods=m).iloc[-1]
                             
                             if curr_short_mom > 0:
-                                curr_type = "順勢"
+                                curr_type, icon, mom_color = "順勢", "🚀", "green"
                                 curr_label = f"年線多 + {m}月續漲 (順勢)"
-                                icon, mom_color = "🚀", "green"
                             else:
-                                curr_type = "拉回"
+                                curr_type, icon, mom_color = "拉回", "🛡️", "orange"
                                 curr_label = f"年線多 + {m}月回檔 (低接)"
-                                icon, mom_color = "🛡️", "orange"
                             
-                            # 撈取對應的歷史數據
                             match = res_df_kelly[res_df_kelly['回測設定'] == curr_label]
                             
                             if not match.empty:
@@ -263,7 +246,6 @@ if start_btn and target_symbol:
                                     <div style='color:{mom_color}; font-weight:bold; font-size:0.9em; margin-bottom:10px'>近{m}月漲幅: {curr_short_mom:+.2%}</div>
                                     <hr style='margin:5px 0'>
                                     <div style='display:flex; justify-content:space-between; margin-top:5px; font-size:0.9em'><span>勝率:</span> <b>{data['勝率']:.1%}</b></div>
-                                    <div style='display:flex; justify-content:space-between; font-size:0.9em'><span>盈虧比:</span> <b>{data['賠率 (盈虧比)']:.2f}</b></div>
                                     <div style='margin-top:10px; padding-top:8px; border-top:1px dashed #ccc'>
                                         <span style='font-size:0.85em'>建議倉位 (半凱利):</span><br>
                                         <span style='font-size:1.5em; font-weight:900; color:#2962FF'>{data['半凱利 (建議穩健)']:.1%}</span>
@@ -273,7 +255,6 @@ if start_btn and target_symbol:
                             else:
                                 st.warning("無歷史數據")
             else:
-                # 空頭狀態
                 st.markdown(f"""<div class='status-card status-bear'>
                     <h3 style='margin:0; color:#B71C1C'>🛑 主要趨勢：空頭 (Yearly Bear)</h3>
                     <p style='margin:5px 0 0 0'>過去 12 個月跌幅：<b>{curr_long_mom:.2%}</b>。<br>
@@ -306,24 +287,14 @@ if start_btn and target_symbol:
                 for metric, config in metrics_map.items():
                     html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
                     vals = res_df_kelly[metric].values
-                    
-                    # 判斷最佳值
-                    if metric == "平均虧損":
-                         # 虧損越小(絕對值)越好，但因為是負值顯示，這裡取 min 代表虧最多，max 代表虧最少
-                         # 為了簡單，假設數值是正的絕對值邏輯:
-                         best_val = min(vals) 
-                    else:
-                         best_val = max(vals)
+                    best_val = min(vals) if metric == "平均虧損" else max(vals)
                     
                     for val in vals:
                         display_text = config["fmt"](val)
-                        
-                        # 凱利值顏色
                         if "凱利" in metric:
                             if val > 0: display_text = f"<span style='color:#00C853; font-weight:900'>{display_text}</span>"
                             else: display_text = f"<span style='color:#D32F2F; font-weight:bold'>避開</span>"
                         
-                        # 冠軍獎盃邏輯
                         is_winner = (val == best_val) and (metric not in ["發生次數", "平均獲利", "平均虧損"])
                         if "凱利" in metric and val <= 0: is_winner = False
                         
@@ -339,11 +310,9 @@ if start_btn and target_symbol:
         # TAB 2: 長線趨勢展望
         # ==============================================================================
         with tab_horizon:
-            # 準備 Tab 2 資料 (Forward N Months)
             df_m2 = df_monthly.copy()
             horizons = [1, 3, 6, 12]
-            
-            # 建立未來回報欄位
+            # 建立未來回報
             for h in horizons:
                 df_m2[f'Fwd_{h}M'] = df_m2['Price'].shift(-h) / df_m2['Price'] - 1
 
@@ -364,12 +333,10 @@ if start_btn and target_symbol:
                     for h in horizons:
                         rets = df_m2.loc[signal, f'Fwd_{h}M'].dropna()
                         if len(rets) > 0:
-                            win_rate = (rets > 0).sum() / len(rets)
                             avg_ret = rets.mean()
-                            
-                            row_data[f'{h}個月'] = avg_ret     # For Heatmap
-                            row_data[f'報酬_{h}M'] = avg_ret  # For Bar Chart
-                            row_data[f'勝率_{h}M'] = win_rate # For Table
+                            row_data[f'{h}個月'] = avg_ret
+                            row_data[f'報酬_{h}M'] = avg_ret
+                            row_data[f'勝率_{h}M'] = (rets > 0).sum() / len(rets)
                             if h == 1: valid_count = len(rets)
                         else:
                             row_data[f'{h}個月'] = np.nan
@@ -386,18 +353,12 @@ if start_btn and target_symbol:
                 st.markdown("### 💠 全局視野：熱力圖 (Heatmap)")
                 st.caption("觀察訊號出現後，持有不同時間長度 (1~12個月) 的平均回報。:blue[**深藍色**] 代表回報越高。")
                 
-                # 準備熱力圖資料
-                return_cols = ['1個月', '3個月', '6個月', '12個月']
-                heatmap_ret = res_df_hz.set_index('策略')[return_cols]
-                
+                # 熱力圖
+                heatmap_ret = res_df_hz.set_index('策略')[['1個月', '3個月', '6個月', '12個月']]
                 fig_ret = px.imshow(
-                    heatmap_ret,
-                    labels=dict(x="持有期間", y="策略設定", color="平均報酬"),
-                    x=return_cols,
-                    y=heatmap_ret.index,
-                    text_auto='.2%', 
-                    color_continuous_scale='Blues', 
-                    aspect="auto"
+                    heatmap_ret, labels=dict(x="持有期間", y="策略設定", color="平均報酬"),
+                    x=['1個月', '3個月', '6個月', '12個月'], y=heatmap_ret.index,
+                    text_auto='.2%', color_continuous_scale='Blues', aspect="auto"
                 )
                 fig_ret.update_layout(height=150 + (len(res_df_hz) * 35), xaxis_side="top")
                 st.plotly_chart(fig_ret, use_container_width=True)
@@ -410,14 +371,9 @@ if start_btn and target_symbol:
                 
                 def plot_horizon_bar(horizon_month, container):
                     col_name = f'報酬_{horizon_month}M'
-                    # 排序
                     sorted_df = res_df_hz.sort_values(by=col_name, ascending=False)
-                    
                     fig = px.bar(
-                        sorted_df, 
-                        x='策略', y=col_name, 
-                        color='類型', 
-                        text_auto='.1%',
+                        sorted_df, x='策略', y=col_name, color='類型', text_auto='.1%',
                         title=f"持有 {horizon_month} 個月後的平均報酬排序",
                         color_discrete_map={'順勢': '#2962FF', '拉回': '#FF9100'}
                     )
@@ -429,7 +385,7 @@ if start_btn and target_symbol:
                 with t3: plot_horizon_bar(6, t3)
                 with t4: plot_horizon_bar(12, t4)
                 
-                # 原始資料
+                # 原始資料表格
                 st.divider()
                 with st.expander("📄 點擊查看詳細數據表格 (原始資料)"):
                     fmt_dict = {'發生次數': '{:.0f}'}
