@@ -24,7 +24,7 @@ ETF_MAPPING = {
         "symbol": "0050.TW",
         "leverage_options": {
             "00631L (元大台灣50正2)": "00631L.TW",
-            "00663L (國泰臺灣加權正2)": "00663L.TW"
+            
         }
     },
     "🇺🇸 美股 - QQQ (納斯達克100)": {
@@ -41,10 +41,10 @@ ETF_MAPPING = {
             "UPRO (ProShares 三倍做多)": "UPRO"
         }
     },
-    "🇺🇸 美股 - VTI (整體股市)": {
-        "symbol": "VTI",
+    "GD 黃金 - 00635U (期元大S&P黃金)": {
+        "symbol": "00635U.TW",
         "leverage_options": {
-            "SSO (因無VTI正2，暫用SPY正2代替)": "SSO" 
+            "00708L (期元大S&P黃金正2)": "00708L.TW" 
         }
     }
 }
