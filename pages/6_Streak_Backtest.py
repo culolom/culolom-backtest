@@ -1,5 +1,5 @@
 ###############################################################
-# pages/2_Momentum_Backtest.py — 動能趨勢回測 (Momentum) + 雙重濾網
+# pages/2_Momentum_Backtest.py — 12月長趨勢 + 短期動能濾網最佳化
 ###############################################################
 
 import os
@@ -26,7 +26,7 @@ else:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(
-    page_title="動能趨勢回測",
+    page_title="趨勢動能優化",
     page_icon="🚀",
     layout="wide",
 )
@@ -56,15 +56,16 @@ with st.sidebar:
 # 主標題
 # ------------------------------------------------------
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>🚀 動能趨勢回測 (Time Series Momentum)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>🚀 長期趨勢 + 短期動能最佳化 (Trend + Momentum)</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
     <b>策略邏輯：</b><br>
-    檢查過去 <b>N 個月</b> 的累積漲幅是否大於 0 (即目前價格 > N個月前價格)。<br>
-    若滿足條件，統計 <b>「下一個月」</b> 的續漲機率與平均報酬。這是經典的 <b>趨勢跟隨 (Trend Following)</b> 策略。
+    1. <b>主要趨勢 (固定)</b>：確認 <b>過去 12 個月</b> 漲幅 > 0 (年線多頭)。<br>
+    2. <b>短期濾網 (變數)</b>：測試搭配不同的 <b>短期 M 個月</b> 漲幅 > 0。<br>
+    目標是找出在「年線向上」的大前提下，搭配哪種短期動能進場，勝率與爆發力最強。
     """,
     unsafe_allow_html=True,
 )
@@ -98,7 +99,7 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Price"]]
 
 ###############################################################
-# 3. UI 輸入區 (新增雙重濾網選項)
+# 3. UI 輸入區 (邏輯修改處)
 ###############################################################
 
 csv_files = get_all_csv_files()
@@ -112,17 +113,18 @@ with col1:
     target_symbol = st.selectbox("選擇回測標的", csv_files, index=0)
 
 with col2:
-    # 修改預設值，這些是常用的動能週期
-    default_periods = [3, 6, 9, 12]
-    selected_periods = st.multiselect("設定主要趨勢月數 (N)", [1, 3, 6, 9, 10, 12, 18, 24], default=default_periods)
+    # A. 長期趨勢固定為 12 個月
+    st.info("🔒 **主要趨勢 (N)**：固定鎖定為 **12 個月** (年線多頭確認)")
+    fixed_n = 12
     
-    # --- 新增：雙重確認濾網 UI ---
-    st.markdown("---")
-    use_double_filter = st.checkbox("✅ 開啟「雙重確認」濾網 (Double Confirmation)", value=False, help="同時滿足「長週期」與「短週期」漲幅皆 > 0 才進場")
-    
-    filter_period = 1
-    if use_double_filter:
-        filter_period = st.number_input("設定短期濾網月數 (M)", min_value=1, value=1, help="通常設為 1，代表除了看長線，也要確認上個月是漲的")
+    # B. 短期濾網改為複選
+    default_short = [1, 2, 3] # 預設測試 1個月, 2個月, 3個月
+    selected_m = st.multiselect(
+        "設定短期濾網月數 (M) - 可多選比較", 
+        [1, 2, 3, 4, 5, 6], 
+        default=default_short,
+        help="例如選 1，代表除了年線向上外，上個月也必須是漲的才進場"
+    )
 
 ###############################################################
 # 4. CSS
@@ -189,7 +191,7 @@ st.markdown("""
             text-align: left;
             font-weight: 500;
             background-color: rgba(128,128,128, 0.02);
-            width: 20%;
+            width: 25%;
         }
         .comparison-table tr:hover td {
             background-color: rgba(128,128,128, 0.05);
@@ -203,12 +205,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 ###############################################################
-# 5. 主程式邏輯 (核心修改處：雙重條件)
+# 5. 主程式邏輯 (修正：固定N，迴圈跑M)
 ###############################################################
 
 if st.button("開始回測 🚀") and target_symbol:
     
-    with st.spinner(f"正在分析 {target_symbol} 動能數據..."):
+    with st.spinner(f"正在分析 {target_symbol} (固定趨勢12月 + 變動濾網)..."):
         # 1. 讀取與時間處理
         df_daily = load_csv(target_symbol)
         
@@ -226,29 +228,27 @@ if st.button("開始回測 🚀") and target_symbol:
         except Exception:
             df_monthly = df_daily['Price'].resample('M').last().to_frame()
             
-        # 計算「下個月」的報酬 (這是我們要預測的目標)
+        # 計算「下個月」的報酬 (預測目標)
         df_monthly['Next_Month_Return'] = df_monthly['Price'].pct_change().shift(-1)
         
         results = []
         
-        # 3. 迴圈跑不同的「過去 N 個月漲幅」
-        for n in sorted(selected_periods):
+        # --- 計算主要趨勢訊號 (N=12) ---
+        # 這部分只需計算一次
+        momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
+        signal_long = momentum_long > 0
+        
+        # 3. 迴圈跑不同的「短期濾網 M」
+        for m in sorted(selected_m):
             
-            # --- A. 主要條件：長期趨勢 ---
-            momentum_long = df_monthly['Price'].pct_change(periods=n)
-            signal_long = momentum_long > 0
+            # 計算短期動能訊號
+            momentum_short = df_monthly['Price'].pct_change(periods=m)
+            signal_short = momentum_short > 0
             
-            # --- B. 次要條件：短期濾網 (如果有勾選) ---
-            if use_double_filter:
-                momentum_short = df_monthly['Price'].pct_change(periods=filter_period)
-                signal_short = momentum_short > 0
-                
-                # ★ 核心邏輯：兩者皆為 True 才持有
-                final_signal = signal_long & signal_short
-                strategy_name = f"過去{n}月且{filter_period}月皆漲"
-            else:
-                final_signal = signal_long
-                strategy_name = f"過去{n}月漲幅>0"
+            # ★ 核心邏輯：主要趨勢(12) AND 短期動能(M)
+            final_signal = signal_long & signal_short
+            
+            strategy_name = f"年線多頭 + {m}月續漲"
             
             # 找出訊號成立時，「下個月」的表現
             target_returns = df_monthly.loc[final_signal, 'Next_Month_Return'].dropna()
@@ -271,7 +271,7 @@ if st.button("開始回測 🚀") and target_symbol:
 
             results.append({
                 '回測設定': strategy_name,
-                'N': n,
+                '短期M': m,
                 '發生次數': count,
                 '勝率 (Win Rate)': win_rate,
                 '平均報酬': avg_ret,
@@ -296,10 +296,10 @@ if st.button("開始回測 🚀") and target_symbol:
     # -----------------------------------------------------
 
     st.success(f"📅 **回測區間**：{start_date} ~ {end_date} (共 {total_years:.1f} 年)")
-    if use_double_filter:
-        st.info(f"🛡️ **濾網已開啟**：除了主要趨勢外，系統額外檢查「過去 {filter_period} 個月」是否也上漲。這通常能避開長期趨勢轉折初期的假訊號。")
-
+    
     # --- KPI 卡片 ---
+    # 找出「平均報酬」最高的策略 (通常這裡找報酬最高的比較有意義，因為大家都在多頭時進場，想知道誰最噴)
+    # 或者您想找勝率最高的也可以，這邊我設定為勝率
     best_strategy = res_df.loc[res_df['勝率 (Win Rate)'].idxmax()] if not res_df.empty else None
     
     col_kpi = st.columns(4)
@@ -318,16 +318,16 @@ if st.button("開始回測 🚀") and target_symbol:
         st.markdown(simple_card("基準月勝率 (Base)", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
     with col_kpi[2]:
         if best_strategy is not None:
-            # 簡化顯示 best strategy name
-            st.markdown(simple_card("🔥 最佳勝率設定", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
+            # 顯示最佳的短期 M
+            st.markdown(simple_card("🔥 最佳短期濾網", f"{best_strategy['短期M']} 個月"), unsafe_allow_html=True)
     with col_kpi[3]:
         if best_strategy is not None:
-            st.markdown(simple_card("該設定勝率", f"{best_strategy['勝率 (Win Rate)']:.1%}"), unsafe_allow_html=True)
+            st.markdown(simple_card("最佳組合勝率", f"{best_strategy['勝率 (Win Rate)']:.1%}"), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom: 30px'></div>", unsafe_allow_html=True)
 
     # --- 圖表區 ---
-    st.markdown("<h3>📊 動能訊號出現後的下月表現</h3>", unsafe_allow_html=True)
+    st.markdown("<h3>📊 各短期濾網效果比較 (前提：12月趨勢向上)</h3>", unsafe_allow_html=True)
     
     tab1, tab2 = st.tabs(["勝率分析", "平均報酬分析"])
     
@@ -346,11 +346,11 @@ if st.button("開始回測 🚀") and target_symbol:
                 marker_color=colors
             ))
             fig_win.update_layout(
-                title="各策略設定下個月上漲機率",
+                title="不同短期濾網的下月勝率",
                 yaxis_tickformat='.0%',
                 template="plotly_white",
                 height=400,
-                xaxis_title="策略設定",
+                xaxis_title="策略組合",
                 yaxis_title="勝率"
             )
             st.plotly_chart(fig_win, use_container_width=True)
@@ -375,7 +375,7 @@ if st.button("開始回測 🚀") and target_symbol:
             ))
             
             fig_ret.update_layout(
-                title="各策略設定下個月平均報酬 vs 中位數",
+                title="不同短期濾網的下月平均報酬 vs 中位數",
                 yaxis_tickformat='.2%',
                 template="plotly_white",
                 height=400,
@@ -385,7 +385,7 @@ if st.button("開始回測 🚀") and target_symbol:
 
     # --- 表格 ---
     if not res_df.empty:
-        st.markdown("<h3>🏆 動能策略詳細績效</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
 
         metrics_map = {
             "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
