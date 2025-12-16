@@ -1,5 +1,5 @@
 ###############################################################
-# pages/2_Momentum_Backtest.py — 年線多頭架構下的：追漲 vs 低接
+# Momentum_Backtest.py — 年線多頭架構下的：追漲 vs 低接
 ###############################################################
 
 import os
@@ -382,47 +382,59 @@ if st.button("開始回測 🚀") and target_symbol:
             )
             st.plotly_chart(fig_ret, use_container_width=True)
 
-    # --- 表格 ---
-    if not res_df.empty:
-        st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
+# ... (前段程式碼不變) ...
 
-        metrics_map = {
-            "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
-            "勝率 (Win Rate)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "平均報酬":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "中位數報酬":    {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "最大漲幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "最大跌幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-        }
-
-        html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
-        
-        for name in res_df['回測設定']:
-            # 判斷標題顏色：拉回策略給個標示
-            if "回檔" in name:
-                html += f"<th style='color:#E65100; background-color:rgba(255,167,38,0.1)'>{name}</th>"
-            else:
-                html += f"<th style='color:#1B5E20; background-color:rgba(102,187,106,0.1)'>{name}</th>"
-        html += "</tr></thead><tbody>"
-
-        for metric, config in metrics_map.items():
-            html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
+        # --- 表格 ---
+        if not res_df.empty:
+            st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
             
-            vals = res_df[metric].values
-            best_val = max(vals) if config["high_is_good"] else min(vals)
-            
-            for val in vals:
-                display_text = config["fmt"](val)
-                is_winner = (val == best_val) and (metric != "發生次數") and (metric != "最大跌幅")
-                
-                if metric == "最大跌幅" and val == max(vals): is_winner = True
+            # 增加說明
+            st.info("💡 **判讀技巧**：如果「拉回 (低接)」策略的 **平均報酬為負**，代表該資產在多頭回檔時容易直接轉弱，建議 **避開** 或 **減碼**。")
 
-                if is_winner:
-                    display_text += " <span class='trophy-icon'>🏆</span>"
-                    html += f"<td style='font-weight:bold; color:#00CC96;'>{display_text}</td>"
+            metrics_map = {
+                "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
+                "勝率 (Win Rate)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+                "平均報酬":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+                "中位數報酬":    {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+                "最大漲幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+                "最大跌幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            }
+
+            html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
+            
+            for name in res_df['回測設定']:
+                # 標題顏色區分
+                if "回檔" in name:
+                    html += f"<th style='color:#E65100; background-color:rgba(255,167,38,0.1)'>{name}</th>"
                 else:
-                    html += f"<td>{display_text}</td>"
-            html += "</tr>"
-            
-        html += "</tbody></table>"
-        st.write(html, unsafe_allow_html=True)
+                    html += f"<th style='color:#1B5E20; background-color:rgba(102,187,106,0.1)'>{name}</th>"
+            html += "</tr></thead><tbody>"
+
+            for metric, config in metrics_map.items():
+                html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
+                
+                vals = res_df[metric].values
+                best_val = max(vals) if config["high_is_good"] else min(vals)
+                
+                # 針對每一欄位的值進行檢查
+                for i, val in enumerate(vals):
+                    display_text = config["fmt"](val)
+                    col_name = res_df['回測設定'].iloc[i]
+                    
+                    # 邏輯：如果是「平均報酬」且數值小於 0，且是「回檔」策略 -> 標示危險 ⚠️
+                    if metric == "平均報酬" and val < 0 and "回檔" in col_name:
+                        display_text = f"<span style='color:red; font-weight:bold'>⚠️ {display_text}</span>"
+                    
+                    # 冠軍獎盃邏輯
+                    is_winner = (val == best_val) and (metric != "發生次數") and (metric != "最大跌幅")
+                    if metric == "最大跌幅" and val == max(vals): is_winner = True
+
+                    if is_winner:
+                        display_text += " <span class='trophy-icon'>🏆</span>"
+                        html += f"<td style='font-weight:bold; color:#00CC96;'>{display_text}</td>"
+                    else:
+                        html += f"<td>{display_text}</td>"
+                html += "</tr>"
+                
+            html += "</tbody></table>"
+            st.write(html, unsafe_allow_html=True)
