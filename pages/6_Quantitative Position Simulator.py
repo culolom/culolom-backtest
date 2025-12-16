@@ -24,7 +24,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-# 權限驗證 (若無 auth.py 則跳過)
+# 權限驗證
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
@@ -38,20 +38,45 @@ st.markdown("""
     <style>
         .block-container { padding-top: 2rem; }
         
-        /* KPI 卡片 */
-        .kpi-card {
-            background-color: var(--secondary-background-color);
-            border-radius: 16px; padding: 24px 20px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.04); border: 1px solid rgba(128,128,128,0.1);
-            display: flex; flex-direction: column; justify-content: space-between; height: 100%;
+        /* 表格樣式優化 */
+        .comparison-table { 
+            width: 100%; 
+            border-collapse: separate; 
+            border-spacing: 0; 
+            border-radius: 12px; 
+            border: 1px solid var(--secondary-background-color); 
+            margin-bottom: 1rem; 
+            font-size: 0.95rem; 
+        }
+        .comparison-table th { 
+            background-color: var(--secondary-background-color); 
+            padding: 14px; 
+            text-align: center; 
+            font-weight: 600; 
+            border-bottom: 1px solid rgba(128,128,128,0.1); 
+        }
+        .comparison-table td { 
+            text-align: center; 
+            padding: 12px; 
+            border-bottom: 1px solid rgba(128,128,128,0.1); 
+        }
+        .comparison-table td.metric-name { 
+            text-align: left; 
+            font-weight: 500; 
+            background-color: rgba(128,128,128,0.02); 
+            width: 25%; 
         }
         
-        /* 表格樣式 */
-        .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); margin-bottom: 1rem; font-size: 0.95rem; }
-        .comparison-table th { background-color: var(--secondary-background-color); padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128,0.1); }
-        .comparison-table td { text-align: center; padding: 12px; border-bottom: 1px solid rgba(128,128,128,0.1); }
-        .comparison-table td.metric-name { text-align: left; font-weight: 500; background-color: rgba(128,128,128,0.02); width: 25%; }
-        .trophy-icon { margin-left: 6px; font-size: 1.1em; text-shadow: 0 0 5px rgba(255,215,0,0.4); }
+        /* 狀態卡片 */
+        .status-card { padding: 15px; border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(128,128,128,0.2); }
+        .status-bull { background-color: rgba(0, 200, 83, 0.1); border-left: 5px solid #00C853; }
+        .status-bear { background-color: rgba(211, 47, 47, 0.1); border-left: 5px solid #D32F2F; }
+        
+        /* 按鈕樣式微調 (可選) */
+        div.stButton > button {
+            border-radius: 8px;
+            font-weight: bold;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -84,47 +109,48 @@ st.caption("基於 **歷史波動率** 與 **無風險利率 ($r$)** 計算最�
 with st.container(border=True):
     st.markdown("#### ⚙️ 模擬參數設定")
     
-    c1, c2, c3 = st.columns([1, 2, 1])
+    # 修改佈局：兩欄式，左邊選標的，右邊顯示利率資訊
+    c1, c2 = st.columns([1, 1.5])
     
     with c1:
         watch_list = ["QQQ", "SPY", "0050.TW", "VT", "VTI", "GLD"]
         target_symbol = st.selectbox("選擇標的 (Symbol)", watch_list, index=0)
-    
-    with c2:
-        default_short = [1, 3]
-        selected_m = st.multiselect("短期濾網 (M)", [1, 2, 3, 4, 5, 6, 9], default=default_short)
         
-    with c3:
+        # ★★★ 1. 按鈕做短一點 (移除 use_container_width) ★★★
+        st.markdown("<br>", unsafe_allow_html=True) # 稍微空一行
+        start_btn = st.button("開始分析 🚀", type="primary") 
+
+    with c2:
         # ★★★ 自動偵測 Risk Free Rate (優先順序: BIL > SHV > SGOV) ★★★
-        # 嚴格避開 IEF，因為長債有久期風險與殖利率倒掛問題
         rf_symbol = "預設 4%"
         rf_rate = 0.04
         
-        candidates = ["BIL", "SHV", "SGOV"] # 短債 ETF 清單
+        candidates = ["BIL", "SHV", "SGOV"]
         found_rf = False
         
         for sym in candidates:
             df_rf = load_csv(sym)
             if not df_rf.empty:
-                # 轉月線計算
                 try: df_rf_m = df_rf['Price'].resample('ME').last().to_frame()
                 except: df_rf_m = df_rf['Price'].resample('M').last().to_frame()
                 
-                # 若資料足夠長，計算過去12個月的變動率作為無風險利率
                 if len(df_rf_m) > 12:
                     rf_rate = df_rf_m['Price'].pct_change(periods=12).iloc[-1]
                     rf_symbol = sym
                     found_rf = True
                     break
         
-        if found_rf:
-            st.success(f"📊 **無風險利率 ($r$)**\n\n**{rf_rate:.2%}** (來自 {rf_symbol})")
-        else:
-            st.warning("⚠️ 無短債ETF，使用預設 4%")
-            
+        # 顯示利率資訊與固定參數說明
+        st.info(f"""
+        **📊 市場參數偵測**
+        * **無風險利率 ($r$)**: `{rf_rate:.2%}` (來源: {rf_symbol})
+        * **主要趨勢 (N)**: `12 個月` (年線固定)
+        * **短期濾網 (M)**: `1, 3, 6, 9 個月` (固定參數)
+        """)
+        
         fixed_n = 12
-
-    start_btn = st.button("計算最佳槓桿倍數 🚀", type="primary", use_container_width=True)
+        # ★★★ 2. 短期濾網寫死 ★★★
+        selected_m = [1, 3, 6, 9]
 
 # ------------------------------------------------------
 # 5. 主程式執行邏輯
@@ -167,24 +193,19 @@ if start_btn and target_symbol:
                     count = len(target_returns)
                     
                     if count > 5:
-                        # 1. 計算年化報酬 (Arithmetic Mean)
                         avg_monthly_ret = target_returns.mean()
                         ann_ret = avg_monthly_ret * 12 
                         
-                        # 2. 計算年化波動率 (Std Dev)
                         std_monthly = target_returns.std()
                         ann_vol = std_monthly * np.sqrt(12)
                         
-                        # 3. 連續凱利公式: f = (u - r) / sigma^2
                         variance = ann_vol ** 2
                         
                         if variance > 0:
-                            # 核心公式
                             optimal_leverage = (ann_ret - rf_rate) / variance
                         else:
                             optimal_leverage = 0
                             
-                        # 安全邊際：半凱利
                         suggested_leverage = optimal_leverage * 0.5
                     else:
                         ann_ret, ann_vol, optimal_leverage, suggested_leverage = 0,0,0,0
@@ -206,9 +227,16 @@ if start_btn and target_symbol:
             curr_long_mom = momentum_long.iloc[-1] if len(df_monthly) > fixed_n else 0
             
             if curr_long_mom > 0:
-                st.success(f"✅ 主要趨勢：多頭 | 過去12月漲幅: +{curr_long_mom:.2%} | **無風險利率 ({rf_symbol}): {rf_rate:.2%}**")
+                st.markdown(
+                    f"""<div class='status-card status-bull'>
+                    <h3 style='margin:0; color:#1B5E20'>✅ 主要趨勢：多頭 (Yearly Bull)</h3>
+                    <p style='margin:5px 0 0 0'>過去12月漲幅: <b>+{curr_long_mom:.2%}</b> | 無風險利率 (BIL): <b>{rf_rate:.2%}</b></p>
+                    </div>""", unsafe_allow_html=True
+                )
                 
-                status_cols = st.columns(len(selected_m))
+                # 顯示卡片 (固定 4 個 column 因為 M 鎖定 4 個)
+                status_cols = st.columns(4)
+                
                 for idx, m in enumerate(sorted(selected_m)):
                     with status_cols[idx]:
                         if len(df_monthly) > m:
@@ -229,29 +257,34 @@ if start_btn and target_symbol:
                                 
                                 # 顏色與文字邏輯
                                 lev_color = "#2962FF"
-                                if lev <= 0: lev_str = "建議空手 (0x)"; lev_color="#D32F2F"
-                                elif lev < 1: lev_str = f"降低曝險 ({lev:.2f}x)"; lev_color="#FF9800"
+                                if lev <= 0: lev_str = "0x (空手)"; lev_color="#D32F2F"
+                                elif lev < 1: lev_str = f"{lev:.2f}x (降低曝險)"; lev_color="#FF9800"
                                 else: lev_str = f"{lev:.2f} 倍"; 
                                 
                                 st.markdown(f"""
                                 <div style='border:1px solid #ddd; border-radius:8px; padding:15px; background-color:var(--secondary-background-color); height:100%'>
                                     <div style='font-size:0.9em; opacity:0.8'>短期濾網 ({m}個月)</div>
                                     <div style='font-size:1.3em; font-weight:bold; margin:5px 0'>{icon} {curr_type}</div>
+                                    <div style='font-size:0.85em; margin-bottom:5px'>年化報酬: {data['年化報酬']:.1%}</div>
+                                    <div style='font-size:0.85em; margin-bottom:5px'>年化波動: {data['年化波動']:.1%}</div>
                                     <hr style='margin:5px 0'>
-                                    <div style='font-size:0.85em; color:#666'>年化報酬: <b>{data['年化報酬']:.1%}</b></div>
-                                    <div style='font-size:0.85em; color:#666'>年化波動: <b>{data['年化波動']:.1%}</b></div>
-                                    <div style='margin-top:10px; padding-top:8px; border-top:1px dashed #ccc'>
-                                        <span style='font-size:0.85em'>建議槓桿 (半凱利):</span><br>
-                                        <span style='font-size:1.6em; font-weight:900; color:{lev_color}'>{lev_str}</span>
+                                    <div style='margin-top:8px;'>
+                                        <span style='font-size:0.8em'>建議槓桿 (半凱利):</span><br>
+                                        <span style='font-size:1.5em; font-weight:900; color:{lev_color}'>{lev_str}</span>
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
             else:
-                st.error("🛑 主要趨勢：空頭 (Yearly Bear)。建議槓桿：0x (空手)。")
+                st.markdown(
+                    f"""<div class='status-card status-bear'>
+                    <h3 style='margin:0; color:#B71C1C'>🛑 主要趨勢：空頭 (Yearly Bear)</h3>
+                    <p style='margin:5px 0 0 0'>過去12月跌幅: <b>{curr_long_mom:.2%}</b>。系統建議：0x (空手/防禦)。</p>
+                    </div>""", unsafe_allow_html=True
+                )
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # --- Tab 1 UI: 歷史數據表 ---
+            # --- Tab 1 UI: 歷史數據表 (★★★ 3. 確保表格顯示 ★★★) ---
             if not res_df.empty:
                 st.markdown("<h3>📊 歷史數據詳細分析表</h3>", unsafe_allow_html=True)
                 metrics_map = {
@@ -269,7 +302,12 @@ if start_btn and target_symbol:
 
                 for metric, config in metrics_map.items():
                     html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
-                    vals = res_df[metric].values
+                    # 確保按照回測設定的順序抓取數據
+                    vals = []
+                    for name in res_df['回測設定']:
+                        val = res_df.loc[res_df['回測設定'] == name, metric].values[0]
+                        vals.append(val)
+
                     for val in vals:
                         display_text = config["fmt"](val)
                         if "槓桿" in metric:
@@ -278,6 +316,8 @@ if start_btn and target_symbol:
                         html += f"<td>{display_text}</td>"
                     html += "</tr>"
                 html += "</tbody></table>"
+                # 使用 st.markdown 渲染 HTML
+                st.markdown(html, unsafe_allow_html=True)
 
         # ==============================================================================
         # TAB 2: 長線機率展望
