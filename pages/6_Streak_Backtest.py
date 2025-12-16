@@ -1,5 +1,5 @@
 ###############################################################
-# pages/2_Momentum_Backtest.py — 雙動能配置：順勢 vs 拉回決策輔助
+# pages/2_Momentum_Backtest.py — 雙動能 + 凱利公式 (Kelly Criterion)
 ###############################################################
 
 import os
@@ -13,205 +13,24 @@ import plotly.graph_objects as go
 from pathlib import Path
 import sys
 
-###############################################################
-# 1. 字型與基本設定
-###############################################################
+# ... (字型與基本設定、Sidebar 保持不變，直接複製原本的即可) ...
+# 為了節省篇幅，這邊省略前面的 setup，直接進入核心邏輯修改處
 
-font_path = "./NotoSansTC-Bold.ttf"
-if os.path.exists(font_path):
-    fm.fontManager.addfont(font_path)
-    matplotlib.rcParams["font.family"] = "Noto Sans TC"
-else:
-    matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
-matplotlib.rcParams["axes.unicode_minus"] = False
-
-st.set_page_config(
-    page_title="雙動能決策輔助",
-    page_icon="⚖️",
-    layout="wide",
-)
-
-# ------------------------------------------------------
-# 🔒 驗證模組
-# ------------------------------------------------------
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-try:
-    import auth 
-    if not auth.check_password():
-        st.stop()
-except ImportError:
-    pass
-
-# ------------------------------------------------------
-# Sidebar
-# ------------------------------------------------------
-with st.sidebar:
-    st.page_link("Home.py", label="回到戰情室", icon="🏠")
-    st.divider()
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-
-# ------------------------------------------------------
-# 主標題
-# ------------------------------------------------------
-st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚖️ 雙動能配置決策：順勢追高 vs 拉回低接</h1>",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <b>策略邏輯 (Dual Momentum)：</b><br>
-    1. <b>絕對動能 (Absolute)</b>：鎖定 <b>過去 12 個月</b> 漲幅 > 0 (確保年線多頭架構)。<br>
-    2. <b>微操作判斷</b>：當資產符合年線多頭，但 <b>短期 M 個月</b> 出現變化時，歷史數據支持哪種動作？<br>
-       🚀 <b>順勢 (Momentum)</b>：短期續漲，強者恆強。<br>
-       🛡️ <b>拉回 (Pullback)</b>：短期回檔，低接機會 (均值回歸)。
-    """,
-    unsafe_allow_html=True,
-)
+# ===============================================================
+#  請將以下內容完全覆蓋原本的 "主程式邏輯" 到結尾
+# ===============================================================
 
 ###############################################################
-# 2. 資料讀取
+# 5. 主程式邏輯 (新增凱利公式計算)
 ###############################################################
 
-DATA_DIR = Path("data")
-
-def get_all_csv_files():
-    if not DATA_DIR.exists():
-        os.makedirs(DATA_DIR)
-        return []
-    files = [f.stem for f in DATA_DIR.glob("*.csv")]
-    return sorted(files)
-
-def load_csv(symbol: str) -> pd.DataFrame:
-    path = DATA_DIR / f"{symbol}.csv"
-    if not path.exists():
-        return pd.DataFrame()
-
-    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
-    df = df.sort_index()
-    
-    if "Adj Close" in df.columns:
-        df["Price"] = df["Adj Close"]
-    elif "Close" in df.columns:
-        df["Price"] = df["Close"]
-        
-    return df[["Price"]]
-
-###############################################################
-# 3. UI 輸入區
-###############################################################
-
-csv_files = get_all_csv_files()
-
-if not csv_files:
-    st.error("⚠️ Data 資料夾內沒有 CSV 檔案。")
-    st.stop()
-
-col1, col2 = st.columns(2)
-with col1:
-    target_symbol = st.selectbox("選擇回測標的", csv_files, index=0)
-
-with col2:
-    # A. 長期趨勢固定為 12 個月
-    st.info("🔒 **主要趨勢 (N)**：固定鎖定為 **12 個月** (年線多頭確認)")
-    fixed_n = 12
-    
-    # B. 短期濾網改為複選
-    default_short = [1, 3] # 預設測試 1個月, 3個月
-    selected_m = st.multiselect(
-        "設定短期濾網月數 (M) - 自動比較「續漲」與「回檔」", 
-        [1, 2, 3, 4, 5, 6, 9], 
-        default=default_short,
-        help="例如選 3，系統會分析「年線漲且近3月漲」vs「年線漲但近3月跌」的績效差異"
-    )
-
-###############################################################
-# 4. CSS
-###############################################################
-
-st.markdown("""
-    <style>
-        .kpi-card {
-            background-color: var(--secondary-background-color);
-            border-radius: 16px;
-            padding: 24px 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
-            border: 1px solid rgba(128, 128, 128, 0.1);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: 100%;
-            transition: all 0.3s ease;
-        }
-        .kpi-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
-        }
-        .kpi-label {
-            font-size: 0.9rem;
-            color: var(--text-color);
-            opacity: 0.7;
-            font-weight: 500;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-        }
-        .kpi-value {
-            font-size: 2rem;
-            font-weight: 800;
-            color: var(--text-color);
-            font-family: 'Noto Sans TC', sans-serif;
-            line-height: 1.2;
-        }
-        .comparison-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            border-radius: 12px;
-            border: 1px solid var(--secondary-background-color);
-            font-family: 'Noto Sans TC', sans-serif;
-            margin-bottom: 1rem;
-            font-size: 0.95rem;
-        }
-        .comparison-table th {
-            background-color: var(--secondary-background-color);
-            color: var(--text-color);
-            padding: 14px;
-            text-align: center;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(128,128,128, 0.1);
-        }
-        .comparison-table td {
-            text-align: center;
-            padding: 12px;
-            color: var(--text-color);
-            border-bottom: 1px solid rgba(128,128,128, 0.1);
-        }
-        .comparison-table td.metric-name {
-            text-align: left;
-            font-weight: 500;
-            background-color: rgba(128,128,128, 0.02);
-            width: 20%;
-        }
-        .comparison-table tr:hover td {
-            background-color: rgba(128,128,128, 0.05);
-        }
-        .trophy-icon {
-            margin-left: 6px;
-            font-size: 1.1em;
-            text-shadow: 0 0 5px rgba(255, 215, 0, 0.4);
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-###############################################################
-# 5. 主程式邏輯
-###############################################################
+# ... (前面的 Setup 程式碼請保留) ...
+# 若您需要完整複製，請確保上方 import 和 sidebar 設定都有保留
+# 以下是從 if st.button("開始回測 🚀")... 開始的邏輯
 
 if st.button("開始回測 🚀") and target_symbol:
     
-    with st.spinner(f"正在診斷 {target_symbol} 順勢與逆勢特性..."):
+    with st.spinner(f"正在計算凱利公式與期望值: {target_symbol} ..."):
         df_daily = load_csv(target_symbol)
         
         if df_daily.empty:
@@ -222,7 +41,6 @@ if st.button("開始回測 🚀") and target_symbol:
         end_date = df_daily.index.max().strftime('%Y-%m-%d')
         total_years = (df_daily.index.max() - df_daily.index.min()).days / 365.25
 
-        # 轉月線
         try:
             df_monthly = df_daily['Price'].resample('ME').last().to_frame()
         except Exception:
@@ -232,64 +50,88 @@ if st.button("開始回測 🚀") and target_symbol:
         
         results = []
         
-        # --- 1. 計算主要趨勢訊號 (N=12) ---
-        # 邏輯：現在價格 > 12個月前價格
         momentum_long = df_monthly['Price'].pct_change(periods=fixed_n)
         signal_long = momentum_long > 0
         
-        # --- 2. 迴圈跑不同的「短期濾網 M」 ---
         for m in sorted(selected_m):
-            
             momentum_short = df_monthly['Price'].pct_change(periods=m)
-            
-            # --- 情境 A: 順勢 (年線漲 + 短期漲) ---
             signal_trend = signal_long & (momentum_short > 0)
-            
-            # --- 情境 B: 拉回 (年線漲 + 短期跌) ---
             signal_pullback = signal_long & (momentum_short < 0)
             
-            # 內部計算函式
-            def calc_stats(signal_series, label, sort_idx):
+            # --- 核心運算升級：計算盈虧比與凱利值 ---
+            def calc_stats_kelly(signal_series, label, sort_idx):
+                # 取出該狀態下，下個月的所有報酬率
                 target_returns = df_monthly.loc[signal_series, 'Next_Month_Return'].dropna()
                 count = len(target_returns)
                 
                 if count > 0:
-                    win_count = target_returns[target_returns > 0].count()
+                    # 1. 基礎統計
+                    wins = target_returns[target_returns > 0]
+                    losses = target_returns[target_returns <= 0]
+                    
+                    win_count = wins.count()
+                    loss_count = losses.count()
+                    
                     win_rate = win_count / count
                     avg_ret = target_returns.mean()
+                    
+                    # 2. 凱利公式參數 (Kelly Inputs)
+                    # 平均獲利 (Avg Win)
+                    avg_win_pct = wins.mean() if win_count > 0 else 0
+                    # 平均虧損 (Avg Loss) - 取絕對值
+                    avg_loss_pct = abs(losses.mean()) if loss_count > 0 else 0
+                    
+                    # 賠率 (Odds / Profit Factor) = 平均獲利 / 平均虧損
+                    if avg_loss_pct > 0:
+                        payoff_ratio = avg_win_pct / avg_loss_pct
+                    else:
+                        payoff_ratio = 0 # 避免除以零 (或視為無限大)
+
+                    # 3. 計算凱利值 (Kelly Fraction)
+                    # 公式: f = p - (q / b)
+                    # p = win_rate, q = 1 - win_rate, b = payoff_ratio
+                    if payoff_ratio > 0:
+                        kelly_pct = win_rate - ((1 - win_rate) / payoff_ratio)
+                    else:
+                        kelly_pct = 0 # 無法計算時歸零
+                    
+                    # 極端值保護 (例如全虧或全贏)
+                    if win_count == 0: kelly_pct = -1.0 # 絕對不賭
+                    if loss_count == 0: kelly_pct = 1.0 # 全押 (理論值)
+
                     med_ret = target_returns.median()
                     max_ret = target_returns.max()
                     min_ret = target_returns.min()
                 else:
                     win_rate, avg_ret, med_ret, max_ret, min_ret = 0, 0, 0, 0, 0
+                    avg_win_pct, avg_loss_pct, payoff_ratio, kelly_pct = 0, 0, 0, 0
                 
                 return {
                     '回測設定': label,
                     '排序': sort_idx, 
                     '短期M': m,
                     '類型': '順勢' if '續漲' in label else '拉回',
-                    '發生次數': count,
-                    '勝率 (Win Rate)': win_rate,
+                    '發生次數': count,              # 次數 (信賴度)
+                    '勝率': win_rate,             # P
+                    '賠率 (盈虧比)': payoff_ratio,  # b
+                    '凱利值 (建議倉位)': kelly_pct,  # f
+                    '平均獲利': avg_win_pct,
+                    '平均虧損': avg_loss_pct,
                     '平均報酬': avg_ret,
-                    '中位數報酬': med_ret,
-                    '最大漲幅': max_ret,
                     '最大跌幅': min_ret
                 }
 
-            # 加入結果
-            results.append(calc_stats(signal_trend, f"年線多 + {m}月續漲 (順勢)", m * 10 + 1))
-            results.append(calc_stats(signal_pullback, f"年線多 + {m}月回檔 (低接)", m * 10 + 2))
+            results.append(calc_stats_kelly(signal_trend, f"年線多 + {m}月續漲 (順勢)", m * 10 + 1))
+            results.append(calc_stats_kelly(signal_pullback, f"年線多 + {m}月回檔 (低接)", m * 10 + 2))
             
         res_df = pd.DataFrame(results).sort_values(by='排序')
         
-        # 基礎樣本統計
+        # Base Rate
         base_returns = df_monthly['Next_Month_Return'].dropna()
         if not base_returns.empty:
             base_win_rate = base_returns[base_returns > 0].count() / len(base_returns)
-            base_avg_ret = base_returns.mean()
         else:
             base_win_rate = 0
-            base_avg_ret = 0
 
     # -----------------------------------------------------
     # 6. 顯示結果
@@ -298,101 +140,54 @@ if st.button("開始回測 🚀") and target_symbol:
     st.success(f"📅 **回測區間**：{start_date} ~ {end_date} (共 {total_years:.1f} 年)")
     
     # --- KPI 卡片 ---
-    best_strategy = res_df.loc[res_df['平均報酬'].idxmax()] if not res_df.empty else None
+    # 這裡我們改找「凱利值」最高的策略，因為那代表「期望獲利能力最強」
+    best_strategy = res_df.loc[res_df['凱利值 (建議倉位)'].idxmax()] if not res_df.empty else None
     
     col_kpi = st.columns(4)
     
-    def simple_card(label, value):
+    def simple_card(label, value, sub_value=""):
         return f"""
         <div class="kpi-card">
             <div class="kpi-label">{label}</div>
             <div class="kpi-value">{value}</div>
+            <div style="font-size:0.8em; opacity:0.7; margin-top:4px">{sub_value}</div>
         </div>
         """
 
     with col_kpi[0]:
         st.markdown(simple_card("總交易月數", f"{len(df_monthly):,} 月"), unsafe_allow_html=True)
     with col_kpi[1]:
-        st.markdown(simple_card("基準月勝率 (Base)", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
+        st.markdown(simple_card("基準月勝率", f"{base_win_rate:.1%}"), unsafe_allow_html=True)
     with col_kpi[2]:
         if best_strategy is not None:
-            st.markdown(simple_card("🔥 平均報酬最高", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
+            st.markdown(simple_card("🔥 最佳凱利策略", f"{best_strategy['回測設定']}"), unsafe_allow_html=True)
     with col_kpi[3]:
         if best_strategy is not None:
-            st.markdown(simple_card("該策略平均月酬", f"{best_strategy['平均報酬']:.2%}"), unsafe_allow_html=True)
+            # 顯示半凱利比較安全
+            k_val = best_strategy['凱利值 (建議倉位)']
+            st.markdown(simple_card("建議下注比例", f"{k_val:.1%}", " (理論全凱利值)"), unsafe_allow_html=True)
 
     st.markdown("<div style='margin-bottom: 30px'></div>", unsafe_allow_html=True)
 
-    # --- 圖表區 ---
-    st.markdown("<h3>📊 順勢 vs 拉回：策略效果對決</h3>", unsafe_allow_html=True)
-    
-    tab1, tab2 = st.tabs(["勝率分析", "平均報酬分析"])
-    
-    with tab1:
-        if not res_df.empty:
-            fig_win = go.Figure()
-            fig_win.add_hline(y=base_win_rate, line_dash="dash", line_color="gray", annotation_text="Buy & Hold 勝率")
-            
-            # 順勢=綠色, 拉回=橘色
-            colors = ['#00CC96' if t == '順勢' else '#FFA15A' for t in res_df['類型']]
-            
-            fig_win.add_trace(go.Bar(
-                x=res_df['回測設定'],
-                y=res_df['勝率 (Win Rate)'],
-                text=[f"{v:.1%}" for v in res_df['勝率 (Win Rate)']],
-                textposition='auto',
-                marker_color=colors
-            ))
-            fig_win.update_layout(
-                title="不同策略情境的下月勝率",
-                yaxis_tickformat='.0%',
-                template="plotly_white",
-                height=450,
-                xaxis_title="策略組合",
-                yaxis_title="勝率"
-            )
-            st.plotly_chart(fig_win, use_container_width=True)
-
-    with tab2:
-        if not res_df.empty:
-            fig_ret = go.Figure()
-            fig_ret.add_hline(y=base_avg_ret, line_dash="dash", line_color="gray", annotation_text="Buy & Hold 平均報酬")
-            
-            # 順勢=深藍, 拉回=深紅 (強調報酬)
-            colors = ['#636EFA' if t == '順勢' else '#EF553B' for t in res_df['類型']]
-
-            fig_ret.add_trace(go.Bar(
-                x=res_df['回測設定'],
-                y=res_df['平均報酬'],
-                text=[f"{v:.2%}" for v in res_df['平均報酬']],
-                textposition='auto',
-                name='平均報酬',
-                marker_color=colors
-            ))
-            
-            fig_ret.update_layout(
-                title="不同策略情境的下月平均報酬",
-                yaxis_tickformat='.2%',
-                template="plotly_white",
-                height=450,
-                xaxis_title="策略組合",
-                yaxis_title="平均報酬"
-            )
-            st.plotly_chart(fig_ret, use_container_width=True)
-
-    # --- 表格 (含風險警示邏輯) ---
+    # --- 表格 (核心重點) ---
     if not res_df.empty:
-        st.markdown("<h3>🏆 策略績效詳細比較</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>🎲 凱利公式詳細分析 (Kelly Criterion Analysis)</h3>", unsafe_allow_html=True)
         
-        st.info("💡 **判讀技巧**：如果「拉回 (低接)」策略的 **平均報酬為負** (標示為 ⚠️)，代表該資產在多頭回檔時容易直接轉弱，建議 **避開接刀** 或 **減碼**。")
+        st.info("""
+        **指標說明：**
+        * **發生次數**：樣本數。次數太少 (如 < 10)，凱利值的參考價值極低。
+        * **賠率 (盈虧比)**：平均賺 1 元的同時，會賠掉多少元。大於 1 代表賺多賠少。
+        * **凱利值 (Kelly %)**：數學上計算出的「最佳資金運用比例」。若為負值，代表期望值為負，**絕對不該進場**。
+        """)
 
+        # 定義顯示欄位
         metrics_map = {
             "發生次數":      {"fmt": lambda x: f"{int(x):,}", "high_is_good": True},
-            "勝率 (Win Rate)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "平均報酬":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "中位數報酬":    {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "最大漲幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
-            "最大跌幅":      {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "勝率":          {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
+            "賠率 (盈虧比)":  {"fmt": lambda x: f"{x:.2f}",   "high_is_good": True},
+            "平均獲利":      {"fmt": lambda x: f"<span style='color:#00CC96'>+{x:.2%}</span>", "high_is_good": True},
+            "平均虧損":      {"fmt": lambda x: f"<span style='color:#EF553B'>-{x:.2%}</span>", "high_is_good": False}, # 數值越小(越接近0)越好，但這裡是絕對值
+            "凱利值 (建議倉位)": {"fmt": lambda x: f"{x:.2%}",   "high_is_good": True},
         }
 
         html = '<table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>'
@@ -410,24 +205,42 @@ if st.button("開始回測 🚀") and target_symbol:
             html += f"<tr><td class='metric-name' style='padding-left:16px;'>{metric}</td>"
             
             vals = res_df[metric].values
-            best_val = max(vals) if config["high_is_good"] else min(vals)
+            
+            # 找出最佳值 (用於頒獎)
+            if metric == "平均虧損": # 虧損要看誰比較小
+                 best_val = min(vals)
+            else:
+                 best_val = max(vals)
             
             for i, val in enumerate(vals):
                 display_text = config["fmt"](val)
-                col_name = res_df['回測設定'].iloc[i]
+                count = res_df['發生次數'].iloc[i]
                 
-                # ★★★ 風險警示邏輯 ★★★
-                # 如果是 平均報酬 且 小於 0 且 是回檔策略 -> 紅色警告
-                if metric == "平均報酬" and val < 0 and "回檔" in col_name:
-                    display_text = f"<span style='color:#D32F2F; font-weight:bold;'>⚠️ {display_text}</span>"
+                # --- 特殊邏輯 ---
                 
-                # ★★★ 冠軍邏輯 ★★★
-                is_winner = (val == best_val) and (metric != "發生次數") and (metric != "最大跌幅")
-                if metric == "最大跌幅" and val == max(vals): is_winner = True
+                # 1. 凱利值特別顯示
+                if metric == "凱利值 (建議倉位)":
+                    if val > 0.5: # 凱利值 > 50% 
+                        display_text = f"<span style='color:#00C853; font-weight:900; font-size:1.1em'>{display_text}</span>"
+                    elif val > 0:
+                        display_text = f"<span style='color:#00C853; font-weight:bold'>{display_text}</span>"
+                    else:
+                        display_text = f"<span style='color:#D32F2F; font-weight:bold'>不建議 ({display_text})</span>"
+                
+                # 2. 次數過少警示
+                if count < 10 and metric == "凱利值 (建議倉位)":
+                     display_text += " <span style='font-size:0.8em; color:gray'>(樣本不足)</span>"
+
+                # 3. 冠軍邏輯
+                is_winner = (val == best_val) and (metric != "發生次數") and (metric != "平均獲利") and (metric != "平均虧損")
+                
+                # 凱利值如果是負的，就算最大也不能給獎盃
+                if metric == "凱利值 (建議倉位)" and val <= 0:
+                    is_winner = False
 
                 if is_winner:
                     display_text += " <span class='trophy-icon'>🏆</span>"
-                    html += f"<td style='font-weight:bold; color:#00CC96;'>{display_text}</td>"
+                    html += f"<td style='font-weight:bold; background-color:rgba(0,200,83,0.05);'>{display_text}</td>"
                 else:
                     html += f"<td>{display_text}</td>"
             html += "</tr>"
