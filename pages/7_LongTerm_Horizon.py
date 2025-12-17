@@ -21,7 +21,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-st.set_page_config(page_title="長線延續性分析", page_icon="🔭", layout="wide")
+st.set_page_config(page_title="長期動能研究", page_icon="🔭", layout="wide")
 
 # 引入 auth (如果有的話)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -37,11 +37,11 @@ with st.sidebar:
 # ------------------------------------------------------
 # 2. 標題與說明
 # ------------------------------------------------------
-st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 長線趨勢延續性 (Signal Horizon)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 長期動能研究 (12-Month Horizon)</h1>", unsafe_allow_html=True)
 st.markdown("""
-    <b>雙視角分析：</b><br>
-    1. <b>🔥 熱力圖 (Heatmap)</b>：觀察策略隨時間推移的變化，<b>顏色越深藍</b> 代表數值越高。<br>
-    2. <b>📊 直條圖 (Bar Chart)</b>：比較不同策略的績效排名 (<span style='color:#2962FF'><b>順勢</b></span> vs <span style='color:#FF9100'><b>拉回</b></span>)。
+    <b>研究目標：</b><br>
+    在 <b>年線多頭 (過去12月漲)</b> 的大前提下，搭配不同短中期濾網 (1, 3, 6, 9月)，
+    統計 <b>「持有 12 個月後」</b> 的 <b>上漲機率</b> 與 <b>平均漲幅</b>。
 """, unsafe_allow_html=True)
 
 DATA_DIR = Path("data")
@@ -68,224 +68,129 @@ col1, col2 = st.columns(2)
 with col1:
     target_symbol = st.selectbox("選擇回測標的", csv_files, index=0)
 with col2:
-    st.info("🔒 **主要趨勢 (N)**：固定鎖定為 **12 個月** (年線多頭)")
+    st.info("🔒 **主要趨勢**：固定鎖定為 **過去 12 個月漲幅 > 0**")
     
-    # ★ 修改：預設固定為 1, 3, 6, 9
-    default_short = [1, 3, 6, 9]
-    selected_m = st.multiselect(
-        "設定短期濾網 (M)", 
-        [1, 2, 3, 4, 5, 6, 9, 12], 
-        default=default_short
-    )
+    # 固定研究 1, 3, 6, 9 個月
+    target_periods = [1, 3, 6, 9]
+    st.write(f"🛡️ **對照組濾網**：{target_periods} 個月 (漲/跌)")
 
 # ------------------------------------------------------
 # 4. 主計算邏輯
 # ------------------------------------------------------
-if st.button("開始長線回測 🚀") and target_symbol:
-    with st.spinner("正在計算多週期未來回報..."):
+if st.button("開始分析 🚀") and target_symbol:
+    with st.spinner("正在計算長期持有期望值..."):
         df_daily = load_csv(target_symbol)
         if df_daily.empty: st.stop()
 
-        # 轉月頻率 (相容 pandas 新舊版)
+        # 轉月頻率
         try:
             df = df_daily['Price'].resample('ME').last().to_frame()
         except:
             df = df_daily['Price'].resample('M').last().to_frame()
 
-        # 建立未來 N 個月的報酬欄位 (持有期間)
-        horizons = [1, 3, 6, 12]
-        for h in horizons:
-            df[f'Fwd_{h}M'] = df['Price'].shift(-h) / df['Price'] - 1
+        # 1. 建立「未來 12 個月」的報酬 (Target)
+        # shift(-12) 把未來的價格拉到現在，計算報酬率
+        df['Fwd_12M'] = df['Price'].shift(-12) / df['Price'] - 1
 
         results = []
         
-        # 定義長線趨勢 (年線)
-        momentum_long = df['Price'].pct_change(periods=12)
-        signal_long = momentum_long > 0
+        # 2. 定義條件一：年線多頭 (過去 12 個月 > 0)
+        momentum_12m = df['Price'].pct_change(periods=12)
+        signal_main = momentum_12m > 0
         
-        # 針對每個短期 M 進行回測
-        for m in sorted(selected_m):
-            momentum_short = df['Price'].pct_change(periods=m)
+        # 3. 針對條件二 (1, 3, 6, 9月) 進行迴圈
+        for m in target_periods:
+            momentum_sub = df['Price'].pct_change(periods=m)
             
             # 定義兩種情境
             scenarios = {
-                f"年線多 + {m}月續漲 (順勢)": signal_long & (momentum_short > 0),
-                f"年線多 + {m}月回檔 (低接)": signal_long & (momentum_short < 0)
+                f"年線多 + {m}月續漲 (順勢)": signal_main & (momentum_sub > 0),
+                f"年線多 + {m}月回檔 (低接)": signal_main & (momentum_sub < 0)
             }
             
             for label, signal in scenarios.items():
-                row_data = {'策略': label, '短期M': m, '類型': '順勢' if '續漲' in label else '拉回'}
+                # 取出符合訊號的「未來 12 個月報酬」
+                outcomes = df.loc[signal, 'Fwd_12M'].dropna()
                 
-                valid_count = 0
-                for h in horizons:
-                    rets = df.loc[signal, f'Fwd_{h}M'].dropna()
+                count = len(outcomes)
+                if count > 0:
+                    win_rate = (outcomes > 0).sum() / count
+                    avg_ret = outcomes.mean()
                     
-                    if len(rets) > 0:
-                        win_rate = (rets > 0).sum() / len(rets)
-                        avg_ret = rets.mean()
-                        row_data[f'{h}個月'] = avg_ret     # 熱力圖用
-                        row_data[f'報酬_{h}M'] = avg_ret  # 直條圖用
-                        row_data[f'勝率_{h}M'] = win_rate
-                        if h == 1: valid_count = len(rets)
-                    else:
-                        row_data[f'{h}個月'] = np.nan
-                        row_data[f'報酬_{h}M'] = np.nan
-                        row_data[f'勝率_{h}M'] = np.nan
-
-                row_data['發生次數'] = valid_count
-                if valid_count > 0:
-                    results.append(row_data)
+                    results.append({
+                        '策略名稱': label,
+                        '對照週期': f"{m}個月",
+                        '類型': '順勢' if '續漲' in label else '拉回',
+                        '上漲機率': win_rate,
+                        '平均漲幅': avg_ret,
+                        '樣本數': count
+                    })
 
         res_df = pd.DataFrame(results)
 
     # -----------------------------------------------------
-    # 5. ✨ 新增功能：現況戰情室 (Current Status Cards)
-    # -----------------------------------------------------
-    if not res_df.empty:
-        st.divider()
-        st.markdown("### ♟️ 現況戰情室 (Current Status)")
-        st.caption("假設目前空手，根據**最新收盤價**判斷目前的位階，並參考歷史上相同情境後(持有3個月)的表現。")
-
-        # 取得最新數據
-        last_date = df.index[-1]
-        last_price = df['Price'].iloc[-1]
-        
-        # 檢查年線狀態
-        try:
-            price_12m_ago = df['Price'].shift(12).iloc[-1]
-            is_long_trend = (last_price > price_12m_ago)
-        except:
-            is_long_trend = False
-
-        if not is_long_trend:
-             st.warning(f"⚠️ **趨勢警告**：目前長線 (12M) 呈現空頭排列 (截至 {last_date.strftime('%Y-%m-%d')})，策略建議觀望。")
-        else:
-            # 建立 4 欄卡片 (對應 1, 3, 6, 9)
-            card_cols = st.columns(4)
-            # 強制檢查這四個週期，即使 Sidebar 沒選，這裡嘗試計算現況
-            check_periods = [1, 3, 6, 9] 
-
-            for idx, m in enumerate(check_periods):
-                with card_cols[idx]:
-                    try:
-                        # 1. 計算當下狀態
-                        price_m_ago = df['Price'].shift(m).iloc[-1]
-                        if pd.isna(price_m_ago):
-                            st.metric(f"近 {m} 個月", "資料不足")
-                            continue
-
-                        current_change = (last_price / price_m_ago) - 1
-                        
-                        # 2. 決定要找哪一種歷史數據 (順勢 vs 拉回)
-                        if current_change > 0:
-                            status_text = f"🔥 續強 (+{current_change:.1%})"
-                            lookup_label = f"年線多 + {m}月續漲 (順勢)"
-                            display_color = "normal"
-                        else:
-                            status_text = f"📉 拉回 ({current_change:.1%})"
-                            lookup_label = f"年線多 + {m}月回檔 (低接)"
-                            display_color = "off"
-
-                        # 3. 查找 res_df
-                        match_row = res_df[res_df['策略'] == lookup_label]
-
-                        if not match_row.empty:
-                            # 抓取「持有 3 個月」的數據作為參考
-                            hist_ret = match_row['3個月'].values[0]
-                            hist_count = match_row['發生次數'].values[0]
-                            hist_win = match_row['勝率_3M'].values[0]
-
-                            st.metric(
-                                label=f"近 {m} 個月走勢",
-                                value=status_text,
-                                delta=f"歷史3M預期: {hist_ret:.1%}",
-                                delta_color=display_color
-                            )
-                            st.caption(f"樣本數: {hist_count:.0f} 次 | 勝率: :blue[{hist_win:.0%}]")
-                        else:
-                            # 可能是沒選該週期，或歷史上沒發生過
-                            st.metric(
-                                label=f"近 {m} 個月走勢",
-                                value=status_text,
-                                delta="無歷史統計數據",
-                                delta_color="off"
-                            )
-                    except Exception as e:
-                        st.metric(f"近 {m} 個月", "計算錯誤")
-
-    # -----------------------------------------------------
-    # 6. 視覺化展示：熱力圖 & 排行榜
+    # 5. 視覺化展示 (兩張排名直條圖)
     # -----------------------------------------------------
     if not res_df.empty:
         st.divider()
         
-        # (A) 上半部：熱力圖
-        st.markdown("### 💠 全局視野：熱力圖 (Heatmap)")
+        # 配色設定：順勢=藍色, 拉回=橘色 (互補色，清晰易讀)
+        color_map = {'順勢': '#2962FF', '拉回': '#FF9100'}
+
+        # --- 圖表 1: 上漲機率排名 ---
+        st.subheader("📊 12個月後「上漲機率」排名 (Win Rate)")
+        st.caption("數值越高，代表抱一年賺錢的機會越大。")
         
-        return_cols = ['1個月', '3個月', '6個月', '12個月']
-        heatmap_ret = res_df.set_index('策略')[return_cols]
+        # 排序
+        df_win = res_df.sort_values(by='上漲機率', ascending=True) # Plotly bar h 預設是由下往上排，所以這裡用 True
         
-        fig_ret = px.imshow(
-            heatmap_ret,
-            labels=dict(x="持有期間", y="策略設定", color="平均報酬"),
-            x=return_cols,
-            y=heatmap_ret.index,
-            text_auto='.2%', 
-            color_continuous_scale='Blues', # 藍色系
-            aspect="auto"
+        fig_win = px.bar(
+            df_win,
+            x='上漲機率',
+            y='策略名稱',
+            color='類型',
+            text_auto='.1%',
+            orientation='h', # 水平直條圖比較好閱讀長標籤
+            color_discrete_map=color_map,
+            title="持有 12 個月獲利機率"
         )
-        fig_ret.update_layout(height=150 + (len(res_df) * 30), xaxis_side="top")
+        fig_win.update_layout(xaxis_tickformat='.0%', height=400 + (len(res_df)*20))
+        st.plotly_chart(fig_win, use_container_width=True)
+
+        st.divider()
+
+        # --- 圖表 2: 平均漲幅排名 ---
+        st.subheader("💰 12個月後「平均漲幅」排名 (Average Return)")
+        st.caption("數值越高，代表抱一年後的預期獲利空間越大。")
+        
+        # 排序
+        df_ret = res_df.sort_values(by='平均漲幅', ascending=True)
+        
+        fig_ret = px.bar(
+            df_ret,
+            x='平均漲幅',
+            y='策略名稱',
+            color='類型',
+            text_auto='.1%',
+            orientation='h',
+            color_discrete_map=color_map,
+            title="持有 12 個月平均報酬"
+        )
+        fig_ret.update_layout(xaxis_tickformat='.1%', height=400 + (len(res_df)*20))
         st.plotly_chart(fig_ret, use_container_width=True)
 
+        # -----------------------------------------------------
+        # 6. 詳細數據表格
+        # -----------------------------------------------------
         st.divider()
-
-        # (B) 下半部：直條圖 (Tab 分頁)
-        st.markdown("### 📊 績效排行：分頁直條圖 (Rankings)")
-        
-        tab1, tab2, tab3, tab4 = st.tabs(["1個月展望", "3個月展望", "6個月展望", "12個月展望"])
-        
-        def plot_horizon_bar(horizon_month, container):
-            col_name = f'報酬_{horizon_month}M'
-            sorted_df = res_df.sort_values(by=col_name, ascending=False)
-            
-            fig = px.bar(
-                sorted_df, 
-                x='策略', 
-                y=col_name, 
-                color='類型', 
-                text_auto='.1%',
-                title=f"持有 {horizon_month} 個月後的平均報酬排序",
-                # 科技藍 vs 活力橘
-                color_discrete_map={'順勢': '#2962FF', '拉回': '#FF9100'}
-            )
-            
-            fig.update_layout(
-                yaxis_tickformat='.1%',
-                xaxis_title="",
-                yaxis_title="平均累積報酬",
-                height=450,
-                showlegend=True
-            )
-            container.plotly_chart(fig, use_container_width=True)
-
-        with tab1: plot_horizon_bar(1, tab1)
-        with tab2: plot_horizon_bar(3, tab2)
-        with tab3: plot_horizon_bar(6, tab3)
-        with tab4: plot_horizon_bar(12, tab4)
-
-    # -----------------------------------------------------
-    # 7. 原始數據表格
-    # -----------------------------------------------------
-    st.divider()
-    with st.expander("📄 點擊查看詳細數據表格 (原始資料)"):
-        if not res_df.empty:
-            fmt_dict = {'發生次數': '{:.0f}'}
-            for col in res_df.columns:
-                if '個月' in col or '勝率' in col or '報酬' in col:
-                    fmt_dict[col] = '{:.2%}'
-            
+        with st.expander("📄 查看詳細數據表"):
             st.dataframe(
-                res_df.style.format(fmt_dict)
-                .background_gradient(subset=[f'勝率_{h}M' for h in horizons], cmap='Blues'),
+                res_df.sort_values(by='上漲機率', ascending=False).style.format({
+                    '上漲機率': '{:.2%}',
+                    '平均漲幅': '{:.2%}',
+                    '樣本數': '{:.0f}'
+                }).background_gradient(subset=['上漲機率', '平均漲幅'], cmap='Blues'),
                 use_container_width=True
             )
+    else:
+        st.warning("沒有足夠的數據進行計算，請檢查該標的歷史資料長度。")
