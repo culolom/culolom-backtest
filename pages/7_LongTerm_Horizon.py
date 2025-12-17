@@ -116,7 +116,7 @@ col_input, col_space = st.columns([1, 2])
 # ★ 指定 ETF 對照表
 ETF_MAPPING = {
     "0050 元大台灣50": "0050.TW",
-    "006208 富邦台50": "006208.TW",
+    "SPY SPDR標準普爾500指數ETF": "SPY",
 }
 
 target_symbol = None
