@@ -71,6 +71,9 @@ with col1:
     target_symbol = ETF_MAPPING[selected_name]
 
 
+    
+    # 固定回測週期
+    target_periods = [1, 3, 6, 9]
 
 # ------------------------------------------------------
 # 4. 主計算邏輯
