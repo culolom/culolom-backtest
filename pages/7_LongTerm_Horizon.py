@@ -70,71 +70,7 @@ with col1:
     selected_name = st.selectbox("請選擇 ETF", list(ETF_MAPPING.keys()), index=0)
     target_symbol = ETF_MAPPING[selected_name]
 
-with col2:
-    # ★ 美化版 UI：實驗參數設定卡片
-    st.markdown("""
-    <style>
-        .experiment-card {
-            background-color: var(--secondary-background-color);
-            border-radius: 12px;
-            padding: 20px;
-            border: 1px solid rgba(128, 128, 128, 0.2);
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        }
-        .exp-header {
-            font-size: 1.1em;
-            font-weight: bold;
-            color: var(--text-color);
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-        }
-        .exp-section {
-            background-color: rgba(255, 255, 255, 0.5);
-            border-left: 4px solid #ccc;
-            padding: 10px 15px;
-            margin-bottom: 10px;
-            border-radius: 0 8px 8px 0;
-        }
-        .exp-section.anchor { border-left-color: #2962FF; background-color: rgba(41, 98, 255, 0.05); } 
-        .exp-section.var { border-left-color: #FF9100; background-color: rgba(255, 145, 0, 0.05); } 
-        .exp-title {
-            font-weight: bold;
-            font-size: 0.95em;
-            margin-bottom: 4px;
-            display: block;
-        }
-        .exp-desc {
-            font-size: 0.85em;
-            opacity: 0.8;
-            margin: 0;
-            line-height: 1.4;
-        }
-    </style>
-    
-    <div class="experiment-card">
-        <div class="exp-header">🧪 實驗參數設定 (Testing Conditions)</div>
-        
-        <div class="exp-section anchor">
-            <span class="exp-title" style="color:#1565C0">⚓ 長期定錨 (Anchor)</span>
-            <p class="exp-desc">
-                固定鎖定 <b>持有 12 個月</b> 的未來表現。<br>
-                <i>驗證：「現在買進，抱一年後的勝率？」</i>
-            </p>
-        </div>
 
-        <div class="exp-section var">
-            <span class="exp-title" style="color:#E65100">🎲 短期變數 (Variables)</span>
-            <p class="exp-desc">
-                觀察 <b>1, 3, 6, 9 個月</b> 的動能變化。<br>
-                <i>判斷：「短線該順勢追高？還是拉回低接？」</i>
-            </p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # 固定回測週期
-    target_periods = [1, 3, 6, 9]
 
 # ------------------------------------------------------
 # 4. 主計算邏輯
