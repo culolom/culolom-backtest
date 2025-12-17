@@ -64,6 +64,7 @@ with col1:
     target_symbol = st.selectbox("選擇回測標的", csv_files, index=0)
 with col2:
     st.info("🔒 **回測架構**：固定鎖定 **持有 12 個月** 的未來表現")
+    # 固定研究 1, 3, 6, 9 個月
     target_periods = [1, 3, 6, 9]
     st.write(f"🛡️ **短期濾網**：{target_periods} 個月 (漲/跌)")
 
@@ -71,7 +72,7 @@ with col2:
 # 4. 主計算邏輯
 # ------------------------------------------------------
 if st.button("開始全週期分析 🚀") and target_symbol:
-    with st.spinner("正在進行牛熊雙情境演算..."):
+    with st.spinner("正在進行牛熊雙情境演算與現況診斷..."):
         df_daily = load_csv(target_symbol)
         if df_daily.empty: st.stop()
 
@@ -100,12 +101,12 @@ if st.button("開始全週期分析 🚀") and target_symbol:
             # 定義 4 種情境
             scenarios = {
                 # --- 牛市組 ---
-                f"🐂 牛市 + {m}月續漲 (順勢)": {'signal': signal_bull & (momentum_sub > 0), 'group': 'Bull', 'type': '順勢'},
-                f"🐂 牛市 + {m}月回檔 (低接)": {'signal': signal_bull & (momentum_sub < 0), 'group': 'Bull', 'type': '拉回'},
+                f"🐂 牛市 + {m}月續漲": {'signal': signal_bull & (momentum_sub > 0), 'group': 'Bull', 'type': '順勢'},
+                f"🐂 牛市 + {m}月回檔": {'signal': signal_bull & (momentum_sub < 0), 'group': 'Bull', 'type': '拉回'},
                 
                 # --- 熊市組 ---
-                f"🐻 熊市 + {m}月反彈 (逃命?)": {'signal': signal_bear & (momentum_sub > 0), 'group': 'Bear', 'type': '反彈'},
-                f"🐻 熊市 + {m}月續跌 (抄底?)": {'signal': signal_bear & (momentum_sub < 0), 'group': 'Bear', 'type': '續跌'},
+                f"🐻 熊市 + {m}月反彈": {'signal': signal_bear & (momentum_sub > 0), 'group': 'Bear', 'type': '反彈'},
+                f"🐻 熊市 + {m}月續跌": {'signal': signal_bear & (momentum_sub < 0), 'group': 'Bear', 'type': '續跌'},
             }
             
             for label, info in scenarios.items():
@@ -118,9 +119,10 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                     
                     results.append({
                         '策略名稱': label,
-                        '大環境': info['group'], # Bull or Bear
-                        '短期狀態': info['type'], # 順勢, 拉回, 反彈, 續跌
+                        '大環境': info['group'], 
+                        '短期狀態': info['type'],
                         '對照週期': f"{m}個月",
+                        '週期數值': m, # 用於排序
                         '上漲機率': win_rate,
                         '平均漲幅': avg_ret,
                         '樣本數': count
@@ -129,20 +131,99 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         res_df = pd.DataFrame(results)
 
     # -----------------------------------------------------
-    # 5. 視覺化展示
+    # 5. ✨ 新增：現況戰情室 (Current Status Dashboard)
+    # -----------------------------------------------------
+    if not res_df.empty:
+        st.divider()
+        st.markdown("### ♟️ 現況戰情室：歷史勝率診斷")
+        st.caption("根據**最新收盤價**判斷目前狀態，並顯示該狀態在歷史上 **持有12個月** 的勝率。")
+
+        # 取得最新收盤
+        last_date = df.index[-1]
+        last_price = df['Price'].iloc[-1]
+        
+        # 判斷年線 (大環境)
+        price_12m = df['Price'].shift(12).iloc[-1]
+        # 若資料不足 12 個月，給 0 防止報錯
+        curr_12m_ret = (last_price / price_12m) - 1 if not pd.isna(price_12m) else 0
+        
+        is_bull = curr_12m_ret > 0
+        trend_text = "🐂 牛市 (年線向上)" if is_bull else "🐻 熊市 (年線向下)"
+        trend_color = "green" if is_bull else "red"
+
+        st.info(f"📅 **最新數據日期**: {last_date.strftime('%Y-%m-%d')} | **年線狀態**: :{trend_color}[**{trend_text}**] ({curr_12m_ret:+.2%})")
+
+        # 顯示 1, 3, 6, 9 月的現況卡片
+        cols = st.columns(4)
+        
+        for i, m in enumerate(target_periods): # [1, 3, 6, 9]
+            with cols[i]:
+                # 計算該周期的現況
+                price_m = df['Price'].shift(m).iloc[-1]
+                curr_m_ret = (last_price / price_m) - 1 if not pd.isna(price_m) else 0
+                
+                # 組合出對應的策略名稱 key，去查表
+                if is_bull:
+                    condition = "續漲" if curr_m_ret > 0 else "回檔"
+                    key_name = f"🐂 牛市 + {m}月{condition}"
+                else:
+                    condition = "反彈" if curr_m_ret > 0 else "續跌"
+                    key_name = f"🐻 熊市 + {m}月{condition}"
+                
+                # 查找歷史數據
+                match = res_df[res_df['策略名稱'] == key_name]
+                
+                # 卡片顯示邏輯
+                if not match.empty:
+                    win_rate = match['上漲機率'].values[0]
+                    avg_ret = match['平均漲幅'].values[0]
+                    
+                    # 顏色邏輯：勝率 > 60% 亮綠，< 40% 亮紅，中間橘
+                    if win_rate >= 0.6: 
+                        rate_color = "#00C853" # Green
+                        desc = "高勝率🔥"
+                    elif win_rate <= 0.4: 
+                        rate_color = "#D32F2F" # Red
+                        desc = "低勝率⚠️"
+                    else: 
+                        rate_color = "#FFA000" # Orange
+                        desc = "中性⚖️"
+
+                    # 漲跌幅顏色
+                    chg_color = "#2962FF" if curr_m_ret > 0 else "#FF9100"
+
+                    st.markdown(f"""
+                    <div style="border:1px solid #ddd; border-radius:10px; padding:15px; text-align:center; background-color:var(--secondary-background-color); height:100%">
+                        <div style="font-size:0.9em; opacity:0.8;">近 {m} 個月 ({condition})</div>
+                        <div style="font-size:1.2em; font-weight:bold; margin:5px 0; color:{chg_color}">
+                            {curr_m_ret:+.2%}
+                        </div>
+                        <hr style="margin:8px 0; opacity:0.3">
+                        <div style="font-size:0.8em; opacity:0.8">歷史12M上漲機率</div>
+                        <div style="font-size:2em; font-weight:900; color:{rate_color}">
+                            {win_rate:.0%}
+                        </div>
+                        <div style="font-size:0.85em; color:{rate_color}; font-weight:bold; margin-bottom:4px">{desc}</div>
+                        <div style="font-size:0.8em; opacity:0.7">平均漲幅: {avg_ret:+.1%}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.metric(f"近{m}月", "無歷史數據")
+
+    # -----------------------------------------------------
+    # 6. 視覺化展示
     # -----------------------------------------------------
     if not res_df.empty:
         
         # === A. 牛市戰區 (Bull Market) ===
         st.divider()
         st.header("🐂 牛市戰區 (年線上漲中)")
-        st.caption("當大趨勢向上時，我們該追高 (順勢) 還是 等拉回 (低接)？")
         
         df_bull = res_df[res_df['大環境'] == 'Bull'].copy()
         
         if not df_bull.empty:
             c1, c2 = st.columns(2)
-            color_map_bull = {'順勢': '#2962FF', '拉回': '#FF9100'} # 藍/橘
+            color_map_bull = {'順勢': '#2962FF', '拉回': '#FF9100'} 
             
             with c1:
                 df_bull_win = df_bull.sort_values(by='上漲機率', ascending=True)
@@ -169,13 +250,11 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         # === B. 熊市戰區 (Bear Market) ===
         st.divider()
         st.header("🐻 熊市戰區 (年線下跌中)")
-        st.caption("當大趨勢向下時，短線反彈能追嗎？還是等跌爛了再去抄底 (左側交易)？")
         
         df_bear = res_df[res_df['大環境'] == 'Bear'].copy()
         
         if not df_bear.empty:
             c3, c4 = st.columns(2)
-            # 紫色代表反彈(誘多?), 紅色代表續跌(殺盤)
             color_map_bear = {'反彈': '#AA00FF', '續跌': '#D50000'} 
             
             with c3:
@@ -198,14 +277,13 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                 fig_bear_ret.update_layout(xaxis_tickformat='.1%', height=350)
                 st.plotly_chart(fig_bear_ret, use_container_width=True)
         else:
-            st.info("歷史上未出現熊市樣本 (或樣本不足)")
+            st.info("歷史上未出現熊市樣本")
 
         # -----------------------------------------------------
-        # 6. 綜合數據表
+        # 7. 綜合數據表
         # -----------------------------------------------------
         st.divider()
         with st.expander("📄 查看完整詳細數據表"):
-            # 為了閱讀方便，我們把牛熊分開標示
             def highlight_group(s):
                 return ['background-color: rgba(27, 94, 32, 0.1)' if v == 'Bull' else 'background-color: rgba(183, 28, 28, 0.1)' for v in s]
 
