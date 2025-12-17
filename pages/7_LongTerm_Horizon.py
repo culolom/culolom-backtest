@@ -1,7 +1,3 @@
-###############################################################
-# pages/3_LongTerm_Horizon.py — 長期動能全週期研究 (終極版)
-###############################################################
-
 import os
 import datetime as dt
 import numpy as np
@@ -12,7 +8,7 @@ from pathlib import Path
 import sys
 
 # ------------------------------------------------------
-# 1. 基本設定
+# 1. 基本設定與 CSS 美化
 # ------------------------------------------------------
 font_path = "./NotoSansTC-Bold.ttf"
 if os.path.exists(font_path):
@@ -22,6 +18,57 @@ if os.path.exists(font_path):
     matplotlib.rcParams["font.family"] = "Noto Sans TC"
 
 st.set_page_config(page_title="長期動能研究", page_icon="🔭", layout="wide")
+
+# ★★★ CSS 注入區域：定義橘色按鈕與卡片樣式 ★★★
+st.markdown("""
+<style>
+    /* 1. 全局橘色按鈕樣式 */
+    div.stButton > button:first-child {
+        background-color: #FF6F00; /* 鮮豔橘 */
+        color: white;
+        border-radius: 10px;
+        border: none;
+        font-weight: bold;
+        font-size: 16px;
+        padding: 0.5rem 2rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #E65100; /* 深橘色 hover */
+        box-shadow: 0 6px 8px rgba(0,0,0,0.2);
+        transform: translateY(-2px);
+    }
+    div.stButton > button:first-child:active {
+        transform: translateY(0px);
+    }
+
+    /* 2. 資訊卡片樣式 (文字說明用) */
+    .info-card {
+        background-color: var(--secondary-background-color);
+        padding: 20px;
+        border-radius: 12px;
+        border-left: 6px solid #FF6F00; /* 左側橘色強調線 */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+    }
+    
+    /* 3. 數據小卡片樣式 */
+    .metric-card {
+        background-color: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.2);
+        border-radius: 12px;
+        padding: 15px;
+        text-align: center;
+        height: 100%;
+        transition: transform 0.2s;
+    }
+    .metric-card:hover {
+        transform: scale(1.02);
+        border-color: #FF6F00;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
@@ -34,13 +81,20 @@ with st.sidebar:
     st.divider()
 
 # ------------------------------------------------------
-# 2. 標題與說明
+# 2. 標題與說明 (使用卡片包覆)
 # ------------------------------------------------------
 st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 長期動能全週期研究 (Bull & Bear)</h1>", unsafe_allow_html=True)
+
+# 使用 CSS class "info-card"
 st.markdown("""
-    <b>研究目標：</b>分析在 <b>「年線多頭」</b> 與 <b>「年線空頭」</b> 兩種不同大環境下，
-    搭配短期 (1, 3, 6, 9月) 的漲跌變化，統計 <b>持有 12 個月後</b> 的勝率與報酬。<br>
-    這能幫助判斷：<b>何時該右側追價？何時該左側低接？何時該完全空手？</b>
+<div class="info-card">
+    <h4 style="margin-top:0;">📖 研究目標</h4>
+    <p style="font-size:1.05em; line-height:1.6;">
+        分析在 <b>「年線多頭」</b> 與 <b>「年線空頭」</b> 兩種不同大環境下，
+        搭配短期 (1, 3, 6, 9月) 的漲跌變化，統計 <b>持有 12 個月後</b> 的勝率與報酬。<br>
+        這能幫助判斷：<span style="color:#FF6F00; font-weight:bold;">何時該右側追價？何時該左側低接？何時該完全空手？</span>
+    </p>
+</div>
 """, unsafe_allow_html=True)
 
 DATA_DIR = Path("data")
@@ -54,9 +108,10 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Price"]]
 
 # ------------------------------------------------------
-# 3. 側邊欄與參數設定 UI
+# 3. 參數設定 UI (置於主畫面)
 # ------------------------------------------------------
-col1, col2 = st.columns(2)
+st.subheader("⚙️ 參數設定")
+col_input, col_space = st.columns([1, 2])
 
 # ★ 指定 ETF 對照表
 ETF_MAPPING = {
@@ -64,21 +119,21 @@ ETF_MAPPING = {
     "006208 富邦台50": "006208.TW",
 }
 
-with col1:
-    st.subheader("選擇回測標的")
+target_symbol = None
+with col_input:
     # 讓使用者選擇中文名稱
-    selected_name = st.selectbox("請選擇 ETF", list(ETF_MAPPING.keys()), index=0)
+    selected_name = st.selectbox("請選擇回測標的 (ETF)", list(ETF_MAPPING.keys()), index=0)
     target_symbol = ETF_MAPPING[selected_name]
 
-
-    
-    # 固定回測週期
-    target_periods = [1, 3, 6, 9]
+# 固定回測週期
+target_periods = [1, 3, 6, 9]
 
 # ------------------------------------------------------
 # 4. 主計算邏輯
 # ------------------------------------------------------
+# 按鈕會自動應用上面的 CSS 樣式
 if st.button("開始全週期分析 🚀") and target_symbol:
+    
     with st.spinner(f"正在分析 {selected_name} ({target_symbol})..."):
         df_daily = load_csv(target_symbol)
         
@@ -146,7 +201,13 @@ if st.button("開始全週期分析 🚀") and target_symbol:
     if not res_df.empty:
         st.divider()
         st.markdown(f"### ♟️ 現況戰情室：{selected_name}")
-        st.caption("根據**最新收盤價**判斷目前狀態，並顯示該狀態在歷史上 **持有12個月** 的勝率。")
+        
+        # 使用卡片包裹說明
+        st.markdown("""
+        <div style="background-color:rgba(255, 111, 0, 0.1); padding:10px 15px; border-radius:8px; margin-bottom:15px; border-left: 4px solid #FF6F00;">
+            <small>💡 說明：根據<b>最新收盤價</b>判斷目前狀態，並顯示該狀態在歷史上 <b>持有12個月</b> 的勝率。</small>
+        </div>
+        """, unsafe_allow_html=True)
 
         # 取得最新收盤
         last_date = df.index[-1]
@@ -160,6 +221,7 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         trend_text = "🐂 牛市 (年線向上)" if is_bull else "🐻 熊市 (年線向下)"
         trend_color = "green" if is_bull else "red"
 
+        # 資訊列
         st.info(f"📅 **最新數據日期**: {last_date.strftime('%Y-%m-%d')} | **最新價**: {last_price:,.2f} | **年線狀態**: :{trend_color}[**{trend_text}**] ({curr_12m_ret:+.2%})")
 
         # 顯示 1, 3, 6, 9 月的現況卡片
@@ -199,23 +261,28 @@ if st.button("開始全週期分析 🚀") and target_symbol:
 
                     chg_color = "#2962FF" if curr_m_ret > 0 else "#FF9100"
 
+                    # 使用 CSS class "metric-card"
                     st.markdown(f"""
-                    <div style="border:1px solid #ddd; border-radius:10px; padding:15px; text-align:center; background-color:var(--secondary-background-color); height:100%">
-                        <div style="font-size:0.9em; opacity:0.8;">近 {m} 個月 ({condition})</div>
-                        <div style="font-size:1.2em; font-weight:bold; margin:5px 0; color:{chg_color}">
+                    <div class="metric-card">
+                        <div style="font-size:0.9em; opacity:0.8; margin-bottom:5px;">近 {m} 個月 ({condition})</div>
+                        <div style="font-size:1.4em; font-weight:bold; color:{chg_color}">
                             {curr_m_ret:+.2%}
                         </div>
-                        <hr style="margin:8px 0; opacity:0.3">
+                        <div style="height:1px; background-color:#ddd; margin:10px 0; opacity:0.5;"></div>
                         <div style="font-size:0.8em; opacity:0.8">歷史12M上漲機率</div>
-                        <div style="font-size:2em; font-weight:900; color:{rate_color}">
+                        <div style="font-size:2.2em; font-weight:900; color:{rate_color}; line-height:1.2;">
                             {win_rate:.0%}
                         </div>
-                        <div style="font-size:0.85em; color:{rate_color}; font-weight:bold; margin-bottom:4px">{desc}</div>
+                        <div style="font-size:0.9em; color:{rate_color}; font-weight:bold; margin-bottom:4px">{desc}</div>
                         <div style="font-size:0.8em; opacity:0.7">平均漲幅: {avg_ret:+.1%}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 else:
-                    st.metric(f"近{m}月", "無歷史數據")
+                    st.markdown(f"""
+                    <div class="metric-card" style="display:flex; align-items:center; justify-content:center;">
+                        <div style="color:gray;">近{m}月<br>無歷史數據</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     # -----------------------------------------------------
     # 6. 視覺化展示 (牛熊雙戰區)
@@ -224,7 +291,7 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         
         # === A. 牛市戰區 (Bull Market) ===
         st.divider()
-        st.header("🐂 牛市戰區 (年線上漲中)")
+        st.markdown("### 🐂 牛市戰區 (年線上漲中)")
         st.caption("當大趨勢向上時，我們該追高 (順勢) 還是 等拉回 (低接)？")
         
         df_bull = res_df[res_df['大環境'] == 'Bull'].copy()
@@ -257,7 +324,7 @@ if st.button("開始全週期分析 🚀") and target_symbol:
 
         # === B. 熊市戰區 (Bear Market) ===
         st.divider()
-        st.header("🐻 熊市戰區 (年線下跌中)")
+        st.markdown("### 🐻 熊市戰區 (年線下跌中)")
         st.caption("當大趨勢向下時，短線反彈能追嗎？還是等跌爛了再去抄底 (左側交易)？")
         
         df_bear = res_df[res_df['大環境'] == 'Bear'].copy()
@@ -307,4 +374,6 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                 use_container_width=True
             )
     else:
-        st.warning("數據不足，無法生成報表。")
+        # 初次進入或無數據時的提示，也可以用卡片包起來
+        if target_symbol is None:
+            st.warning("請先選擇 ETF 並點擊開始分析。")
