@@ -1,3 +1,7 @@
+###############################################################
+# pages/3_LongTerm_Horizon.py — 長期動能全週期研究 (終極版)
+###############################################################
+
 import os
 import datetime as dt
 import numpy as np
@@ -50,37 +54,86 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Price"]]
 
 # ------------------------------------------------------
-# 3. 側邊欄 (修改處：指定 ETF 選單)
+# 3. 側邊欄與參數設定 UI
 # ------------------------------------------------------
 col1, col2 = st.columns(2)
 
-# ★★★ 修改重點：定義指定的 ETF 對照表 ★★★
+# ★ 指定 ETF 對照表
 ETF_MAPPING = {
     "0050 元大台灣50": "0050.TW",
     "006208 富邦台50": "006208.TW",
 }
 
 with col1:
-    # 讓使用者選擇「中文名稱」
-    selected_name = st.selectbox("選擇回測標的", list(ETF_MAPPING.keys()), index=0)
-    # 根據選擇的名稱，取出對應的「代號文件名」
+    st.subheader("選擇回測標的")
+    # 讓使用者選擇中文名稱
+    selected_name = st.selectbox("請選擇 ETF", list(ETF_MAPPING.keys()), index=0)
     target_symbol = ETF_MAPPING[selected_name]
 
 with col2:
-    # --- 修改後的文案 ---
-    st.info("🧪 **實驗參數設定 (Testing Conditions)**")
-    
+    # ★ 美化版 UI：實驗參數設定卡片
     st.markdown("""
-    **1. 長期定錨 (Anchor)**：
-    * 固定鎖定 **持有 12 個月** 的未來表現 (Forward 12M Return)。
-    * 用來驗證：「現在買進，抱一年後賺錢的機率是多少？」
-
-    **2. 短期變數 (Variables)**：
-    * 觀察 **1, 3, 6, 9 個月** 的漲跌變化。
-    * 用來判斷：「短線順勢追高好？還是拉回低接好？」
-    """)
+    <style>
+        .experiment-card {
+            background-color: var(--secondary-background-color);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid rgba(128, 128, 128, 0.2);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .exp-header {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: var(--text-color);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        .exp-section {
+            background-color: rgba(255, 255, 255, 0.5);
+            border-left: 4px solid #ccc;
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            border-radius: 0 8px 8px 0;
+        }
+        .exp-section.anchor { border-left-color: #2962FF; background-color: rgba(41, 98, 255, 0.05); } 
+        .exp-section.var { border-left-color: #FF9100; background-color: rgba(255, 145, 0, 0.05); } 
+        .exp-title {
+            font-weight: bold;
+            font-size: 0.95em;
+            margin-bottom: 4px;
+            display: block;
+        }
+        .exp-desc {
+            font-size: 0.85em;
+            opacity: 0.8;
+            margin: 0;
+            line-height: 1.4;
+        }
+    </style>
     
-    # 隱藏原本的 target_periods 顯示，因為上面已經解釋過了
+    <div class="experiment-card">
+        <div class="exp-header">🧪 實驗參數設定 (Testing Conditions)</div>
+        
+        <div class="exp-section anchor">
+            <span class="exp-title" style="color:#1565C0">⚓ 長期定錨 (Anchor)</span>
+            <p class="exp-desc">
+                固定鎖定 <b>持有 12 個月</b> 的未來表現。<br>
+                <i>驗證：「現在買進，抱一年後的勝率？」</i>
+            </p>
+        </div>
+
+        <div class="exp-section var">
+            <span class="exp-title" style="color:#E65100">🎲 短期變數 (Variables)</span>
+            <p class="exp-desc">
+                觀察 <b>1, 3, 6, 9 個月</b> 的動能變化。<br>
+                <i>判斷：「短線該順勢追高？還是拉回低接？」</i>
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # 固定回測週期
     target_periods = [1, 3, 6, 9]
 
 # ------------------------------------------------------
@@ -90,7 +143,6 @@ if st.button("開始全週期分析 🚀") and target_symbol:
     with st.spinner(f"正在分析 {selected_name} ({target_symbol})..."):
         df_daily = load_csv(target_symbol)
         
-        # 檢查檔案是否存在
         if df_daily.empty: 
             st.error(f"❌ 找不到 {target_symbol}.csv 檔案，請確認 data 資料夾內是否有該檔案。")
             st.stop()
@@ -227,13 +279,14 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                     st.metric(f"近{m}月", "無歷史數據")
 
     # -----------------------------------------------------
-    # 6. 視覺化展示
+    # 6. 視覺化展示 (牛熊雙戰區)
     # -----------------------------------------------------
     if not res_df.empty:
         
         # === A. 牛市戰區 (Bull Market) ===
         st.divider()
         st.header("🐂 牛市戰區 (年線上漲中)")
+        st.caption("當大趨勢向上時，我們該追高 (順勢) 還是 等拉回 (低接)？")
         
         df_bull = res_df[res_df['大環境'] == 'Bull'].copy()
         
@@ -266,6 +319,7 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         # === B. 熊市戰區 (Bear Market) ===
         st.divider()
         st.header("🐻 熊市戰區 (年線下跌中)")
+        st.caption("當大趨勢向下時，短線反彈能追嗎？還是等跌爛了再去抄底 (左側交易)？")
         
         df_bear = res_df[res_df['大環境'] == 'Bear'].copy()
         
