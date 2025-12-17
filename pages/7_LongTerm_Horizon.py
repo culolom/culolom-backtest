@@ -211,11 +211,13 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         </div>
         """, unsafe_allow_html=True)
 
-        # 取得最新收盤
-        last_date = df.index[-1]
-        last_price = df['Price'].iloc[-1]
+        # ★★★ 修正點：從 df_daily 取得真實的日期與價格 ★★★
+        last_date = df_daily.index[-1]           # 抓原始日線的日期 (例如 12/16)
+        last_price = df_daily['Price'].iloc[-1]  # 抓原始日線的價格
         
-        # 判斷年線 (大環境)
+        # 判斷年線 (大環境) - 計算仍需使用月線 df 的 shift
+        # 這裡需要小心：如果 df_daily 最新日期還沒到月底，df.iloc[-1] 其實就是這個最新價
+        # 所以直接拿 df 的前 12 筆來比對是合理的
         price_12m = df['Price'].shift(12).iloc[-1]
         curr_12m_ret = (last_price / price_12m) - 1 if not pd.isna(price_12m) else 0
         
@@ -223,7 +225,7 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         trend_text = "🐂 牛市 (年線向上)" if is_bull else "🐻 熊市 (年線向下)"
         trend_color = "green" if is_bull else "red"
 
-        # 資訊列
+        # 資訊列 (現在 last_date 會是正確的 2025-12-16)
         st.info(f"📅 **最新數據日期**: {last_date.strftime('%Y-%m-%d')} | **最新價**: {last_price:,.2f} | **年線狀態**: :{trend_color}[**{trend_text}**] ({curr_12m_ret:+.2%})")
 
         # 顯示 1, 3, 6, 9 月的現況卡片
