@@ -13,7 +13,7 @@ DATA_DIR = "data"
 OUTPUT_FILE = "momentum.json"
 
 # 指定要排行的標的
-TARGET_SYMBOLS = ["0050.TW", "XAUUSD=X", "QQQ", "SPY", "VT", "ACWI", "VOO", 
+TARGET_SYMBOLS = ["0050.TW", "GLD", "QQQ", "SPY", "VT", "ACWI", "VOO", 
                   "VXUS", "VEA", "VWO", "BOXX", "VTI", "BIL", "IEF", "IEI"]
 
 def load_price_from_csv(file_path):
