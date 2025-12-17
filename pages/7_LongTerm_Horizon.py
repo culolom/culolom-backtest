@@ -67,9 +67,21 @@ with col1:
     target_symbol = ETF_MAPPING[selected_name]
 
 with col2:
-    st.info("🔒 **回測架構**：固定鎖定 **持有 12 個月** 的未來表現")
+    # --- 修改後的文案 ---
+    st.info("🧪 **實驗參數設定 (Testing Conditions)**")
+    
+    st.markdown("""
+    **1. 長期定錨 (Anchor)**：
+    * 固定鎖定 **持有 12 個月** 的未來表現 (Forward 12M Return)。
+    * 用來驗證：「現在買進，抱一年後賺錢的機率是多少？」
+
+    **2. 短期變數 (Variables)**：
+    * 觀察 **1, 3, 6, 9 個月** 的漲跌變化。
+    * 用來判斷：「短線順勢追高好？還是拉回低接好？」
+    """)
+    
+    # 隱藏原本的 target_periods 顯示，因為上面已經解釋過了
     target_periods = [1, 3, 6, 9]
-    st.write(f"🛡️ **短期濾網**：{target_periods} 個月 (漲/跌)")
 
 # ------------------------------------------------------
 # 4. 主計算邏輯
