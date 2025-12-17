@@ -41,10 +41,6 @@ st.markdown("""
 
 DATA_DIR = Path("data")
 
-def get_all_csv_files():
-    if not DATA_DIR.exists(): return []
-    return sorted([f.stem for f in DATA_DIR.glob("*.csv")])
-
 def load_csv(symbol: str) -> pd.DataFrame:
     path = DATA_DIR / f"{symbol}.csv"
     if not path.exists(): return pd.DataFrame()
@@ -53,18 +49,25 @@ def load_csv(symbol: str) -> pd.DataFrame:
     elif "Close" in df.columns: df["Price"] = df["Close"]
     return df[["Price"]]
 
-csv_files = get_all_csv_files()
-if not csv_files: st.stop()
-
 # ------------------------------------------------------
-# 3. 側邊欄
+# 3. 側邊欄 (修改處：指定 ETF 選單)
 # ------------------------------------------------------
 col1, col2 = st.columns(2)
+
+# ★★★ 修改重點：定義指定的 ETF 對照表 ★★★
+ETF_MAPPING = {
+    "0050 元大台灣50": "0050.TW",
+    "006208 富邦台50": "006208.TW",
+}
+
 with col1:
-    target_symbol = st.selectbox("選擇回測標的", csv_files, index=0)
+    # 讓使用者選擇「中文名稱」
+    selected_name = st.selectbox("選擇回測標的", list(ETF_MAPPING.keys()), index=0)
+    # 根據選擇的名稱，取出對應的「代號文件名」
+    target_symbol = ETF_MAPPING[selected_name]
+
 with col2:
     st.info("🔒 **回測架構**：固定鎖定 **持有 12 個月** 的未來表現")
-    # 固定研究 1, 3, 6, 9 個月
     target_periods = [1, 3, 6, 9]
     st.write(f"🛡️ **短期濾網**：{target_periods} 個月 (漲/跌)")
 
@@ -72,9 +75,13 @@ with col2:
 # 4. 主計算邏輯
 # ------------------------------------------------------
 if st.button("開始全週期分析 🚀") and target_symbol:
-    with st.spinner("正在進行牛熊雙情境演算與現況診斷..."):
+    with st.spinner(f"正在分析 {selected_name} ({target_symbol})..."):
         df_daily = load_csv(target_symbol)
-        if df_daily.empty: st.stop()
+        
+        # 檢查檔案是否存在
+        if df_daily.empty: 
+            st.error(f"❌ 找不到 {target_symbol}.csv 檔案，請確認 data 資料夾內是否有該檔案。")
+            st.stop()
 
         try:
             df = df_daily['Price'].resample('ME').last().to_frame()
@@ -122,7 +129,7 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                         '大環境': info['group'], 
                         '短期狀態': info['type'],
                         '對照週期': f"{m}個月",
-                        '週期數值': m, # 用於排序
+                        '週期數值': m, 
                         '上漲機率': win_rate,
                         '平均漲幅': avg_ret,
                         '樣本數': count
@@ -131,11 +138,11 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         res_df = pd.DataFrame(results)
 
     # -----------------------------------------------------
-    # 5. ✨ 新增：現況戰情室 (Current Status Dashboard)
+    # 5. 現況戰情室 (Current Status Dashboard)
     # -----------------------------------------------------
     if not res_df.empty:
         st.divider()
-        st.markdown("### ♟️ 現況戰情室：歷史勝率診斷")
+        st.markdown(f"### ♟️ 現況戰情室：{selected_name}")
         st.caption("根據**最新收盤價**判斷目前狀態，並顯示該狀態在歷史上 **持有12個月** 的勝率。")
 
         # 取得最新收盤
@@ -144,14 +151,13 @@ if st.button("開始全週期分析 🚀") and target_symbol:
         
         # 判斷年線 (大環境)
         price_12m = df['Price'].shift(12).iloc[-1]
-        # 若資料不足 12 個月，給 0 防止報錯
         curr_12m_ret = (last_price / price_12m) - 1 if not pd.isna(price_12m) else 0
         
         is_bull = curr_12m_ret > 0
         trend_text = "🐂 牛市 (年線向上)" if is_bull else "🐻 熊市 (年線向下)"
         trend_color = "green" if is_bull else "red"
 
-        st.info(f"📅 **最新數據日期**: {last_date.strftime('%Y-%m-%d')} | **年線狀態**: :{trend_color}[**{trend_text}**] ({curr_12m_ret:+.2%})")
+        st.info(f"📅 **最新數據日期**: {last_date.strftime('%Y-%m-%d')} | **最新價**: {last_price:,.2f} | **年線狀態**: :{trend_color}[**{trend_text}**] ({curr_12m_ret:+.2%})")
 
         # 顯示 1, 3, 6, 9 月的現況卡片
         cols = st.columns(4)
@@ -162,7 +168,7 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                 price_m = df['Price'].shift(m).iloc[-1]
                 curr_m_ret = (last_price / price_m) - 1 if not pd.isna(price_m) else 0
                 
-                # 組合出對應的策略名稱 key，去查表
+                # 組合出對應的策略名稱 key
                 if is_bull:
                     condition = "續漲" if curr_m_ret > 0 else "回檔"
                     key_name = f"🐂 牛市 + {m}月{condition}"
@@ -178,7 +184,6 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                     win_rate = match['上漲機率'].values[0]
                     avg_ret = match['平均漲幅'].values[0]
                     
-                    # 顏色邏輯：勝率 > 60% 亮綠，< 40% 亮紅，中間橘
                     if win_rate >= 0.6: 
                         rate_color = "#00C853" # Green
                         desc = "高勝率🔥"
@@ -189,7 +194,6 @@ if st.button("開始全週期分析 🚀") and target_symbol:
                         rate_color = "#FFA000" # Orange
                         desc = "中性⚖️"
 
-                    # 漲跌幅顏色
                     chg_color = "#2962FF" if curr_m_ret > 0 else "#FF9100"
 
                     st.markdown(f"""
