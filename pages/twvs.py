@@ -7,24 +7,25 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 ###############################################################
-# 1. 頁面設定與樣式
+# 1. 頁面設定與側邊欄 (遵照指定格式)
 ###############################################################
-st.set_page_config(page_title="ETF 投資大對決 (單筆 vs DCA)", page_icon="💰", layout="wide")
+st.set_page_config(page_title="ETF 單筆 vs DCA 大對決", page_icon="⚔️", layout="wide")
 
-# 套用自定義 CSS 讓表格更漂亮
-st.markdown("""
-    <style>
-        .pk-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 16px; border-radius: 8px; overflow: hidden; }
-        .pk-table th { background-color: #262730; color: white; padding: 12px; text-align: center; }
-        .pk-table td { padding: 12px; text-align: center; border-bottom: 1px solid #eee; }
-        .metric-label { text-align: left !important; font-weight: bold; background-color: #f8f9fb; }
-        .winner { color: #f63366; font-weight: bold; }
-        .trophy { margin-left: 5px; }
-    </style>
-""", unsafe_allow_html=True)
+with st.sidebar:
+    st.page_link("Home.py", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+
+st.markdown(
+    "<h1 style='margin-bottom:0.5em;'>📊 ETF 單筆投入 vs 定期定額回測大對決</h1>",
+    unsafe_allow_html=True,
+)
 
 ###############################################################
-# 2. 資料庫與工具函式
+# 2. 資料與工具函式
 ###############################################################
 DATA_DIR = Path("data")
 ETF_OPTIONS = {
@@ -44,167 +45,161 @@ def load_csv(symbol: str) -> pd.DataFrame:
     df = df.sort_index()
     return df[["Close"]].rename(columns={"Close": "Price"})
 
-def calculate_dca(price_series, monthly_investment):
-    """計算定期定額邏輯"""
-    # 取得每個月第一個交易日
-    monthly_prices = price_series.resample('MS').first()
-    shares = 0
-    total_invested = 0
-    portfolio_values = []
+def calc_risk_metrics(returns):
+    """計算年化波動、夏普、索提諾"""
+    if returns.empty: return 0, 0, 0
+    vol = returns.std() * np.sqrt(252)
+    sharpe = (returns.mean() / returns.std()) * np.sqrt(252) if returns.std() != 0 else 0
     
-    # 建立一個與日線對齊的持股數 Series
+    downside_returns = returns[returns < 0]
+    sortino = (returns.mean() / downside_returns.std()) * np.sqrt(252) if not downside_returns.empty and downside_returns.std() != 0 else 0
+    return vol, sharpe, sortino
+
+def calculate_dca(price_series, monthly_investment):
+    """計算定期定額"""
+    monthly_prices = price_series.resample('MS').first()
+    current_shares = 0
+    total_invested = 0
     daily_shares = pd.Series(0.0, index=price_series.index)
     
-    current_shares = 0
-    for dateInSeries in price_series.index:
-        # 如果是該月的第一個交易日(且在日線中存在)
-        if dateInSeries in monthly_prices.index:
-            buy_price = price_series.loc[dateInSeries]
-            new_shares = monthly_investment / buy_price
-            current_shares += new_shares
+    for date in price_series.index:
+        if date in monthly_prices.index:
+            buy_price = price_series.loc[date]
+            current_shares += (monthly_investment / buy_price)
             total_invested += monthly_investment
-        
-        daily_shares.loc[dateInSeries] = current_shares
+        daily_shares.loc[date] = current_shares
     
-    equity_curve = daily_shares * price_series
-    return equity_curve, total_invested
+    equity = daily_shares * price_series
+    return equity, total_invested
 
 ###############################################################
-# 3. 側邊欄輸入
+# 3. 主頁面參數設定區 (取代原本側邊欄)
 ###############################################################
-with st.sidebar:
-    st.header("⚙️ 回測設定")
-    selected_names = st.multiselect("選擇對決標的 (最多4筆)", list(ETF_OPTIONS.keys()), default=list(ETF_OPTIONS.keys())[:2])
+with st.expander("🛠️ 回測參數設定", expanded=True):
+    col_a, col_b = st.columns(2)
+    with col_a:
+        selected_names = st.multiselect("選擇對決標的 (最多4筆)", list(ETF_OPTIONS.keys()), default=list(ETF_OPTIONS.keys())[:2])
+    with col_b:
+        invest_mode = st.radio("投資模式", ["單筆投入 (Lump Sum)", "定期定額 (DCA)"], horizontal=True)
+
+    col_c, col_d, col_e = st.columns(3)
+    with col_c:
+        if invest_mode == "單筆投入 (Lump Sum)":
+            capital_input = st.number_input("投入本金 (元)", value=100000, step=10000)
+        else:
+            capital_input = st.number_input("每月投入金額 (元)", value=10000, step=1000)
     
+    # 預先抓取時間範圍
+    all_dates = []
+    if selected_names:
+        for name in selected_names:
+            df_temp = load_csv(ETF_OPTIONS[name])
+            if not df_temp.empty:
+                all_dates.append(df_temp.index.min())
+                all_dates.append(df_temp.index.max())
+    
+    if all_dates:
+        min_d, max_d = min(all_dates), max(all_dates)
+        with col_d:
+            start_date = st.date_input("開始日期", value=min_d, min_value=min_d, max_value=max_d)
+        with col_e:
+            end_date = st.date_input("結束日期", value=max_d, min_value=min_d, max_value=max_d)
+    
+    run_btn = st.button("開始回測大對決 🚀", use_container_width=True)
+
+###############################################################
+# 4. 回測執行與呈現
+###############################################################
+if run_btn and selected_names:
     if len(selected_names) > 4:
-        st.error("❌ 超過 4 筆標的會導致表格太擠，請減少選取。")
+        st.error("⚠️ 標的多於 4 筆會使表格顯示過擠，請重新選取。")
         st.stop()
-        
-    invest_mode = st.radio("投資模式", ["單筆投入 (Lump Sum)", "定期定額 (DCA)"])
-    
-    if invest_mode == "單筆投入 (Lump Sum)":
-        initial_capital = st.number_input("投入本金 (元)", 10000, 10000000, 100000, 10000)
-        monthly_fund = 0
-    else:
-        monthly_fund = st.number_input("每月投入金額 (元)", 1000, 1000000, 10000, 1000)
-        initial_capital = 0
 
-    st.divider()
-    run_button = st.button("開始回測大對決 🚀", use_container_width=True)
-
-###############################################################
-# 4. 主程式執行
-###############################################################
-st.title("📊 ETF 單筆 vs DCA 績效大對決")
-
-if run_button and selected_names:
-    all_dfs = []
+    all_dfs = {}
     for name in selected_names:
         df = load_csv(ETF_OPTIONS[name])
         if not df.empty:
-            all_dfs.append(df.rename(columns={"Price": name}))
-    
-    if not all_dfs:
-        st.error("找不到資料檔案，請確認 data 資料夾內有對應的 CSV。")
-        st.stop()
+            all_dfs[name] = df.loc[str(start_date):str(end_date)]
 
-    # 取得共同的時間區間
-    df_combined = pd.concat(all_dfs, axis=1).dropna()
-    start_date = df_combined.index.min()
-    end_date = df_combined.index.max()
+    # 取得共同交集區間
+    common_index = None
+    for df in all_dfs.values():
+        if common_index is None:
+            common_index = df.index
+        else:
+            common_index = common_index.intersection(df.index)
     
-    st.info(f"📅 回測區間：{start_date.date()} ~ {end_date.date()} (共計 {(end_date-start_date).days // 365} 年)")
+    if common_index is None or common_index.empty:
+        st.error("❌ 所選標的在選定時間內沒有共同交易資料。")
+        st.stop()
 
     results = {}
     fig_equity = go.Figure()
 
     for name in selected_names:
-        prices = df_combined[name]
+        prices = all_dfs[name].loc[common_index, "Price"]
+        daily_returns = prices.pct_change().fillna(0)
         
         if invest_mode == "單筆投入 (Lump Sum)":
-            # 單筆投入計算
-            shares = initial_capital / prices.iloc[0]
-            equity = prices * shares
-            cost = initial_capital
+            equity = (prices / prices.iloc[0]) * capital_input
+            cost = capital_input
         else:
-            # 定期定額計算
-            equity, cost = calculate_dca(prices, monthly_fund)
+            equity, cost = calculate_dca(prices, capital_input)
         
-        # 指標計算
-        final_value = equity.iloc[-1]
-        total_return = (final_value / cost) - 1
+        # 績效計算
+        final_val = equity.iloc[-1]
+        total_ret = (final_val / cost) - 1
+        years = (common_index[-1] - common_index[0]).days / 365.25
+        cagr = (final_val / cost)**(1/years) - 1 if years > 0 else 0
         mdd = (equity / equity.cummax() - 1).min()
         
-        # 年化報酬 (CAGR)
-        years = (end_date - start_date).days / 365.25
-        cagr = (final_value / cost)**(1/years) - 1 if years > 0 else 0
+        # 風險指標
+        vol, sharpe, sortino = calc_risk_metrics(daily_returns)
         
         results[name] = {
             "累積投入本金": cost,
-            "期末資產市值": final_value,
-            "總報酬率": total_return,
+            "期末資產市值": final_val,
+            "總報酬率": total_ret,
             "年化報酬率 (CAGR)": cagr,
+            "年化波動率": vol,
+            "夏普值 (Sharpe)": sharpe,
+            "索提諾值 (Sortino)": sortino,
             "最大回撤 (MDD)": mdd,
         }
-        
         fig_equity.add_trace(go.Scatter(x=equity.index, y=equity, name=name))
 
-    # 畫圖
-    fig_equity.update_layout(
-        title=f"資產增長曲線 ({invest_mode})",
-        template="plotly_white",
-        hovermode="x unified",
-        yaxis_title="資產價值 (TWD)",
-        height=500
-    )
     st.plotly_chart(fig_equity, use_container_width=True)
 
-    ###############################################################
-    # 5. PK 表格渲染
-    ###############################################################
+    # 5. PK 表格
     st.subheader("🏆 績效指標大對決")
-    
-    # 定義指標與格式
-    metrics = {
+    metrics_def = {
         "累積投入本金": {"fmt": lambda x: f"{x:,.0f} 元", "invert": False},
         "期末資產市值": {"fmt": lambda x: f"{x:,.0f} 元", "invert": False},
         "總報酬率": {"fmt": lambda x: f"{x:.2%}", "invert": False},
         "年化報酬率 (CAGR)": {"fmt": lambda x: f"{x:.2%}", "invert": False},
-        "最大回撤 (MDD)": {"fmt": lambda x: f"{x:.2%}", "invert": True}, # 越小(越接近0)越好
+        "年化波動率": {"fmt": lambda x: f"{x:.2%}", "invert": True},
+        "夏普值 (Sharpe)": {"fmt": lambda x: f"{x:.2f}", "invert": False},
+        "索提諾值 (Sortino)": {"fmt": lambda x: f"{x:.2f}", "invert": False},
+        "最大回撤 (MDD)": {"fmt": lambda x: f"{x:.2%}", "invert": True},
     }
 
-    html_table = '<table class="pk-table"><thead><tr><th class="metric-label">指標 / 標的</th>'
-    for name in selected_names:
-        html_table += f'<th>{name}</th>'
-    html_table += '</tr></thead><tbody>'
+    html = '<style>.pk-t { width:100%; border-collapse:collapse; } .pk-t th { background:#262730; color:white; padding:10px; } .pk-t td { border-bottom:1px solid #eee; padding:10px; text-align:center; } .m-label { background:#f8f9fb; text-align:left !important; font-weight:bold; } .win { color:#f63366; font-weight:bold; }</style>'
+    html += '<table class="pk-t"><thead><tr><th class="m-label">指標 / 標的</th>'
+    for name in selected_names: html += f'<th>{name}</th>'
+    html += '</tr></thead><tbody>'
 
-    for m_name, config in metrics.items():
-        html_table += f'<tr><td class="metric-label">{m_name}</td>'
-        
-        # 找出該列贏家
-        current_values = [results[n][m_name] for n in selected_names]
-        if config["invert"]:
-            winner_val = max(current_values) # MDD 是負數，max 是最接近 0 的
-        else:
-            winner_val = max(current_values)
-            
-        for name in selected_names:
-            val = results[name][m_name]
-            is_winner = (val == winner_val and len(selected_names) > 1)
-            display = config["fmt"](val)
-            
-            if is_winner:
-                html_table += f'<td><span class="winner">{display} <span class="trophy">🏆</span></span></td>'
-            else:
-                html_table += f'<td>{display}</td>'
-        html_table += '</tr>'
-
-    html_table += '</tbody></table>'
-    st.write(html_table, unsafe_allow_html=True)
-
-    st.caption(f"註：回測數據對齊至所有標的之共同交易日。定期定額設定為每月第一個交易日扣款。")
+    for m, cfg in metrics_def.items():
+        vals = [results[n][m] for n in selected_names]
+        best = min(vals) if cfg["invert"] else max(vals)
+        html += f'<tr><td class="m-label">{m}</td>'
+        for n in selected_names:
+            v = results[n][m]
+            is_win = (v == best and len(selected_names) > 1)
+            display = cfg["fmt"](v)
+            html += f'<td><span class="{"win" if is_win else ""}">{display}{" 🏆" if is_win else ""}</span></td>'
+        html += '</tr>'
+    html += '</tbody></table>'
+    st.write(html, unsafe_allow_html=True)
 
 elif not selected_names:
-    st.warning("請先在左側選取要比較的標的。")
-else:
-    st.info("💡 調整參數後點擊「開始回測大對決」查看結果。")
+    st.info("請於上方設定標的與日期後，點擊「開始回測大對決」。")
