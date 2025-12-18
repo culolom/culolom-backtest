@@ -262,57 +262,8 @@ if submitted:
             fig_price.add_trace(go.Scatter(x=df.index, y=df["SMA_Lev"], name=f"{lev_label} SMA", line=dict(color='red', width=2)), secondary_y=True)
             fig_price.update_layout(title_text=f"左軸: {base_label} / 右軸: {lev_label}", hovermode="x unified", height=500)
             st.plotly_chart(fig_price, use_container_width=True)
-
-            # PART B: 價格走勢 (改為歸一化起跑點)
-            st.subheader(f"📈 累計報酬走勢對照 (起點歸一化)")
             
-            # 1. 計算歸一化數值 (以第一天為基準 100)
-            # 我們使用第一行的資料作為基準
-            base_start = df["Base"].iloc[0]
-            lev_start = df["Lev"].iloc[0]
-            
-            df["Base_Idx"] = (df["Base"] / base_start) * 100
-            df["Lev_Idx"] = (df["Lev"] / lev_start) * 100
-            df["SMA_Base_Idx"] = (df["SMA_Base"] / base_start) * 100
-            df["SMA_Lev_Idx"] = (df["SMA_Lev"] / lev_start) * 100
-            
-            # 2. 繪圖 (因為起點相同，建議取消雙軸，改用單一 Y 軸更直觀)
-            fig_price = go.Figure()
-            
-            # 原型 ETF 走勢
-            fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["Base_Idx"], 
-                name=f"{base_label} (歸一化)", 
-                line=dict(color='rgba(0,0,255,0.4)', width=1.5)
-            ))
-            fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["SMA_Base_Idx"], 
-                name=f"{base_label} {sma_window}SMA", 
-                line=dict(color='blue', width=2)
-            ))
-            
-            # 槓桿 ETF 走勢
-            fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["Lev_Idx"], 
-                name=f"{lev_label} (歸一化)", 
-                line=dict(color='rgba(255,0,0,0.4)', width=1.5)
-            ))
-            fig_price.add_trace(go.Scatter(
-                x=df.index, y=df["SMA_Lev_Idx"], 
-                name=f"{lev_label} {sma_window}SMA", 
-                line=dict(color='red', width=2)
-            ))
-            
-            fig_price.update_layout(
-                title_text=f"起始基準 = 100 (顯示相對漲跌幅)",
-                xaxis_title="日期",
-                yaxis_title="指數化數值 (起始為100)",
-                hovermode="x unified",
-                height=600,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            
-            st.plotly_chart(fig_price, use_container_width=True)           
+      
 
             # PART C: 穿越統計
             st.subheader("⏱️ 穿越延遲時間統計 (Time Lag Analysis)")
