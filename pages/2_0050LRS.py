@@ -323,6 +323,65 @@ if st.button("開始回測 🚀"):
     capital_base_final = eq_base_final * capital
     trade_count_lrs = int((df["Signal"] != 0).sum())
 
+
+    st.markdown("<h3>📈 200MA 乖離率與價格趨勢</h3>", unsafe_allow_html=True)
+
+    fig_bias = go.Figure()
+    
+    # 1. [左軸] 乖離率區域圖 (與圖片顏色一致的淡藍色填充)
+    fig_bias.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["Bias_200"], 
+        name="乖離率 (左軸)", 
+        fill='tozeroy',
+        line=dict(color='rgba(100, 149, 237, 0.8)', width=1.5),
+        fillcolor='rgba(100, 149, 237, 0.1)',
+        yaxis="y1"
+    ))
+    
+    # 2. [右軸] 200 SMA (虛線)
+    fig_bias.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["MA_200"], 
+        name="200 SMA (右軸)", 
+        line=dict(color='silver', width=1.5, dash='dash'),
+        yaxis="y2"
+    ))
+    
+    # 3. [右軸] 收盤價 (橘色粗線)
+    fig_bias.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["Price_base"], 
+        name="收盤價 (右軸)", 
+        line=dict(color='#FF8C00', width=2.5),
+        yaxis="y2"
+    ))
+    
+    # 佈局設定
+    fig_bias.update_layout(
+        height=500,
+        template="plotly_white",
+        hovermode="x unified",
+        yaxis=dict(
+            title="乖離率 %",
+            ticksuffix="%",
+            side="left",
+            showgrid=True,
+            zeroline=True,
+            zerolinecolor="rgba(0,0,0,0.2)"
+        ),
+        yaxis2=dict(
+            title="價格 (元)",
+            side="right",
+            overlaying="y",
+            showgrid=False
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=10, r=10, t=30, b=10)
+    )
+    
+    st.plotly_chart(fig_bias, use_container_width=True)
+
     ###############################################################
     # ⬇⬇⬇ 以下內容完全保留（圖表 + KPI + 表格）
     ###############################################################
