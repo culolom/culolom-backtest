@@ -6,8 +6,8 @@ import streamlit as st
 import plotly.graph_objects as go
 from pathlib import Path
 
-# --- 1. 頁面設定 ---
-st.set_page_config(page_title="0050LRS 進階戰情室", page_icon="📈", layout="wide")
+# --- 1. 頁面設定與 Sidebar ---
+st.set_page_config(page_title="0050LRS 策略對照系統", page_icon="📈", layout="wide")
 
 with st.sidebar:
     st.markdown("### 🚀 導覽")
@@ -16,7 +16,7 @@ with st.sidebar:
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
 
-# --- 2. 資料處理 ---
+# --- 2. 資料讀取 ---
 ETFS = {
     "0050 元大台灣50": "0050.TW",
     "006208 富邦台50": "006208.TW",
@@ -33,10 +33,18 @@ def load_csv(symbol: str):
     df["Price"] = df["Close"]
     return df[["Price"]]
 
+# 🔒 認證 (假設已備妥)
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+try:
+    import auth 
+    if not auth.check_password(): st.stop()
+except: pass
+
 ###############################################################
-# 3. 主頁面：回測條件設定
+# 3. 主頁面：回測條件設定 (主畫面佈局)
 ###############################################################
-st.markdown("<h1 style='text-align: center;'>📊 0050LRS + 乖離套利 (修正起始邏輯版)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align: center;'>📊 三策略績效對照 (趨勢 vs 抄底套利)</h1>", unsafe_allow_html=True)
 
 with st.container(border=True):
     st.subheader("⚙️ 核心回測條件")
@@ -47,7 +55,6 @@ with st.container(border=True):
     with c2:
         capital = st.number_input("投入本金 (元)", 1000, 10_000_000, 100_000)
     with c3:
-        # 初始狀態設定
         pos_init = st.radio("初始狀態", ["一開始就全倉", "空手起跑"], horizontal=True, index=0)
 
     df_raw = load_csv(target_symbol)
@@ -71,115 +78,99 @@ with st.container(border=True):
 # 4. 核心計算邏輯
 ###############################################################
 if btn_run:
+    # 準備資料
     df = df_raw.loc[pd.to_datetime(start_d)-dt.timedelta(days=365):pd.to_datetime(end_d)].copy()
     df["MA_200"] = df["Price"].rolling(WINDOW).mean()
     df["Bias_200"] = (df["Price"] - df["MA_200"]) / df["MA_200"] * 100
     df = df.dropna(subset=["MA_200"]).loc[pd.to_datetime(start_d):pd.to_datetime(end_d)]
 
-    # --- 狀態機與訊號紀錄 ---
-    h_bias_pos = []
-    signals = [] 
+    # --- 策略並行計算 ---
+    h_lrs = []      # 策略1：標準 LRS
+    h_bias = []     # 策略2：LRS + 乖離套利
     bias_state = "normal"
     
-    # 初始化：第一天尊重使用者設定
-    current_pos = 1 if "全倉" in pos_init else 0
-    
+    # 初始化狀態 (尊重使用者選擇)
+    start_pos = 1 if "全倉" in pos_init else 0
+    curr_lrs = start_pos
+    curr_bias = start_pos
+
     for i in range(len(df)):
-        p = df["Price"].iloc[i]
-        ma = df["MA_200"].iloc[i]
-        bias = df["Bias_200"].iloc[i]
-        date = df.index[i]
+        p = df["Price"].iloc[i]; ma = df["MA_200"].iloc[i]; b = df["Bias_200"].iloc[i]
         
-        last_pos = current_pos
-        sig_type = None
+        # A. 標準 LRS 計算
+        curr_lrs = 1 if p > ma else 0
+        h_lrs.append(curr_lrs)
 
-        # ✨ 修正點：第一天不進行策略判斷，直接沿用初始設定
-        if i == 0:
-            h_bias_pos.append(current_pos)
-            continue
-
-        # 狀態機判斷 (從第二天開始)
-        if bias > bias_high:
+        # B. LRS + 乖離套利計算 (狀態機邏輯)
+        if b > bias_high:
             bias_state = "high_lock"
-            current_pos = 0
-            if last_pos == 1: sig_type = "乖離套利賣"
-        elif bias < bias_low:
+            curr_bias = 0
+        elif b < bias_low:
             bias_state = "normal"
-            current_pos = 1
-            if last_pos == 0: sig_type = "乖離抄底買"
+            curr_bias = 1
         elif bias_state == "high_lock":
-            # 必須回落到均線下方或交叉才解除鎖定
-            if bias <= 0 or p < ma:
+            # 必須等乖離回落到 0% 以下或趨勢轉空才買回
+            if b <= 0 or p < ma:
                 bias_state = "normal"
-                current_pos = 1 if p > ma else 0
-                if last_pos == 0 and current_pos == 1: sig_type = "LRS 買進(回歸)"
+                curr_bias = 1 if p > ma else 0
             else:
-                current_pos = 0 
+                curr_bias = 0 # ✨ 關鍵：這裡會產生水平線
         else:
-            # 正常 LRS 邏輯
-            current_pos = 1 if p > ma else 0
-            if last_pos == 0 and current_pos == 1: sig_type = "LRS 買進"
-            elif last_pos == 1 and current_pos == 0: sig_type = "LRS 賣出"
-            
-        h_bias_pos.append(current_pos)
-        if sig_type:
-            signals.append({"Date": date, "Price": p, "Type": sig_type})
+            curr_bias = 1 if p > ma else 0
+        h_bias.append(curr_bias)
 
-    df["Pos_Bias"] = h_bias_pos
-    df_sig = pd.DataFrame(signals).set_index("Date") if signals else pd.DataFrame()
-
-    # 績效計算
-    ret = df["Price"].pct_change().fillna(0)
-    df["Eq_BH"] = (1 + ret).cumprod()
+    df["Pos_LRS"] = h_lrs
+    df["Pos_Bias"] = h_bias
     
-    eq_bias = [1.0]
-    for i in range(1, len(df)):
-        r = (df["Price"].iloc[i] / df["Price"].iloc[i-1]) if df["Pos_Bias"].iloc[i-1] == 1 else 1.0
-        eq_bias.append(eq_bias[-1] * r)
-    df["Eq_Bias"] = eq_bias
+    # 績效計算 (D-1 訊號，D 漲跌)
+    def calc_eq(pos_list):
+        eq = [1.0]
+        for j in range(1, len(df)):
+            ret = (df["Price"].iloc[j] / df["Price"].iloc[j-1]) if pos_list[j-1] == 1 else 1.0
+            eq.append(eq[-1] * ret)
+        return eq
+
+    df["Eq_BH"] = (df["Price"] / df["Price"].iloc[0]) # 買進持有
+    df["Eq_LRS"] = calc_eq(df["Pos_LRS"])
+    df["Eq_Bias"] = calc_eq(df["Pos_Bias"])
 
     ###############################################################
     # 5. 圖表呈現
     ###############################################################
     
-    # 圖一：乖離率監控 (補上抄底線與標註)
+    # 圖一：乖離率監控 (補上抄底線與賣出標記)
     st.divider()
-    st.subheader("🎯 乖離率監測 (含高位套利/低位抄底)")
+    st.subheader("🎯 乖離率監測與策略執行界線")
     fig_bias = go.Figure()
     fig_bias.add_trace(go.Scatter(x=df.index, y=df["Bias_200"], name="乖離率 (%)", fill='tozeroy', fillcolor='rgba(100, 149, 237, 0.1)'))
     fig_bias.add_hline(y=bias_high, line_dash="dash", line_color="#FF3E3E", annotation_text="高位套利界線")
-    fig_bias.add_hline(y=bias_low, line_dash="dash", line_color="#21C354", annotation_text="低位抄底界線") # ✨ 補上抄底線
+    fig_bias.add_hline(y=bias_low, line_dash="dash", line_color="#21C354", annotation_text="低位抄底界線")
     fig_bias.update_layout(height=350, template="plotly_white", yaxis=dict(ticksuffix="%"))
     st.plotly_chart(fig_bias, use_container_width=True)
 
-    # 圖二：價格與訊號標記 (補上三角形圖示)
-    st.subheader("📌 價格走勢與執行標記")
-    fig_p = go.Figure()
-    fig_p.add_trace(go.Scatter(x=df.index, y=df["Price"], name="價格", line=dict(color='#FF8C00')))
-    fig_p.add_trace(go.Scatter(x=df.index, y=df["MA_200"], name="200SMA", line=dict(color='silver', dash='dash')))
-    
-    # ✨ 補上買賣圖示
-    if not df_sig.empty:
-        buys = df_sig[df_sig["Type"].str.contains("買")]
-        sells = df_sig[df_sig["Type"].str.contains("賣")]
-        
-        fig_p.add_trace(go.Scatter(x=buys.index, y=buys["Price"], mode="markers", name="買進訊號",
-                                 marker=dict(symbol="triangle-up", size=12, color="#21C354"),
-                                 hovertemplate="日期: %{x}<br>類型: %{text}", text=buys["Type"]))
-        
-        fig_p.add_trace(go.Scatter(x=sells.index, y=sells["Price"], mode="markers", name="賣出訊號",
-                                 marker=dict(symbol="triangle-down", size=12, color="#FF3E3E"),
-                                 hovertemplate="日期: %{x}<br>類型: %{text}", text=sells["Type"]))
-    
-    fig_p.update_layout(height=450, template="plotly_white", hovermode="x unified")
-    st.plotly_chart(fig_p, use_container_width=True)
-
-    # 圖三：累積報酬率
-    st.subheader("💰 累積報酬率比較 (%)")
+    # 圖二：三策略資金曲線比較 (這張最重要，看水平線)
+    st.subheader("💰 三策略累積報酬率比較 (%)")
     fig_e = go.Figure()
-    fig_e.add_trace(go.Scatter(x=df.index, y=df["Eq_BH"]-1, name="買入持有", line=dict(color="silver")))
+    fig_e.add_trace(go.Scatter(x=df.index, y=df["Eq_BH"]-1, name="買入持有 (B&H)", line=dict(color="silver")))
+    fig_e.add_trace(go.Scatter(x=df.index, y=df["Eq_LRS"]-1, name="標準 LRS (均線)", line=dict(color="#C084FC", dash="dash")))
     fig_e.add_trace(go.Scatter(x=df.index, y=df["Eq_Bias"]-1, name="LRS + 乖離套利", line=dict(color="#7C3AED", width=3)))
-    fig_e.update_layout(height=450, template="plotly_white", yaxis_tickformat=".1%", hovermode="x unified")
+    
+    # 標註買賣訊號點 (僅針對 Bias 策略)
+    df["Sig_Diff"] = df["Pos_Bias"].diff()
+    buys = df[df["Sig_Diff"] == 1]
+    sells = df[df["Sig_Diff"] == -1]
+    fig_e.add_trace(go.Scatter(x=buys.index, y=df.loc[buys.index, "Eq_Bias"]-1, mode="markers", name="買進點", marker=dict(symbol="triangle-up", size=10, color="green")))
+    fig_e.add_trace(go.Scatter(x=sells.index, y=df.loc[sells.index, "Eq_Bias"]-1, mode="markers", name="賣出點", marker=dict(symbol="triangle-down", size=10, color="red")))
+
+    fig_e.update_layout(height=500, template="plotly_white", yaxis_tickformat=".1%", hovermode="x unified")
     st.plotly_chart(fig_e, use_container_width=True)
 
-    st.success(f"回測完成！初始狀態：{pos_init}。第一天 (2020-12-18) 的乖離率約為 {df['Bias_200'].iloc[0]:.2f}%。")
+    # 績效總結
+    def get_mdd(eq): return (1 - eq / eq.cummax()).max()
+    res_data = {
+        "策略名稱": ["買進持有", "標準 LRS", "LRS + 乖離套利"],
+        "總報酬率": [f"{(df['Eq_BH'].iloc[-1]-1):.2%}", f"{(df['Eq_LRS'].iloc[-1]-1):.2%}", f"{(df['Eq_Bias'].iloc[-1]-1):.2%}"],
+        "最大回撤 (MDD)": [f"{get_mdd(df['Eq_BH']):.2%}", f"{get_mdd(df['Eq_LRS']):.2%}", f"{get_mdd(df['Eq_Bias']):.2%}"],
+        "期末淨資產": [f"{df['Eq_BH'].iloc[-1]*capital:,.0f}", f"{df['Eq_LRS'].iloc[-1]*capital:,.0f}", f"{df['Eq_Bias'].iloc[-1]*capital:,.0f}"]
+    }
+    st.table(pd.DataFrame(res_data))
