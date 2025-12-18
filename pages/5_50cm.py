@@ -15,6 +15,7 @@ ETF_MAPPING = {
     "🇹🇼 台股 - 0050 (元大台灣50)": {"symbol": "0050.TW", "lev": "00631L.TW"},
     "🇺🇸 美股 - QQQ (納斯達克100)": {"symbol": "QQQ", "lev": "TQQQ"},
     "🇺🇸 美股 - SPY (標普500)": {"symbol": "SPY", "lev": "UPRO"}
+    "比特幣": {"symbol": "BTC-USD", "lev": "BTC-USD"}
 }
 
 @st.cache_data(ttl=3600)
