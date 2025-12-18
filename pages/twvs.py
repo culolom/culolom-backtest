@@ -169,9 +169,9 @@ if run_btn and selected_names:
         fig_equity.add_trace(go.Scatter(x=equity.index, y=equity, name=name))
 
     st.plotly_chart(fig_equity, use_container_width=True)
-
-    # 5. PK 表格
+    # 5. PK 表格渲染與樣式優化
     st.subheader("🏆 績效指標大對決")
+    
     metrics_def = {
         "累積投入本金": {"fmt": lambda x: f"{x:,.0f} 元", "invert": False},
         "期末資產市值": {"fmt": lambda x: f"{x:,.0f} 元", "invert": False},
@@ -183,23 +183,82 @@ if run_btn and selected_names:
         "最大回撤 (MDD)": {"fmt": lambda x: f"{x:.2%}", "invert": True},
     }
 
-    html = '<style>.pk-t { width:100%; border-collapse:collapse; } .pk-t th { background:#262730; color:white; padding:10px; } .pk-t td { border-bottom:1px solid #eee; padding:10px; text-align:center; } .m-label { background:#f8f9fb; text-align:left !important; font-weight:bold; } .win { color:#f63366; font-weight:bold; }</style>'
+    # 計算欄位寬度
+    col_count = len(selected_names)
+    data_col_width = 80 / col_count if col_count > 0 else 80
+
+    html = f"""
+    <style>
+        .pk-t {{
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed; /* 強制固定比例佈局 */
+            font-family: "Noto Sans TC", sans-serif;
+        }}
+        .pk-t th {{
+            background: #262730;
+            color: white;
+            padding: 12px 8px;
+            font-size: 14px;
+        }}
+        .pk-t td {{
+            border-bottom: 1px solid #eee;
+            padding: 14px 8px;
+            text-align: center;
+            font-size: 15px;
+            word-break: break-word;
+        }}
+        /* 指標名稱欄位：佔 20%，文字左對齊 */
+        .m-label {{
+            background: #f8f9fb;
+            text-align: left !important;
+            font-weight: bold;
+            width: 20%; 
+            white-space: nowrap; /* 強制不換行 */
+            padding-left: 15px !important;
+        }}
+        /* 數據欄位：平分剩餘 80% */
+        .data-col {{
+            width: {data_col_width}%;
+        }}
+        .win {{
+            color: #f63366;
+            font-weight: bold;
+        }}
+        .trophy-icon {{
+            margin-left: 4px;
+        }}
+    </style>
+    """
+    
     html += '<table class="pk-t"><thead><tr><th class="m-label">指標 / 標的</th>'
-    for name in selected_names: html += f'<th>{name}</th>'
+    for name in selected_names: 
+        html += f'<th class="data-col">{name}</th>'
     html += '</tr></thead><tbody>'
 
     for m, cfg in metrics_def.items():
         vals = [results[n][m] for n in selected_names]
-        best = min(vals) if cfg["invert"] else max(vals)
+        
+        # 判定贏家邏輯
+        if cfg["invert"]:
+            best = max(vals) # MDD 是負數，越接近 0 越大 (風險越低)；波動率之後需確認邏輯，通常是越小越好
+            # 如果是年化波動率，通常數值越小越好，若要改成越小越好請改為 min(vals)
+            if m == "年化波動率":
+                best = min(vals)
+        else:
+            best = max(vals)
+            
         html += f'<tr><td class="m-label">{m}</td>'
         for n in selected_names:
             v = results[n][m]
             is_win = (v == best and len(selected_names) > 1)
             display = cfg["fmt"](v)
-            html += f'<td><span class="{"win" if is_win else ""}">{display}{" 🏆" if is_win else ""}</span></td>'
+            
+            if is_win:
+                html += f'<td><span class="win">{display}<span class="trophy-icon">🏆</span></span></td>'
+            else:
+                html += f'<td>{display}</td>'
         html += '</tr>'
+    
     html += '</tbody></table>'
     st.write(html, unsafe_allow_html=True)
-
-elif not selected_names:
-    st.info("請於上方設定標的與日期後，點擊「開始回測大對決」。")
