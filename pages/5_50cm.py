@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — ETF SMA 策略戰情室 (整合圖表版)
+# app.py — ETF SMA 策略戰情室 (圖例與標籤修復版)
 ###############################################################
 
 import streamlit as st
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 # 1. 頁面設定
 st.set_page_config(
-    page_title="ETF SMA 戰情室 (整合版)",
+    page_title="ETF SMA 戰情室 (修復版)",
     layout="wide",
 )
 
@@ -92,7 +92,7 @@ with st.spinner("正在偵測可回測區間..."):
     min_date, max_date = get_common_date_range(proto_symbol, lev_symbol)
 
 if not min_date:
-    st.error("❌ 無法抓取標的資料。")
+    st.error("❌ 無法抓取標的資料，請檢查網路或代號。")
     st.stop()
 
 # ===============================================================
@@ -127,61 +127,93 @@ with st.form("param_form"):
     submitted = st.form_submit_button("🚀 開始量化回測", use_container_width=True)
 
 # ===============================================================
-# 資料處理與繪圖
+# 資料處理與繪圖核心
 # ===============================================================
 @st.cache_data
 def load_analysis_data(start, end, p_sym, l_sym):
     raw = yf.download([p_sym, l_sym], start=start, end=end, auto_adjust=False, progress=False)
     if raw.empty: return None
-    target = "Adj Close" if "Adj Close" in raw.columns.get_level_values(0) else "Close"
-    df = raw[target].copy()
-    df = df.rename(columns={p_sym: "Base", l_sym: "Lev"}).dropna()
+    # 處理 MultiIndex columns
+    try:
+        target = "Adj Close" if "Adj Close" in raw.columns.get_level_values(0) else "Close"
+        df = raw[target].copy()
+    except KeyError:
+         # Fallback if structure is different
+        df = raw.xs("Close", axis=1, level=0, drop_level=True) if "Close" in raw.columns else raw
+
+    # 重新命名欄位以便識別
+    cols_map = {p_sym: "Base", l_sym: "Lev"}
+    # 防止 yfinance 返回的 column 名稱帶有額外資訊導致對應失敗
+    actual_cols = {col: cols_map[col] for col in df.columns if col in cols_map}
+    if len(actual_cols) < 2: return None # 確保抓到兩個標的
+
+    df = df.rename(columns=actual_cols)[["Base", "Lev"]]
+    df = df.dropna()
     return df
 
 if submitted:
-    df = load_analysis_data(start_date, end_date, proto_symbol, lev_symbol)
-    
-    if df is not None and not df.empty:
-        base_label = selected_proto_name.split(" ")[2]
-        lev_label = selected_lev_name.split(" ")[0]
-
-        # 計算指標
-        df["SMA_Base"] = df["Base"].rolling(sma_window).mean()
-        df["SMA_Lev"] = df["Lev"].rolling(sma_window).mean()
-        df["Gap_Base"] = (df["Base"] - df["SMA_Base"]) / df["SMA_Base"]
-        df["Gap_Lev"] = (df["Lev"] - df["SMA_Lev"]) / df["SMA_Lev"]
-        df = df.dropna()
-
-        # 建立上下子圖
-        fig = make_subplots(
-            rows=2, cols=1, 
-            shared_xaxes=True, 
-            vertical_spacing=0.08,
-            subplot_titles=(f"📈 SMA Gap% 乖離率比較 ({sma_window}SMA)", "📉 價格與均線走勢對照"),
-            specs=[[{"secondary_y": False}], [{"secondary_y": True}]]
-        )
-
-        # 上圖：Gap%
-        fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Base"], name=f"{base_label} Gap%", line=dict(color='blue', width=1.5)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Lev"], name=f"{lev_label} Gap%", line=dict(color='red', width=1.5)), row=1, col=1)
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=1, col=1)
-
-        # 下圖：Price (左軸 Base, 右軸 Lev)
-        fig.add_trace(go.Scatter(x=df.index, y=df["Base"], name=f"{base_label} 價格", line=dict(color='rgba(0,0,255,0.3)', width=1)), row=2, col=1, secondary_y=False)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Base"], name=f"{base_label} SMA", line=dict(color='blue', width=2)), row=2, col=1, secondary_y=False)
+    with st.spinner("正在計算與繪圖..."):
+        df = load_analysis_data(start_date, end_date, proto_symbol, lev_symbol)
         
-        fig.add_trace(go.Scatter(x=df.index, y=df["Lev"], name=f"{lev_label} 價格", line=dict(color='rgba(255,0,0,0.3)', width=1)), row=2, col=1, secondary_y=True)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Lev"], name=f"{lev_label} SMA", line=dict(color='red', width=2)), row=2, col=1, secondary_y=True)
+        if df is not None and not df.empty:
+            # --- [修正1: 改用代號作為標籤] ---
+            # 直接使用代號，並移除 .TW 以保持簡潔，這樣最準確
+            base_label = proto_symbol.replace(".TW", "")
+            lev_label = lev_symbol.replace(".TW", "")
 
-        # 佈局優化
-        fig.update_layout(height=800, hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-        fig.update_yaxes(title_text="乖離率 %", tickformat=".1%", row=1, col=1)
-        fig.update_yaxes(title_text=f"價格 ({base_label})", row=2, col=1, secondary_y=False)
-        fig.update_yaxes(title_text=f"價格 ({lev_label})", row=2, col=1, secondary_y=True)
+            # 計算指標
+            df["SMA_Base"] = df["Base"].rolling(sma_window).mean()
+            df["SMA_Lev"] = df["Lev"].rolling(sma_window).mean()
+            df["Gap_Base"] = (df["Base"] - df["SMA_Base"]) / df["SMA_Base"]
+            df["Gap_Lev"] = (df["Lev"] - df["SMA_Lev"]) / df["SMA_Lev"]
+            df = df.dropna()
 
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.error("❌ 資料獲取失敗。")
+            # 建立上下子圖
+            fig = make_subplots(
+                rows=2, cols=1, 
+                shared_xaxes=True, 
+                vertical_spacing=0.08,
+                subplot_titles=(f"📈 SMA Gap% 乖離率比較 ({sma_window}SMA)", "📉 價格與均線走勢對照"),
+                specs=[[{"secondary_y": False}], [{"secondary_y": True}]]
+            )
+
+            # 上圖：Gap% (第一列)
+            fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Base"], name=f"{base_label} Gap%", line=dict(color='blue', width=1.5)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Lev"], name=f"{lev_label} Gap%", line=dict(color='red', width=1.5)), row=1, col=1)
+            fig.add_hline(y=0, line_dash="dash", line_color="gray", row=1, col=1)
+
+            # 下圖：Price (第二列，左軸 Base, 右軸 Lev)
+            fig.add_trace(go.Scatter(x=df.index, y=df["Base"], name=f"{base_label} 價格", line=dict(color='rgba(0,0,255,0.3)', width=1)), row=2, col=1, secondary_y=False)
+            fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Base"], name=f"{base_label} SMA", line=dict(color='blue', width=2)), row=2, col=1, secondary_y=False)
+            
+            fig.add_trace(go.Scatter(x=df.index, y=df["Lev"], name=f"{lev_label} 價格", line=dict(color='rgba(255,0,0,0.3)', width=1)), row=2, col=1, secondary_y=True)
+            fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Lev"], name=f"{lev_label} SMA", line=dict(color='red', width=2)), row=2, col=1, secondary_y=True)
+
+            # --- [修正2: 優化圖例位置] ---
+            fig.update_layout(
+                height=750, 
+                hovermode="x unified", 
+                # 將圖例改為垂直 (v)，並移到右側外部 (x=1.02)
+                legend=dict(
+                    orientation="v", 
+                    yanchor="top", 
+                    y=1, 
+                    xanchor="left", 
+                    x=1.02,
+                    bgcolor="rgba(255,255,255,0.8)", # 增加一點背景色增加可讀性
+                    bordercolor="LightGrey",
+                    borderwidth=1
+                )
+            )
+            
+            # 設定座標軸標題
+            fig.update_yaxes(title_text="乖離率 %", tickformat=".1%", row=1, col=1)
+            fig.update_yaxes(title_text=f"{base_label} 價格", row=2, col=1, secondary_y=False)
+            fig.update_yaxes(title_text=f"{lev_label} 價格", row=2, col=1, secondary_y=True, showgrid=False) # 右軸不顯示網格以免混亂
+
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.error("❌ 資料獲取失敗或是資料不足以計算均線。")
 
 else:
-    st.info("👆 請設定參數並點擊「開始量化回測」")
+    st.info("👆 請設定參數並點擊「🚀 開始量化回測」")
