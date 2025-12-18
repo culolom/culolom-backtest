@@ -7,7 +7,7 @@ from plotly.subplots import make_subplots
 
 # 1. 頁面設定
 st.set_page_config(
-    page_title="ETF 量化並行分析戰情室",
+    page_title="ETF 量化聯動分析戰情室",
     layout="wide",
 )
 
@@ -55,6 +55,7 @@ def get_data(p_sym, l_sym, start):
     ext_start = pd.to_datetime(start) - pd.DateOffset(years=2)
     df = yf.download([p_sym, l_sym], start=ext_start, progress=False)
     if df.empty: return None
+    # 處理可能的多重索引或單一索引
     df = df['Adj Close'] if 'Adj Close' in df.columns else df['Close']
     return df.rename(columns={p_sym: "Base", l_sym: "Lev"}).dropna()
 
@@ -62,7 +63,7 @@ with st.form("control_panel"):
     c1, c2, c3 = st.columns(3)
     with c1: start_date = st.date_input("分析開始日期", pd.to_datetime("2020-01-01"))
     with c2: sma_window = st.number_input("SMA 週期", 10, 500, 200)
-    with c3: chart_height = st.slider("圖表總高度", 800, 2500, 1200)
+    with c3: chart_height = st.slider("圖表總高度", 600, 2000, 1000)
     submitted = st.form_submit_button("🚀 執行聯動回測", use_container_width=True)
 
 if submitted:
@@ -77,58 +78,62 @@ if submitted:
         df_raw["Ret12M_Base"] = df_raw["Base"].pct_change(periods=252) * 100
         df_raw["Ret12M_Lev"] = df_raw["Lev"].pct_change(periods=252) * 100
         
-        # 裁切回使用者選取區間
+        # 裁切回使用者選取區區間
         df = df_raw.loc[pd.to_datetime(start_date):].copy()
-        b0, l0 = df["Base"].iloc[0], df["Lev"].iloc[0]
         base_name = selected_proto.split(" ")[2]
         lev_name = selected_lev.split(" ")[0]
 
         # ===============================================================
-        # 核心：建立 4 層子圖 (Subplots)
+        # 建立 3 層子圖 (Subplots) - 已移除累積報酬圖
         # ===============================================================
         fig = make_subplots(
-            rows=4, cols=1,
-            shared_xaxes=True,           # 關鍵：共享 X 軸
-            vertical_spacing=0.05,       # 子圖間距
+            rows=3, cols=1,
+            shared_xaxes=True,           # 共享 X 軸縮放
+            vertical_spacing=0.07,       # 子圖間距
             subplot_titles=(
                 f"1. {sma_window}SMA 乖離率 (Gap %)", 
-                "2. 絕對價格與均線 (雙軸)", 
-                "3. 累計報酬對齊 (起始=100)", 
-                "4. 近 12 個月滾動報酬率 (%)"
+                "2. 絕對價格與均線對照 (雙軸)", 
+                "3. 近 12 個月滾動報酬率 (%)"
             ),
+            # 設定每一層的軸類型 (第二層與第三層需要雙軸支援)
             specs=[[{"secondary_y": False}], 
                    [{"secondary_y": True}], 
-                   [{"secondary_y": False}], 
                    [{"secondary_y": True}]]
         )
 
-        # Row 1: Gap %
+        # --- Row 1: Gap % ---
         fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Base"], name=f"{base_name} Gap%", line=dict(color='blue')), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Lev"], name=f"{lev_name} Gap%", line=dict(color='red')), row=1, col=1)
         fig.add_hline(y=0, line_dash="dash", line_color="black", row=1, col=1)
 
-        # Row 2: Price & SMA (Dual Y)
-        fig.add_trace(go.Scatter(x=df.index, y=df["Base"], name=f"{base_name} 價", opacity=0.3, line=dict(color='blue')), row=2, col=1, secondary_y=False)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Base"], name=f"{base_name} SMA", line=dict(color='blue', width=2)), row=2, col=1, secondary_y=False)
-        fig.add_trace(go.Scatter(x=df.index, y=df["Lev"], name=f"{lev_name} 價", opacity=0.3, line=dict(color='red')), row=2, col=1, secondary_y=True)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Lev"], name=f"{lev_name} SMA", line=dict(color='red', width=2)), row=2, col=1, secondary_y=True)
+        # --- Row 2: Price & SMA (Dual Y) ---
+        fig.add_trace(go.Scatter(x=df.index, y=df["Base"], name=f"{base_name} 收盤價", opacity=0.3, line=dict(color='blue', width=1)), row=2, col=1, secondary_y=False)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Base"], name=f"{base_name} SMA", line=dict(color='blue', width=2.5)), row=2, col=1, secondary_y=False)
+        fig.add_trace(go.Scatter(x=df.index, y=df["Lev"], name=f"{lev_name} 收盤價", opacity=0.3, line=dict(color='red', width=1)), row=2, col=1, secondary_y=True)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Lev"], name=f"{lev_name} SMA", line=dict(color='red', width=2.5)), row=2, col=1, secondary_y=True)
 
-        # Row 3: Normalized Growth
-        fig.add_trace(go.Scatter(x=df.index, y=(df["Base"]/b0)*100, name=f"{base_name} 累計", line=dict(color='blue')), row=3, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=(df["Lev"]/l0)*100, name=f"{lev_name} 累計", line=dict(color='red')), row=3, col=1)
+        # --- Row 3: 12M Return (Dual Y) ---
+        fig.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Base"], name=f"{base_name} 12M 報酬", line=dict(color='blue', dash='dot')), row=3, col=1, secondary_y=False)
+        fig.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Lev"], name=f"{lev_name} 12M 報酬", line=dict(color='red')), row=3, col=1, secondary_y=True)
+        fig.add_hline(y=0, line_dash="dash", line_color="black", row=3, col=1)
 
-        # Row 4: 12M Return (Dual Y)
-        fig.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Base"], name=f"{base_name} 12M%", line=dict(color='blue', dash='dot')), row=4, col=1, secondary_y=False)
-        fig.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Lev"], name=f"{lev_name} 12M%", line=dict(color='red')), row=4, col=1, secondary_y=True)
-        fig.add_hline(y=0, line_dash="dash", line_color="black", row=4, col=1)
-
-        # 佈局美化
-        fig.update_layout(height=chart_height, hovermode="x unified", showlegend=True)
-        fig.update_yaxes(tickformat=".1%", row=1, col=1)
-        fig.update_yaxes(title_text="價格(左)", row=2, col=1, secondary_y=False)
-        fig.update_yaxes(title_text="價格(右)", row=2, col=1, secondary_y=True)
-        fig.update_yaxes(title_text="指數(起點100)", row=3, col=1)
-        fig.update_yaxes(title_text="報酬%(左)", row=4, col=1, secondary_y=False)
-        fig.update_yaxes(title_text="報酬%(右)", row=4, col=1, secondary_y=True)
+        # ===============================================================
+        # 佈局與軸設定
+        # ===============================================================
+        fig.update_layout(height=chart_height, hovermode="x unified", showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        
+        # 格式化
+        fig.update_yaxes(tickformat=".1%", title_text="乖離率 %", row=1, col=1)
+        
+        fig.update_yaxes(title_text=f"{base_name} 價格", row=2, col=1, secondary_y=False)
+        fig.update_yaxes(title_text=f"{lev_name} 價格", row=2, col=1, secondary_y=True)
+        
+        fig.update_yaxes(title_text=f"{base_name} 報酬 %", row=3, col=1, secondary_y=False)
+        fig.update_yaxes(title_text=f"{lev_name} 報酬 %", row=3, col=1, secondary_y=True)
 
         st.plotly_chart(fig, use_container_width=True)
+        
+        st.caption("💡 提示：您可以點擊圖例開啟/關閉特定線條，或使用滑鼠在圖表上框選區域進行縮放，三張圖會同步聯動。")
+
+else:
+    st.info("👆 請於上方設定參數並點擊執行按鈕，開始多維度聯動分析。")
