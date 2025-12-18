@@ -169,7 +169,8 @@ if run_btn and selected_names:
         fig_equity.add_trace(go.Scatter(x=equity.index, y=equity, name=name))
 
     st.plotly_chart(fig_equity, use_container_width=True)
-    # 5. PK 表格渲染與樣式優化
+
+    # 5. PK 表格渲染與樣式優化 (強制全置中版本)
     st.subheader("🏆 績效指標大對決")
     
     metrics_def = {
@@ -183,7 +184,7 @@ if run_btn and selected_names:
         "最大回撤 (MDD)": {"fmt": lambda x: f"{x:.2%}", "invert": True},
     }
 
-    # 計算欄位寬度
+    # 計算欄位寬度：指標欄佔 20%，其餘標的平分 80%
     col_count = len(selected_names)
     data_col_width = 80 / col_count if col_count > 0 else 80
 
@@ -192,35 +193,38 @@ if run_btn and selected_names:
         .pk-t {{
             width: 100%;
             border-collapse: collapse;
-            table-layout: fixed; /* 強制固定比例佈局 */
+            table-layout: fixed;
             font-family: "Noto Sans TC", sans-serif;
+            margin-top: 10px;
         }}
         .pk-t th {{
             background: #262730;
             color: white;
-            padding: 12px 8px;
-            font-size: 14px;
+            padding: 15px 10px;
+            font-size: 16px;
+            text-align: center; /* 標題置中 */
+            border: 1px solid #444;
         }}
         .pk-t td {{
             border-bottom: 1px solid #eee;
-            padding: 14px 8px;
-            text-align: center;
+            padding: 15px 10px;
+            text-align: center; /* 所有單元格內容置中 */
             font-size: 15px;
             word-break: break-word;
         }}
-        /* 指標名稱欄位：佔 20%，文字左對齊 */
+        /* 指標名稱欄位樣式 */
         .m-label {{
             background: #f8f9fb;
-            text-align: left !important;
             font-weight: bold;
             width: 20%; 
-            white-space: nowrap; /* 強制不換行 */
-            padding-left: 15px !important;
+            white-space: nowrap;
+            color: #333;
         }}
-        /* 數據欄位：平分剩餘 80% */
+        /* 數據欄位寬度 */
         .data-col {{
             width: {data_col_width}%;
         }}
+        /* 贏家樣式 */
         .win {{
             color: #f63366;
             font-weight: bold;
@@ -239,14 +243,13 @@ if run_btn and selected_names:
     for m, cfg in metrics_def.items():
         vals = [results[n][m] for n in selected_names]
         
-        # 判定贏家邏輯
-        if cfg["invert"]:
-            best = max(vals) # MDD 是負數，越接近 0 越大 (風險越低)；波動率之後需確認邏輯，通常是越小越好
-            # 如果是年化波動率，通常數值越小越好，若要改成越小越好請改為 min(vals)
-            if m == "年化波動率":
-                best = min(vals)
+        # 贏家判定邏輯
+        if m == "年化波動率":
+            best = min(vals) # 波動越小越好
+        elif m == "最大回撤 (MDD)":
+            best = max(vals) # MDD為負數，max() 代表最接近 0 (回撤最少)
         else:
-            best = max(vals)
+            best = max(vals) # 報酬與各項比率越大越好
             
         html += f'<tr><td class="m-label">{m}</td>'
         for n in selected_names:
