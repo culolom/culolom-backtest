@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 單一標的 SMA 極端乖離戰情室
+# app.py — 單一標的 SMA 極端乖離戰情室 (雙軸合一版)
 ###############################################################
 
 import streamlit as st
@@ -23,13 +23,13 @@ with st.sidebar:
     st.title("🐹 倉鼠導覽")
     st.page_link("https://hamr-lab.com/", label="回到量化戰情室首頁", icon="🏠")
     st.divider()
-    st.info("提示：此工具專為觀測個股或 ETF 的『極端乖離』設計，尋找潛在的反轉買賣點。")
+    st.info("提示：此版本將價格與乖離率合併顯示，左軸為價格，右軸為乖離率。")
 
 # ===============================================================
 # 主頁面標題
 # ===============================================================
-st.title("📊 SMA 乖離率深度分析儀")
-st.caption("透過移動平均線 (SMA) 觀測股價與均線的距離，捕捉超漲與超跌的市場訊號。")
+st.title("📊 SMA 乖離率深度分析儀 (雙軸疊圖版)")
+st.caption("透過雙 Y 軸疊圖，直觀對照股價走勢與其偏離均線的程度。")
 
 # ===============================================================
 # 區塊 1: 參數設定 (放在主頁面)
@@ -42,7 +42,8 @@ with st.container(border=True):
     with c1:
         ticker_input = st.text_input("輸入標的代號 (例如: 2330.TW, NVDA, QQQ)", value="2330.TW").upper()
     with c2:
-        start_date = st.date_input("開始日期", datetime(2015, 1, 1))
+        # 預設拉長到 10 年，看極端值比較有感
+        start_date = st.date_input("開始日期", datetime(2013, 1, 1))
     with c3:
         end_date = st.date_input("結束日期", datetime.now())
 
@@ -51,9 +52,9 @@ with st.container(border=True):
     with c4:
         sma_window = st.number_input("SMA 均線週期", min_value=10, max_value=500, value=200, step=10)
     with c5:
-        overbought_pct = st.number_input("高位警戒線 (%)", value=40)
+        overbought_pct = st.number_input("高位警戒線 (%) (右軸)", value=40)
     with c6:
-        oversold_pct = st.number_input("低位警戒線 (%)", value=-20)
+        oversold_pct = st.number_input("低位警戒線 (%) (右軸)", value=-20)
 
     submitted = st.button("🚀 執行量化分析", use_container_width=True, type="primary")
 
@@ -61,7 +62,7 @@ with st.container(border=True):
 # 區塊 2: 資料處理與繪圖
 # ===============================================================
 if submitted or ticker_input:
-    with st.spinner(f"正在抓取 {ticker_input} 資料..."):
+    with st.spinner(f"正在抓取 {ticker_input} 資料並製作疊圖..."):
         # 抓取資料
         df_raw = yf.download(ticker_input, start=start_date, end=end_date, progress=False)
         
@@ -70,7 +71,6 @@ if submitted or ticker_input:
         else:
             # 數據處理
             df = df_raw.copy()
-            # 處理可能的多重索引 (yfinance v0.2.x 特性)
             if isinstance(df.columns, pd.MultiIndex):
                 df = df.xs('Close', axis=1, level=0)
             else:
@@ -84,53 +84,53 @@ if submitted or ticker_input:
             df['Gap'] = (df['Price'] - df['SMA']) / df['SMA']
             df = df.dropna()
 
-            # --- 繪圖區 ---
-            fig = make_subplots(
-                rows=2, cols=1, 
-                shared_xaxes=True, 
-                vertical_spacing=0.1,
-                subplot_titles=(f"📉 {ticker_input} SMA Gap% 乖離率", "📈 價格與均線走勢"),
-                row_heights=[0.4, 0.6]
-            )
+            # --- 繪圖區 (改用單一圖表雙Y軸) ---
+            # specs 定義這是一個有副座標軸的圖
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
 
-            # 上圖：Gap% 
-            fig.add_trace(go.Scatter(
-                x=df.index, y=df['Gap'], 
-                name="乖離率", 
-                line=dict(color='#1f77b4', width=2),
-                fill='tozeroy', fillcolor='rgba(31, 119, 180, 0.1)'
-            ), row=1, col=1)
-            
-            # 加入警戒線
-            fig.add_hline(y=0, line_dash="dash", line_color="gray", row=1, col=1)
-            fig.add_hline(y=overbought_pct/100, line_dash="dot", line_color="#d62728", 
-                          annotation_text=f"過熱 {overbought_pct}%", row=1, col=1)
-            fig.add_hline(y=oversold_pct/100, line_dash="dot", line_color="#2ca02c", 
-                          annotation_text=f"恐慌 {oversold_pct}%", row=1, col=1)
-
-            # 下圖：Price & SMA
+            # 1. 繪製主軸資料 (左軸: secondary_y=False)
             fig.add_trace(go.Scatter(
                 x=df.index, y=df['Price'], 
-                name="收盤價", 
-                line=dict(color='rgba(100, 100, 100, 0.4)', width=1.5)
-            ), row=2, col=1)
+                name="收盤價 (左軸)", 
+                line=dict(color='rgba(100, 100, 100, 0.5)', width=1.5)
+            ), secondary_y=False)
             
             fig.add_trace(go.Scatter(
                 x=df.index, y=df['SMA'], 
-                name=f"{sma_window} SMA", 
-                line=dict(color='#ff7f0e', width=2.5)
-            ), row=2, col=1)
+                name=f"{sma_window} SMA (左軸)", 
+                line=dict(color='#ff7f0e', width=2)
+            ), secondary_y=False)
+
+            # 2. 繪製副軸資料 (右軸: secondary_y=True)
+            # 乖離率改用虛線，避免遮擋太多價格線
+            fig.add_trace(go.Scatter(
+                x=df.index, y=df['Gap'], 
+                name="乖離率% (右軸)", 
+                line=dict(color='#1f77b4', width=1.5, dash='dot'),
+                opacity=0.8
+            ), secondary_y=True)
+            
+            # 加入警戒線 (畫在右軸)
+            fig.add_hline(y=0, line_dash="solid", line_color="gray", opacity=0.3, secondary_y=True)
+            fig.add_hline(y=overbought_pct/100, line_dash="dot", line_color="#d62728", 
+                          annotation_text=f"過熱 {overbought_pct}%", annotation_position="top left", secondary_y=True)
+            fig.add_hline(y=oversold_pct/100, line_dash="dot", line_color="#2ca02c", 
+                          annotation_text=f"恐慌 {oversold_pct}%", annotation_position="bottom left", secondary_y=True)
 
             # 佈局美化
             fig.update_layout(
-                height=800,
+                title_text=f"📈 {ticker_input} 價格走勢與 SMA 乖離率疊圖",
+                height=650, # 合併後高度可以稍微降低
                 hovermode="x unified",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(l=50, r=50, t=80, b=50)
+                margin=dict(t=80)
             )
             
-            fig.update_yaxes(title_text="乖離率 %", tickformat=".1%", row=1, col=1)
-            fig.update_yaxes(title_text="股價", row=2, col=1)
+            # 設定座標軸
+            # 左軸 (主軸)
+            fig.update_yaxes(title_text="股價 (Price)", secondary_y=False, showgrid=True)
+            # 右軸 (副軸) - 不顯示網格以免混亂
+            fig.update_yaxes(title_text="乖離率 (Gap%)", tickformat=".1%", secondary_y=True, showgrid=False, zeroline=False)
 
             st.plotly_chart(fig, use_container_width=True)
 
@@ -139,9 +139,6 @@ if submitted or ticker_input:
             m1, m2, m3, m4 = st.columns(4)
             
             current_gap = df['Gap'].iloc[-1]
-            gap_color = "normal"
-            if current_gap >= overbought_pct/100: gap_color = "inverse"
-            elif current_gap <= oversold_pct/100: gap_color = "normal"
 
             m1.metric("當前價格", f"{df['Price'].iloc[-1]:.2f}")
             m2.metric("當前乖離率", f"{current_gap:.2%}")
