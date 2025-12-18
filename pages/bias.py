@@ -98,7 +98,7 @@ if submitted or ticker_input:
             fig.add_trace(go.Scatter(
                 x=df.index, y=df['Price'], 
                 name="收盤價 (右軸)", 
-                line=dict(color='#ff7f0e', width=4) # 橘色粗線
+                line=dict(color='#ff7f0e', width=2) # 橘色粗線
             ), secondary_y=True)
             
             # --- 3. 警戒線設定 (左軸) ---
