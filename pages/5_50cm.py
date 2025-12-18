@@ -4,191 +4,131 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime
 
 # 1. 頁面設定
 st.set_page_config(
-    page_title="ETF SMA 戰情室 (量化分析版)",
+    page_title="ETF 量化並行分析戰情室",
     layout="wide",
 )
 
 # ===============================================================
-# 全域設定：ETF 對照表
+# ETF 對照表
 # ===============================================================
 ETF_MAPPING = {
     "🇹🇼 台股 - 0050 (元大台灣50)": {
         "symbol": "0050.TW",
-        "leverage_options": {
-            "00631L (元大台灣50正2)": "00631L.TW",
-        }
+        "leverage_options": {"00631L (元大台灣50正2)": "00631L.TW"}
     },
     "🇺🇸 美股 - QQQ (納斯達克100)": {
         "symbol": "QQQ",
         "leverage_options": {
-            "QLD (ProShares 兩倍做多)": "QLD",
-            "TQQQ (ProShares 三倍做多)": "TQQQ"
+            "QLD (兩倍做多)": "QLD",
+            "TQQQ (三倍做多)": "TQQQ"
         }
     },
     "🇺🇸 美股 - SPY (標普500)": {
         "symbol": "SPY",
         "leverage_options": {
-            "SSO (ProShares 兩倍做多)": "SSO",
-            "UPRO (ProShares 三倍做多)": "UPRO"
-        }
-    },
-    "GD 黃金 - 00635U (期元大S&P黃金)": {
-        "symbol": "00635U.TW",
-        "leverage_options": {
-            "00708L (期元大S&P黃金正2)": "00708L.TW" 
+            "SSO (兩倍做多)": "SSO",
+            "UPRO (三倍做多)": "UPRO"
         }
     }
 }
 
-with st.sidebar:
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.divider()
-
-st.title("📊 ETF 多維度量化分析戰情室")
+st.title("📊 ETF 多維度聯動分析儀表板")
 
 # ===============================================================
-# 區塊 1: 標的選擇與區間偵測
+# 參數與資料抓取
 # ===============================================================
 sel_col1, sel_col2 = st.columns(2)
-
 with sel_col1:
-    proto_keys = list(ETF_MAPPING.keys())
-    selected_proto_name = st.selectbox("原型 ETF (訊號來源)", proto_keys)
-    proto_symbol = ETF_MAPPING[selected_proto_name]["symbol"]
-
+    selected_proto = st.selectbox("選擇原型 ETF", list(ETF_MAPPING.keys()))
+    proto_symbol = ETF_MAPPING[selected_proto]["symbol"]
 with sel_col2:
-    lev_options = ETF_MAPPING[selected_proto_name]["leverage_options"]
-    selected_lev_name = st.selectbox("槓桿 ETF (實際進出場標的)", list(lev_options.keys()))
-    lev_symbol = lev_options[selected_lev_name]
+    lev_options = ETF_MAPPING[selected_proto]["leverage_options"]
+    selected_lev = st.selectbox("選擇槓桿 ETF", list(lev_options.keys()))
+    lev_symbol = lev_options[selected_lev]
 
 @st.cache_data(ttl=3600)
-def get_common_date_range(sym1, sym2):
-    try:
-        df1 = yf.download(sym1, period="max", progress=False, auto_adjust=False)
-        df2 = yf.download(sym2, period="max", progress=False, auto_adjust=False)
-        if df1.empty or df2.empty: return None, None
-        common_start = max(df1.index.min().date(), df2.index.min().date())
-        common_end = min(df1.index.max().date(), df2.index.max().date())
-        return common_start, common_end
-    except:
-        return None, None
+def get_data(p_sym, l_sym, start):
+    # 多抓兩年資料以利計算 SMA 與 12M Return
+    ext_start = pd.to_datetime(start) - pd.DateOffset(years=2)
+    df = yf.download([p_sym, l_sym], start=ext_start, progress=False)
+    if df.empty: return None
+    df = df['Adj Close'] if 'Adj Close' in df.columns else df['Close']
+    return df.rename(columns={p_sym: "Base", l_sym: "Lev"}).dropna()
 
-with st.spinner("正在偵測可回測區間..."):
-    min_date, max_date = get_common_date_range(proto_symbol, lev_symbol)
-
-if not min_date:
-    st.error("❌ 無法抓取標的資料，請確認網路連線。")
-    st.stop()
-
-st.info(f"📌 **可分析區間** ： {min_date} ~ {max_date}")
-
-# ===============================================================
-# 區塊 2: 日期與參數設定
-# ===============================================================
-if 'start_date' not in st.session_state: st.session_state['start_date'] = max_date - pd.DateOffset(years=3)
-if 'end_date' not in st.session_state: st.session_state['end_date'] = max_date
-
-def update_dates(years=None, is_all=False):
-    st.session_state['end_date'] = max_date
-    if is_all: st.session_state['start_date'] = min_date
-    elif years: st.session_state['start_date'] = max(max_date - pd.DateOffset(years=years), min_date)
-
-st.subheader("🛠️ 參數設定")
-btn_cols = st.columns(5)
-with btn_cols[0]: st.button("一年", on_click=update_dates, kwargs={'years': 1}, use_container_width=True)
-with btn_cols[1]: st.button("三年", on_click=update_dates, kwargs={'years': 3}, use_container_width=True)
-with btn_cols[2]: st.button("五年", on_click=update_dates, kwargs={'years': 5}, use_container_width=True)
-with btn_cols[3]: st.button("十年", on_click=update_dates, kwargs={'years': 10}, use_container_width=True)
-with btn_cols[4]: st.button("全都要", on_click=update_dates, kwargs={'is_all': True}, use_container_width=True)
-
-with st.form("param_form"):
+with st.form("control_panel"):
     c1, c2, c3 = st.columns(3)
-    with c1: start_date = st.date_input("開始日期", key="start_date", min_value=min_date, max_value=max_date)
-    with c2: end_date = st.date_input("結束日期", key="end_date", min_value=min_date, max_value=max_date)
-    with c3: sma_window = st.number_input("SMA 均線週期 (日)", min_value=10, max_value=500, value=200, step=10)
-    submitted = st.form_submit_button("🚀 開始量化分析", use_container_width=True)
-
-# ===============================================================
-# 區塊 3: 資料處理與繪圖
-# ===============================================================
-@st.cache_data
-def load_analysis_data(start, end, p_sym, l_sym):
-    # 下載時多抓一年份資料，以計算移動平均與年報酬率
-    extended_start = pd.to_datetime(start) - pd.DateOffset(days=500)
-    raw = yf.download([p_sym, l_sym], start=extended_start, end=end, progress=False)
-    if raw.empty: return None
-    
-    # 簡化欄位處理 (支援 MultiIndex)
-    df = raw['Adj Close'] if 'Adj Close' in raw.columns else raw['Close']
-    df = df.rename(columns={p_sym: "Base", l_sym: "Lev"}).dropna()
-    return df
+    with c1: start_date = st.date_input("分析開始日期", pd.to_datetime("2020-01-01"))
+    with c2: sma_window = st.number_input("SMA 週期", 10, 500, 200)
+    with c3: chart_height = st.slider("圖表總高度", 800, 2500, 1200)
+    submitted = st.form_submit_button("🚀 執行聯動回測", use_container_width=True)
 
 if submitted:
-    with st.spinner("分析中..."):
-        price = load_analysis_data(start_date, end_date, proto_symbol, lev_symbol)
+    df_raw = get_data(proto_symbol, lev_symbol, start_date)
+    
+    if df_raw is not None:
+        # 指標計算
+        df_raw["SMA_Base"] = df_raw["Base"].rolling(sma_window).mean()
+        df_raw["SMA_Lev"]  = df_raw["Lev"].rolling(sma_window).mean()
+        df_raw["Gap_Base"] = (df_raw["Base"] - df_raw["SMA_Base"]) / df_raw["SMA_Base"]
+        df_raw["Gap_Lev"]  = (df_raw["Lev"] - df_raw["SMA_Lev"]) / df_raw["SMA_Lev"]
+        df_raw["Ret12M_Base"] = df_raw["Base"].pct_change(periods=252) * 100
+        df_raw["Ret12M_Lev"] = df_raw["Lev"].pct_change(periods=252) * 100
         
-        if price is not None and not price.empty:
-            base_label = selected_proto_name.split(" ")[2]
-            lev_label = selected_lev_name.split(" ")[0]
+        # 裁切回使用者選取區間
+        df = df_raw.loc[pd.to_datetime(start_date):].copy()
+        b0, l0 = df["Base"].iloc[0], df["Lev"].iloc[0]
+        base_name = selected_proto.split(" ")[2]
+        lev_name = selected_lev.split(" ")[0]
 
-            # 計算指標
-            price["SMA_Base"] = price["Base"].rolling(sma_window).mean()
-            price["SMA_Lev"]  = price["Lev"].rolling(sma_window).mean()
-            price["Gap_Base"] = (price["Base"] - price["SMA_Base"]) / price["SMA_Base"]
-            price["Gap_Lev"]  = (price["Lev"] - price["SMA_Lev"]) / price["SMA_Lev"]
-            price["Ret12M_Base"] = price["Base"].pct_change(periods=252) * 100
-            price["Ret12M_Lev"] = price["Lev"].pct_change(periods=252) * 100
+        # ===============================================================
+        # 核心：建立 4 層子圖 (Subplots)
+        # ===============================================================
+        fig = make_subplots(
+            rows=4, cols=1,
+            shared_xaxes=True,           # 關鍵：共享 X 軸
+            vertical_spacing=0.05,       # 子圖間距
+            subplot_titles=(
+                f"1. {sma_window}SMA 乖離率 (Gap %)", 
+                "2. 絕對價格與均線 (雙軸)", 
+                "3. 累計報酬對齊 (起始=100)", 
+                "4. 近 12 個月滾動報酬率 (%)"
+            ),
+            specs=[[{"secondary_y": False}], 
+                   [{"secondary_y": True}], 
+                   [{"secondary_y": False}], 
+                   [{"secondary_y": True}]]
+        )
 
-            # 裁切回使用者選擇的日期區間
-            df = price.loc[pd.to_datetime(start_date):].copy()
+        # Row 1: Gap %
+        fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Base"], name=f"{base_name} Gap%", line=dict(color='blue')), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["Gap_Lev"], name=f"{lev_name} Gap%", line=dict(color='red')), row=1, col=1)
+        fig.add_hline(y=0, line_dash="dash", line_color="black", row=1, col=1)
 
-            # --- 圖表 1: SMA Gap 乖離率 ---
-            st.subheader("📉 SMA Gap 乖離率分佈圖")
-            fig_gap = go.Figure()
-            fig_gap.add_trace(go.Scatter(x=df.index, y=df["Gap_Base"], name=f"{base_label} Gap%", line=dict(color='blue', width=1.5)))
-            fig_gap.add_trace(go.Scatter(x=df.index, y=df["Gap_Lev"], name=f"{lev_label} Gap%", line=dict(color='red', width=1.5)))
-            fig_gap.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
-            fig_gap.update_layout(yaxis_tickformat=".1%", hovermode="x unified", height=350)
-            st.plotly_chart(fig_gap, use_container_width=True)
+        # Row 2: Price & SMA (Dual Y)
+        fig.add_trace(go.Scatter(x=df.index, y=df["Base"], name=f"{base_name} 價", opacity=0.3, line=dict(color='blue')), row=2, col=1, secondary_y=False)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Base"], name=f"{base_name} SMA", line=dict(color='blue', width=2)), row=2, col=1, secondary_y=False)
+        fig.add_trace(go.Scatter(x=df.index, y=df["Lev"], name=f"{lev_name} 價", opacity=0.3, line=dict(color='red')), row=2, col=1, secondary_y=True)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA_Lev"], name=f"{lev_name} SMA", line=dict(color='red', width=2)), row=2, col=1, secondary_y=True)
 
-            # --- 圖表 2: 絕對價格與 SMA (雙軸) ---
-            st.subheader("📈 價格走勢與 SMA 對照 (絕對價格)")
-            fig_p = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_p.add_trace(go.Scatter(x=df.index, y=df["Base"], name=f"{base_label} 價", line=dict(color='rgba(0,0,255,0.3)', width=1)), secondary_y=False)
-            fig_p.add_trace(go.Scatter(x=df.index, y=df["SMA_Base"], name=f"{base_label} SMA", line=dict(color='blue', width=2.5)), secondary_y=False)
-            fig_p.add_trace(go.Scatter(x=df.index, y=df["Lev"], name=f"{lev_label} 價", line=dict(color='rgba(255,0,0,0.3)', width=1)), secondary_y=True)
-            fig_p.add_trace(go.Scatter(x=df.index, y=df["SMA_Lev"], name=f"{lev_label} SMA", line=dict(color='red', width=2.5)), secondary_y=True)
-            fig_p.update_layout(hovermode="x unified", height=450, title=f"左軸: {base_label} / 右軸: {lev_label}")
-            st.plotly_chart(fig_p, use_container_width=True)
+        # Row 3: Normalized Growth
+        fig.add_trace(go.Scatter(x=df.index, y=(df["Base"]/b0)*100, name=f"{base_name} 累計", line=dict(color='blue')), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=(df["Lev"]/l0)*100, name=f"{lev_name} 累計", line=dict(color='red')), row=3, col=1)
 
-            # --- 圖表 3: 歸一化起跑點對齊圖 (單軸) ---
-            st.subheader("🏁 累計漲幅對照 (第一天起點 = 100)")
-            df_norm = df.copy()
-            b0, l0 = df_norm["Base"].iloc[0], df_norm["Lev"].iloc[0]
-            fig_norm = go.Figure()
-            fig_norm.add_trace(go.Scatter(x=df_norm.index, y=(df_norm["Base"]/b0)*100, name=f"{base_label} 累計", line=dict(color='blue')))
-            fig_norm.add_trace(go.Scatter(x=df_norm.index, y=(df_norm["Lev"]/l0)*100, name=f"{lev_label} 累計", line=dict(color='red')))
-            fig_norm.update_layout(hovermode="x unified", height=450, yaxis_title="指數化價格 (起始=100)")
-            st.plotly_chart(fig_norm, use_container_width=True)
+        # Row 4: 12M Return (Dual Y)
+        fig.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Base"], name=f"{base_name} 12M%", line=dict(color='blue', dash='dot')), row=4, col=1, secondary_y=False)
+        fig.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Lev"], name=f"{lev_name} 12M%", line=dict(color='red')), row=4, col=1, secondary_y=True)
+        fig.add_hline(y=0, line_dash="dash", line_color="black", row=4, col=1)
 
-            # --- 圖表 4: 12 個月滾動報酬率 (雙軸) ---
-            st.subheader("📊 近 12 個月滾動報酬率對照 (年報酬走勢)")
-            fig_ret = make_subplots(specs=[[{"secondary_y": True}]])
-            fig_ret.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Base"], name=f"{base_label} 12M%", line=dict(color='blue', dash='dot')), secondary_y=False)
-            fig_ret.add_trace(go.Scatter(x=df.index, y=df["Ret12M_Lev"], name=f"{lev_label} 12M%", line=dict(color='red')), secondary_y=True)
-            fig_ret.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.3)
-            fig_ret.update_layout(hovermode="x unified", height=450, title="越過 0 代表年度轉正獲利")
-            fig_ret.update_yaxes(title_text=f"{base_label} 報酬(%)", secondary_y=False)
-            fig_ret.update_yaxes(title_text=f"{lev_label} 報酬(%)", secondary_y=True)
-            st.plotly_chart(fig_ret, use_container_width=True)
+        # 佈局美化
+        fig.update_layout(height=chart_height, hovermode="x unified", showlegend=True)
+        fig.update_yaxes(tickformat=".1%", row=1, col=1)
+        fig.update_yaxes(title_text="價格(左)", row=2, col=1, secondary_y=False)
+        fig.update_yaxes(title_text="價格(右)", row=2, col=1, secondary_y=True)
+        fig.update_yaxes(title_text="指數(起點100)", row=3, col=1)
+        fig.update_yaxes(title_text="報酬%(左)", row=4, col=1, secondary_y=False)
+        fig.update_yaxes(title_text="報酬%(右)", row=4, col=1, secondary_y=True)
 
-        else:
-            st.error("❌ 無法讀取選定區間的資料。")
-else:
-    st.info("👆 請設定參數後點擊執行按鈕")
+        st.plotly_chart(fig, use_container_width=True)
