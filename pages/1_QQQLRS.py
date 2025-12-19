@@ -29,7 +29,23 @@ DATA_DIR = Path("data")
 if not DATA_DIR.exists():
     DATA_DIR.mkdir()
 
-
+# --- 3. 工具函式：自動檢查並下載缺失資料 ---
+def get_data(symbol):
+    file_path = DATA_DIR / f"{symbol}.csv"
+    
+    # 如果檔案不存在，立即從 yfinance 下載
+    if not file_path.exists():
+        with st.status(f"📥 正在補齊缺失資料: {symbol}...", expanded=False):
+            df = yf.download(symbol, period="max")
+            if not df.empty:
+                # 處理 yfinance 可能產生的 MultiIndex
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+                df.to_csv(file_path)
+                st.write(f"✅ {symbol} 下載完成")
+            else:
+                st.error(f"❌ 無法從 Yahoo Finance 取得 {symbol} 資料")
+                return pd.DataFrame()
 
     # 讀取檔案
     df = pd.read_csv(file_path, parse_dates=["Date"], index_col="Date")
