@@ -4,21 +4,28 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-import yfinance as yf
 from pathlib import Path
 
-# --- 1. 基礎與頁面設定 ---
-st.set_page_config(page_title="台美股動能旋轉系統 - 時間自定義版", page_icon="📅", layout="wide")
+# --- 1. 頁面配置與樣式 ---
+st.set_page_config(page_title="倉鼠量化戰情室 - 統合版", page_icon="🐹", layout="wide")
 
-# 🔒 驗證 (請確保 auth.py 存在)
-try:
-    import auth
-    if not auth.check_password():
-        st.stop()
-except:
-    pass
+st.markdown("""
+    <style>
+        .main { background-color: #f8f9fa; }
+        .kpi-card {
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            border: 1px solid #eee;
+            text-align: center;
+        }
+        .kpi-label { font-size: 0.9rem; color: #666; margin-bottom: 5px; }
+        .kpi-value { font-size: 1.8rem; font-weight: 700; color: #1f1f1f; }
+    </style>
+""", unsafe_allow_html=True)
 
-# --- 2. 標的配置 ---
+# --- 2. 標的配置 (配合 GitHub 命名規則) ---
 ETF_CONFIG = {
     "台股大盤 (0050 / 00631L)": {"base": "0050.TW", "lev": "00631L.TW"},
     "NASDAQ 100 (00662 / 00670L)": {"base": "00662.TW", "lev": "00670L.TW"},
@@ -26,126 +33,128 @@ ETF_CONFIG = {
 }
 
 DATA_DIR = Path("data")
-if not DATA_DIR.exists():
-    DATA_DIR.mkdir()
 
-# --- 3. 工具函式：取得資料與補齊 ---
-def get_data(symbol):
-    file_path = DATA_DIR / f"{symbol}.csv"
-    if not file_path.exists():
-        with st.status(f"📥 正在下載: {symbol}...", expanded=False):
-            df = yf.download(symbol, period="max")
-            if not df.empty:
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-                df.to_csv(file_path)
-    
-    df = pd.read_csv(file_path, parse_dates=["Date"], index_col="Date")
+# --- 3. 工具函式 ---
+def load_csv_standard(symbol):
+    path = DATA_DIR / f"{symbol}.csv"
+    if not path.exists(): return pd.DataFrame()
+    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
     return df.sort_index()[["Close"]].rename(columns={"Close": "Price"})
 
-# --- 4. 預載資料以取得時間範圍 ---
-# 這裡先快速掃描資料，決定側邊欄日曆的範圍
-all_available_dates = []
-for key in ETF_CONFIG:
-    f_path = DATA_DIR / f"{ETF_CONFIG[key]['base']}.csv"
-    if f_path.exists():
-        temp_df = pd.read_csv(f_path, parse_dates=["Date"], index_col="Date")
-        all_available_dates.append(temp_df.index.min())
-        all_available_dates.append(temp_df.index.max())
+def calc_metrics_standard(series):
+    # 使用與你單標的程式一致的指標算法
+    final_equity = series.iloc[-1]
+    total_ret = final_equity - 1
+    mdd = 1 - (series / series.cummax()).min()
+    return final_equity, total_ret, mdd
 
-# 設定預設日期 (如果沒資料就用今天)
-abs_min_date = min(all_available_dates).date() if all_available_dates else dt.date(2010, 1, 1)
-abs_max_date = max(all_available_dates).date() if all_available_dates else dt.date.today()
-
-# --- 5. UI 介面 ---
-st.title("📊 三標動態 LRS 動能旋轉策略 (自定義時間)")
-
+# --- 4. Sidebar 參數設定 ---
 with st.sidebar:
-    st.header("⚙️ 參數設定")
-    selected_pool = st.multiselect("選擇投資池", options=list(ETF_CONFIG.keys()), default=list(ETF_CONFIG.keys()))
+    st.header("⚙️ 策略參數")
+    selected_keys = st.multiselect("投資組合池", options=list(ETF_CONFIG.keys()), default=list(ETF_CONFIG.keys()))
     
-    # 📅 新增時間選擇功能
-    st.subheader("📅 回測時間選擇")
-    col_start, col_end = st.columns(2)
-    with col_start:
-        start_date = st.date_input("開始日期", value=abs_min_date, min_value=abs_min_date, max_value=abs_max_date)
-    with col_end:
-        end_date = st.date_input("結束日期", value=abs_max_date, min_value=abs_min_date, max_value=abs_max_date)
+    st.subheader("📅 回測時間範圍")
+    # 預設範圍 (實際由資料偵測)
+    start_date = st.date_input("開始日期", value=dt.date(2020, 1, 1))
+    end_date = st.date_input("結束日期", value=dt.date(2025, 12, 18))
+    
+    capital = st.number_input("投入本金 (元)", value=100000, step=10000)
+    ma_window = st.number_input("均線天數 (SMA)", value=200)
+    mom_lookback = st.slider("動能參考天數 (12M)", 100, 300, 252)
 
-    capital = st.number_input("本金 (元)", value=100000, step=10000)
-    lookback = st.slider("動能參考天數 (12個月約252天)", 100, 300, 252)
-    ma_val = st.number_input("均線天數", value=200)
+# --- 5. 主程式回測邏輯 ---
+st.title("🐹 三標動態 LRS 旋轉策略")
+st.info("策略：收盤 > 200MA 准許買入；若多標的同時達標，選擇【12個月報酬最高者】持有其正2。全破則空手。")
 
-# --- 6. 執行回測 ---
-if st.button("開始回測 🚀"):
-    if start_date >= end_date:
-        st.error("❌ 錯誤：開始日期必須早於結束日期。")
-        st.stop()
-
-    all_dfs = {}
-    for key in selected_pool:
+if st.button("開始精確回測 🚀"):
+    # A. 讀取並計算所有標的指標
+    all_data = {}
+    # 為了計算 MA，我們需要比 start_date 更早的資料
+    start_early = pd.to_datetime(start_date) - dt.timedelta(days=400)
+    
+    for key in selected_keys:
         cfg = ETF_CONFIG[key]
-        base_df = get_data(cfg["base"])
-        lev_df = get_data(cfg["lev"])
+        df_b = load_csv_standard(cfg["base"])
+        df_l = load_csv_standard(cfg["lev"])
         
-        # 計算指標
-        base_df["MA"] = base_df["Price"].rolling(ma_val).mean()
-        base_df["Mom"] = base_df["Price"].pct_change(lookback)
-        base_df["Above"] = base_df["Price"] > base_df["MA"]
-        base_df["Lev_Ret"] = lev_df["Price"].pct_change().fillna(0)
-        
-        # 🟢 在這裡根據使用者的選擇進行時間過濾
-        filtered_df = base_df.loc[str(start_date):str(end_date)]
-        all_dfs[key] = filtered_df
-
-    # 取所有標的時間的交集
-    common_idx = None
-    for key in all_dfs:
-        if common_idx is None: common_idx = all_dfs[key].index
-        else: common_idx = common_idx.intersection(all_dfs[key].index)
-    
-    if len(common_idx) < 10:
-        st.warning("⚠️ 所選時間範圍內的資料點太少，回測可能不準確。")
-
-    # 模擬邏輯
-    res_list = []
-    current_equity = 1.0
-    for date in common_idx:
-        candidates = []
-        for key in selected_pool:
-            # 確保資料在均線上且動能不是 NaN
-            if all_dfs[key].loc[date, "Above"] and not pd.isna(all_dfs[key].loc[date, "Mom"]):
-                candidates.append((key, all_dfs[key].loc[date, "Mom"]))
-        
-        if not candidates:
-            choice = "Cash (空手)"
-            daily_ret = 0.0
-        else:
-            choice = max(candidates, key=lambda x: x[1])[0]
-            daily_ret = all_dfs[choice].loc[date, "Lev_Ret"]
+        if df_b.empty or df_l.empty:
+            st.error(f"資料缺失：{key}")
+            st.stop()
             
-        current_equity *= (1 + daily_ret)
-        res_list.append({"Date": date, "Holding": choice, "Equity": current_equity})
-
-    df_res = pd.DataFrame(res_list).set_index("Date")
-
-    # --- 7. 顯示統計與圖表 ---
-    final_asset = capital * df_res["Equity"].iloc[-1]
-    total_ret = df_res["Equity"].iloc[-1] - 1
-    mdd = (df_res["Equity"] / df_res["Equity"].cummax() - 1).min()
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("期末資產", f"${final_asset:,.0f}")
-    c2.metric("總報酬率", f"{total_ret:.2%}")
-    c3.metric("最大回撤 (MDD)", f"{mdd:.2%}", delta_color="inverse")
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Equity"]*capital, name="LRS 旋轉策略", line=dict(color="gold", width=3)))
-    
-    for key in selected_pool:
-        bench_p = all_dfs[key].loc[common_idx, "Price"]
-        bench_eq = (bench_p / bench_p.iloc[0]) * capital
-        fig.add_trace(go.Scatter(x=common_idx, y=bench_eq, name=f"持有 {key}", opacity=0.3))
+        # 計算 200MA 與 12M 動能
+        df_b["MA"] = df_b["Price"].rolling(ma_window).mean()
+        df_b["Mom"] = df_b["Price"].pct_change(mom_lookback)
+        df_b["Above"] = df_b["Price"] > df_b["MA"]
         
-    fig.update_layout(title=f"回測區間：{start_date} 至 {end_date}", template="plotly_white", height=500)
+        all_data[key] = {"base": df_b, "lev": df_l}
+
+    # B. 取時間交集並過濾
+    common_idx = None
+    for key in all_data:
+        if common_idx is None: common_idx = all_data[key]["base"].index
+        else: common_idx = common_idx.intersection(all_data[key]["base"].index)
+    
+    # 過濾使用者選擇的時間區間
+    mask = (common_idx >= pd.to_datetime(start_date)) & (common_idx <= pd.to_datetime(end_date))
+    backtest_idx = common_idx[mask]
+
+    # C. 每日模擬 (採用價格比例法，避免 pct_change 誤差)
+    equity_lrs = [1.0]
+    holdings = []
+    
+    for i in range(len(backtest_idx)):
+        today = backtest_idx[i]
+        yesterday = backtest_idx[i-1] if i > 0 else None
+        
+        # 1. 決定今天持有的標的
+        candidates = []
+        for key in selected_keys:
+            if all_data[key]["base"].loc[today, "Above"]:
+                mom_val = all_data[key]["base"].loc[today, "Mom"]
+                candidates.append((key, mom_val))
+        
+        current_choice = max(candidates, key=lambda x: x[1])[0] if candidates else "Cash"
+        holdings.append(current_choice)
+        
+        # 2. 計算今日淨值
+        if i == 0:
+            equity_lrs.append(1.0)
+        else:
+            if current_choice != "Cash" and holdings[i-1] == current_choice:
+                # 持續持有同一檔：計算漲跌幅
+                price_today = all_data[current_choice]["lev"].loc[today, "Price"]
+                price_yest = all_data[current_choice]["lev"].loc[yesterday, "Price"]
+                r = price_today / price_yest
+                equity_lrs.append(equity_lrs[-1] * r)
+            else:
+                # 換股或空手的第一天：淨值維持
+                equity_lrs.append(equity_lrs[-1])
+    
+    # 移除多餘的初始值
+    equity_lrs = equity_lrs[1:]
+    df_res = pd.DataFrame({"Equity": equity_lrs, "Holding": holdings}, index=backtest_idx)
+
+    # --- 6. 呈現結果 (與高級版面板一致) ---
+    final_val, total_ret, mdd_val = calc_metrics_standard(df_res["Equity"])
+    
+    # KPI Cards
+    kpi1, kpi2, kpi3 = st.columns(3)
+    with kpi1: st.markdown(f'<div class="kpi-card"><div class="kpi-label">期末資產</div><div class="kpi-value">${final_val*capital:,.0f}</div></div>', unsafe_allow_html=True)
+    with kpi2: st.markdown(f'<div class="kpi-card"><div class="kpi-label">總報酬率</div><div class="kpi-value">{total_ret:.2%}</div></div>', unsafe_allow_html=True)
+    with kpi3: st.markdown(f'<div class="kpi-card"><div class="kpi-label">最大回撤 (MDD)</div><div class="kpi-value">{mdd_val:.2%}</div></div>', unsafe_allow_html=True)
+
+    # 資金曲線圖
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Equity"]*capital, name="LRS 旋轉策略", line=dict(color="#21c354", width=3)))
+    
+    # 對照組 (各標的原型)
+    for key in selected_keys:
+        p_base = all_data[key]["base"].loc[backtest_idx, "Price"]
+        fig.add_trace(go.Scatter(x=backtest_idx, y=(p_base/p_base.iloc[0])*capital, name=f"持有 {key}", opacity=0.3))
+    
+    fig.update_layout(template="plotly_white", height=500, margin=dict(l=20, r=20, t=50, b=20))
     st.plotly_chart(fig, use_container_width=True)
+
+    # 換股分析表格
+    with st.expander("查看詳細持倉紀錄"):
+        st.dataframe(df_res.tail(20))
