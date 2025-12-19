@@ -188,3 +188,41 @@ if st.button("開始精確回測 🚀"):
     # 詳細紀錄
     with st.expander("查看詳細持倉紀錄"):
         st.dataframe(df_res)
+# --- 7. 資產相關性分析 (新增區塊) ---
+    st.markdown("---")
+    st.header("🔍 投資組合相關性分析")
+    st.info("相關係數越接近 1 代表走勢越同步；接近 0 或負數則代表具備良好的風險分散效果。")
+
+    # 準備所有標的的日報酬資料
+    corr_df = pd.DataFrame()
+    for key in selected_keys:
+        # 使用原型 ETF 的日變動率來計算相關性較為準確
+        prices = all_data[key]["base"].loc[backtest_idx, "Price"]
+        corr_df[key] = prices.pct_change()
+
+    # 計算相關係數矩陣
+    matrix = corr_df.corr()
+
+    # 使用 Plotly 繪製熱力圖
+    fig_corr = go.Figure(data=go.Heatmap(
+        z=matrix.values,
+        x=matrix.columns,
+        y=matrix.columns,
+        colorscale='RdBu', # 紅藍配色，紅色正相關，藍色負相關
+        zmin=-1, zmax=1,
+        text=np.around(matrix.values, decimals=2),
+        texttemplate="%{text}",
+        hoverinfo='z'
+    ))
+
+    fig_corr.update_layout(
+        title="資產日報酬相關係數矩陣",
+        height=500,
+        yaxis_autorange='reversed' # 讓座標軸排序比較直觀
+    )
+
+    st.plotly_chart(fig_corr, use_container_width=True)
+
+    # --- 8. 換股分析與細節 ---
+    with st.expander("查看詳細持倉與淨值紀錄"):
+        st.dataframe(df_res)
