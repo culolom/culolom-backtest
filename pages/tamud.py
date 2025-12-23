@@ -364,24 +364,38 @@ if st.button("開始回測 🚀", type="primary"):
         )
 
         # ==========================================
-        # 📥 新增功能：下載折線圖數據 (CSV)
+        # 📥 新增功能：下載區 (淨值走勢 + 績效表格)
         # ==========================================
         st.markdown("---")
         st.markdown("### 📥 下載回測數據")
 
-        # 1. 整理要下載的表格 (只留下淨值數據，並重新命名欄位以便閱讀)
+        # --- 1. 準備「淨值走勢」CSV ---
         export_df = df[["Equity_Talmud", "Equity_Benchmark"]].copy()
         export_df.columns = ["塔木德策略淨值", f"基準({bench_label})淨值"]
         export_df.index.name = "日期"
+        csv_equity = export_df.to_csv().encode('utf-8-sig')
 
-        # 2. 轉成 CSV (使用 utf-8-sig 避免 Excel 中文亂碼)
-        csv_data = export_df.to_csv().encode('utf-8-sig')
+        # --- 2. 準備「績效比較表」CSV ---
+        # df_comp 已經在上方計算完成，直接轉換即可
+        csv_metrics = df_comp.to_csv().encode('utf-8-sig')
 
-        # 3. 建立下載按鈕
-        st.download_button(
-            label="💾 下載策略淨值走勢 (CSV)",
-            data=csv_data,
-            file_name=f'Talmud_Strategy_{start_date}_{end_date}.csv',
-            mime='text/csv',
-            help="點擊下載包含「日期」與「每日資產淨值」的原始數據，可用 Excel 開啟繪圖。"
-        )
+        # --- 3. 建立並排的下載按鈕 ---
+        col_dl1, col_dl2 = st.columns(2)
+
+        with col_dl1:
+            st.download_button(
+                label="📈 下載淨值走勢 (CSV)",
+                data=csv_equity,
+                file_name=f'Talmud_Curve_{start_date}_{end_date}.csv',
+                mime='text/csv',
+                help="包含每日資產淨值變化的原始數據。"
+            )
+
+        with col_dl2:
+            st.download_button(
+                label="📊 下載績效比較表 (CSV)",
+                data=csv_metrics,
+                file_name=f'Talmud_Metrics_{start_date}_{end_date}.csv',
+                mime='text/csv',
+                help="包含總報酬、CAGR、MDD、Sharpe Ratio 等統計數據。"
+            )
