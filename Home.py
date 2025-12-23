@@ -427,6 +427,32 @@ if rank_df is not None and not isinstance(calc_date, str):
 else:
     st.info("❗ 尚無足夠資料可計算動能排行，請確認 data/ 資料夾內容。")
 
+# ==========================================
+# 📥 新增功能：下載折線圖數據
+# ==========================================
+# 假設你的回測結果 DataFrame 叫做 result_df (或 equity_df, combined_df 等)
+# 請確保該 DataFrame 的 index 是日期，欄位是你畫圖用的數據
+# 如果你的 DataFrame 叫做其他名字，請把下方的 'result_df' 改成你的變數名稱
+
+if 'result_df' in locals() or 'df' in locals():
+    # 自動抓取變數 (這裡假設變數名稱可能叫 result_df 或 df)
+    target_df = locals().get('result_df', locals().get('df'))
+    
+    if target_df is not None:
+        st.write("### 📥 數據下載")
+        
+        # 轉成 CSV (使用 utf-8-sig 編碼以防 Excel 打開中文亂碼)
+        csv_data = target_df.to_csv().encode('utf-8-sig')
+
+        # 產生下載按鈕
+        st.download_button(
+            label="💾 下載策略回測數據 (CSV)",
+            data=csv_data,
+            file_name=f'backtest_data_{datetime.date.today()}.csv',
+            mime='text/csv',
+            help="點擊下載包含日期與策略淨值的原始數據"
+        )
+
 
 
 # 6. 頁尾
