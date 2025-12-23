@@ -57,7 +57,7 @@ st.markdown("""
 <b>猶太經典《塔木德》智慧：將資產分為三等份。</b><br>
 1️⃣ <b>不動產 (Real Estate)</b>：如 VNQ, IYR<br>
 2️⃣ <b>股票事業 (Stocks)</b>：如 QQQ, SPY, VT<br>
-3️⃣ <b>現金 (Cash/Bonds)</b>：如 TBIL, SGOV, BIL (作為避風港與再平衡籌碼)<br>
+3️⃣ <b>現金 (Cash/Bonds)</b>：如 TBIL, SGOV, BND (作為避風港與再平衡籌碼)<br>
 <small>策略核心：定期將三個籃子的資金「再平衡 (Rebalance)」回 33% 權重，實現自動化的「高出低進」。</small>
 """, unsafe_allow_html=True)
 
@@ -81,14 +81,16 @@ ASSETS_STOCKS = {
     "0050.TW (台灣50)": "0050.TW"
 }
 
-# ✨ 已更新：加入 SGOV 與 純現金
+# ✨ 已更新：加入 SGOV, 純現金, BND, BNDW
 ASSETS_CASH = {
     "USD Cash (純現金 0利率)": "USD_CASH",
     "SGOV (0-3月國債)": "SGOV", 
     "TBIL (3個月國債)": "TBIL", 
     "BIL (1-3月國債)": "BIL", 
     "SHV (短期國債)": "SHV", 
-    "IEF (7-10年公債)": "IEF"
+    "IEF (7-10年公債)": "IEF",
+    "BND (美國總體債券)": "BND",   # <--- 新增
+    "BNDW (全球總體債券)": "BNDW" # <--- 新增
 }
 
 ASSETS_BENCHMARK = {
