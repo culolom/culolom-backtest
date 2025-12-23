@@ -362,3 +362,26 @@ if st.button("開始回測 🚀", type="primary"):
             .background_gradient(cmap="RdYlGn", subset=["總報酬率", "CAGR (年化)", "Sharpe Ratio"]),
             use_container_width=True
         )
+
+        # ==========================================
+        # 📥 新增功能：下載折線圖數據 (CSV)
+        # ==========================================
+        st.markdown("---")
+        st.markdown("### 📥 下載回測數據")
+
+        # 1. 整理要下載的表格 (只留下淨值數據，並重新命名欄位以便閱讀)
+        export_df = df[["Equity_Talmud", "Equity_Benchmark"]].copy()
+        export_df.columns = ["塔木德策略淨值", f"基準({bench_label})淨值"]
+        export_df.index.name = "日期"
+
+        # 2. 轉成 CSV (使用 utf-8-sig 避免 Excel 中文亂碼)
+        csv_data = export_df.to_csv().encode('utf-8-sig')
+
+        # 3. 建立下載按鈕
+        st.download_button(
+            label="💾 下載策略淨值走勢 (CSV)",
+            data=csv_data,
+            file_name=f'Talmud_Strategy_{start_date}_{end_date}.csv',
+            mime='text/csv',
+            help="點擊下載包含「日期」與「每日資產淨值」的原始數據，可用 Excel 開啟繪圖。"
+        )
