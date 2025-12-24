@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — SMA 乖離率戰情室 (本地 CSV 正2限定版)
+# app.py — SMA 乖離率戰情室 (本地 CSV 正2限定版 - 修正bug)
 ###############################################################
 
 import streamlit as st
@@ -32,6 +32,7 @@ with st.container(border=True):
     # --- 自動掃描 data 資料夾 ---
     data_dir = "data"
     csv_files = []
+    selected_file = None # 初始化變數，避免後面報錯
     
     if os.path.exists(data_dir):
         # 讀取目錄下所有 csv 檔案
@@ -44,12 +45,12 @@ with st.container(border=True):
     
     with c1:
         if csv_files:
-            # 使用下拉選單取代文字輸入
+            # 使用下拉選單
             selected_file = st.selectbox("選擇本地標的 (從 data 資料夾)", csv_files, index=0)
             ticker_name = selected_file.replace(".csv", "") # 顯示用名稱
         else:
-            selected_file = None
             st.warning("⚠️ data 資料夾內沒有 CSV 檔案")
+            ticker_name = "未知標的"
             
     with c2:
         start_date = st.date_input("開始日期", datetime.now() - timedelta(days=365*5))
@@ -85,14 +86,12 @@ if submitted and selected_file:
             st.stop()
             
         # 2. 篩選日期區間
-        # 轉換 input date 為 datetime64 以進行比較
         tz_start = pd.to_datetime(start_date)
         tz_end = pd.to_datetime(end_date)
         df = df_raw.sort_index().loc[tz_start:tz_end].copy()
 
         # 3. 確保有 Close 欄位
         if 'Close' not in df.columns:
-             # 有些下載的資料可能是 Adj Close，做個簡單的檢查
             if 'Adj Close' in df.columns:
                 df['Price'] = df['Adj Close']
             else:
@@ -108,7 +107,7 @@ if submitted and selected_file:
         if df.empty:
             st.warning("⚠️ 選定的日期區間內無數據。")
         else:
-            # --- 指標與回測數據計算 (邏輯同前) ---
+            # --- 指標與回測數據計算 ---
             df['SMA'] = df['Price'].rolling(window=sma_window).mean()
             df['Gap'] = (df['Price'] - df['SMA']) / df['SMA']
             df['Return_5D'] = (df['Price'].shift(-5) - df['Price']) / df['Price']
@@ -147,10 +146,8 @@ if submitted and selected_file:
             ), secondary_y=True)
 
             # --- 標準差警戒線 ---
-            # ±2σ (紫色，較粗)
             fig_main.add_hline(y=sigma_pos_2, line_dash="dot", line_color="#9b59b6", line_width=1.5, annotation_text=f"+2σ", annotation_position="top left", secondary_y=False)
             fig_main.add_hline(y=sigma_neg_2, line_dash="dot", line_color="#9b59b6", line_width=1.5, annotation_text=f"-2σ", annotation_position="bottom left", secondary_y=False)
-            # ±1σ (灰色，較細)
             fig_main.add_hline(y=sigma_pos_1, line_dash="dash", line_color="gray", line_width=1, opacity=0.5, annotation_text=f"+1σ", annotation_position="top left", secondary_y=False)
             fig_main.add_hline(y=sigma_neg_1, line_dash="dash", line_color="gray", line_width=1, opacity=0.5, annotation_text=f"-1σ", annotation_position="bottom left", secondary_y=False)
 
@@ -239,5 +236,9 @@ if submitted and selected_file:
     except Exception as e:
         st.error(f"讀取或處理檔案時發生錯誤：{e}")
 
-elif not ticker_input and not selected_file:
-     st.info("👆 請確認 data 資料夾內有 CSV 檔案。")
+else:
+    # 修正處：移除 ticker_input 判斷，僅檢查是否已選擇檔案
+    if not selected_file:
+         st.info("👆 請確認 data 資料夾內有 CSV 檔案。")
+    elif not submitted:
+         st.info("👆 請選擇標的並點擊「讀取檔案並分析」。")
