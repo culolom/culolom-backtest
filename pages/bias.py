@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — SMA 乖離率戰情室 (含乖離統計數據版)
+# app.py — SMA 乖離率戰情室 (含標準差統計版)
 ###############################################################
 
 import streamlit as st
@@ -20,7 +20,7 @@ with st.sidebar:
     st.title("🐹 倉鼠導覽")
     st.page_link("https://hamr-lab.com/", label="回到量化戰情室首頁", icon="🏠")
     st.divider()
-    st.info("💡 更新日誌：新增正/負乖離率的平均值與中位數統計。")
+    st.info("💡 更新日誌：新增 ±2σ (兩倍標準差) 統計線，協助判斷常態分佈外的極端值。")
 
 st.title("📊 SMA 乖離率深度量化戰情室")
 
@@ -64,6 +64,13 @@ if submitted or ticker_input:
         df['Return_5D'] = (df['Price'].shift(-5) - df['Price']) / df['Price']
         df = df.dropna(subset=['SMA', 'Gap'])
 
+        # --- 統計數據計算 (新增標準差) ---
+        gap_mean_all = df['Gap'].mean()
+        gap_std_all = df['Gap'].std()
+        
+        sigma_pos_2 = gap_mean_all + (2 * gap_std_all)
+        sigma_neg_2 = gap_mean_all - (2 * gap_std_all)
+
         # --- 主圖表：雙軸疊圖 ---
         fig_main = make_subplots(specs=[[{"secondary_y": True}]])
         
@@ -101,10 +108,17 @@ if submitted or ticker_input:
         col_l, col_r = st.columns(2)
 
         with col_l:
-            st.subheader("📊 乖離率歷史分佈圖")
-            fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='royalblue', opacity=0.6))
-            fig_hist.add_vline(x=overbought_pct/100, line_dash="dash", line_color="#e74c3c")
-            fig_hist.add_vline(x=oversold_pct/100, line_dash="dash", line_color="#27ae60")
+            st.subheader("📊 乖離率歷史分佈圖 (含 ±2σ)")
+            fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='royalblue', opacity=0.6, name='分佈'))
+            
+            # 原本的固定警戒線
+            fig_hist.add_vline(x=overbought_pct/100, line_dash="dash", line_color="#e74c3c", annotation_text="設定高位")
+            fig_hist.add_vline(x=oversold_pct/100, line_dash="dash", line_color="#27ae60", annotation_text="設定低位")
+            
+            # 新增標準差線 (紫色)
+            fig_hist.add_vline(x=sigma_pos_2, line_dash="dot", line_width=2, line_color="#9b59b6", annotation_text="+2σ")
+            fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=2, line_color="#9b59b6", annotation_text="-2σ", annotation_position="bottom right")
+
             fig_hist.update_layout(xaxis_tickformat=".0%", height=350, plot_bgcolor='white', bargap=0.1)
             st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -122,7 +136,7 @@ if submitted or ticker_input:
             c_rc2.metric("恐慌期待上漲勝率", f"{wr_un:.1%}")
             st.write(f"💡 樣本數：過熱觸發 {len(ov_t)} 次 / 恐慌觸發 {len(un_t)} 次")
 
-        # --- 數據摘要 (含新功能) ---
+        # --- 數據摘要 ---
         st.divider()
         st.subheader("📋 乖離率統計摘要")
         
@@ -132,10 +146,20 @@ if submitted or ticker_input:
         m2.metric("目前乖離率", f"{df['Gap'].iloc[-1]:.2%}")
         m3.metric("歷史最大/小乖離", f"{df['Gap'].max():.1%} / {df['Gap'].min():.1%}")
 
-        st.caption("以下數據僅統計歷史中「大於 0」或「小於 0」的天數：")
+        # 2. 進階統計：標準差 (新增區塊)
+        st.caption("🔍 波動率統計 (基於歷史常態分佈)：")
+        sd1, sd2, sd3, sd4 = st.columns(4)
+        with sd1:
+            sd1.metric("乖離率標準差 (σ)", f"{gap_std_all:.2%}")
+        with sd2:
+            sd2.metric("平均乖離", f"{gap_mean_all:.2%}")
+        with sd3:
+            sd3.metric("+2σ 位置", f"{sigma_pos_2:.2%}", delta="極端過熱參考", delta_color="inverse")
+        with sd4:
+            sd4.metric("-2σ 位置", f"{sigma_neg_2:.2%}", delta="極端超跌參考")
 
-        # 2. 進階統計 (新增功能)
-        # 分離正負乖離數據
+        # 3. 分群統計 (原本的功能)
+        st.caption("📊 正負乖離分群統計：")
         pos_gaps = df[df['Gap'] > 0]['Gap']
         neg_gaps = df[df['Gap'] < 0]['Gap']
 
