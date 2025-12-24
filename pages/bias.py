@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 50正2定投抄底指標 (ahr999 概念版)
+# app.py — 50正2定投抄底指標 (ahr999 概念版 + Auth 驗證)
 ###############################################################
 
 import streamlit as st
@@ -9,16 +9,43 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import os
+import sys
 
-# 1. 頁面設定 (更新名稱)
+# ===============================================================
+# 1. 頁面設定 & 驗證守門員
+# ===============================================================
 st.set_page_config(
     page_title="Hamr Lab | 50正2定投抄底指標",
+    page_icon="📈",
     layout="wide",
 )
 
+# ------------------------------------------------------
+# 🔒 驗證守門員 (必須放在 set_page_config 之後，sidebar 之前)
+# ------------------------------------------------------
+# 讓 pages 資料夾能讀到根目錄的 auth.py
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+try:
+    import auth
+    if not auth.check_password():
+        st.stop()  # 驗證沒過就停止執行
+except ImportError:
+    # 這是為了防止在本地測試沒有 auth.py 時報錯，正式環境應確保有 auth.py
+    st.warning("⚠️ 找不到 auth 模組，跳過驗證 (僅限測試模式)")
+
+# ------------------------------------------------------
+# 側邊欄導覽
+# ------------------------------------------------------
 with st.sidebar:
-    st.title("🐹 倉鼠導覽")
-    st.page_link("https://hamr-lab.com/", label="回到量化戰情室首頁", icon="🏠")
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.divider()
+    
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+    
     st.divider()
     st.info("💡 設計理念：致敬比特幣 ahr999 囤幣指標。")
     st.markdown("""
@@ -27,7 +54,7 @@ with st.sidebar:
     - **抄底區 (紅線 -2σ)**: 極度恐慌時刻，價格遭錯殺，考慮加大部位抄底。
     """)
 
-# 主標題更新
+# 主標題
 st.title("🚀 50正2定投抄底指標 (Accumulation Index)")
 
 # ===============================================================
@@ -214,7 +241,7 @@ if submitted and selected_file:
             st.caption("👇 若依據今日均線，建議掛單價格：")
             sd1, sd2, sd3 = st.columns(3)
             
-            # 重新計算建議價格 (以最新的 MA 為基準)
+            # 重新計算建議價格
             current_sma = df['SMA'].iloc[-1]
             price_at_dca = current_sma * (1 + sigma_neg_1)
             price_at_bot = current_sma * (1 + sigma_neg_2)
@@ -222,7 +249,6 @@ if submitted and selected_file:
             with sd1:
                  sd1.metric("📉 負乖離平均", f"{df[df['Gap'] < 0]['Gap'].mean():.2%}")
             with sd2:
-                # 這裡顯示推算後的價格，對使用者更有用
                 sd2.metric("🟢 定投買入價 (< -1σ)", f"{price_at_dca:.2f}", delta="開始分批", delta_color="off")
             with sd3:
                 sd3.metric("🔴 抄底買入價 (< -2σ)", f"{price_at_bot:.2f}", delta="重倉機會", delta_color="inverse")
