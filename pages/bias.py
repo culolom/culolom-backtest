@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 50正2定投抄底指標 (價格儀表板優化版 + Auth)
+# app.py — 50正2定投抄底指標 (三段式資金控管版)
 ###############################################################
 
 import streamlit as st
@@ -176,10 +176,10 @@ if submitted and selected_file:
 
             # --- 繪製背景色塊 (Zones) ---
             
-            # ⚪ 觀望/空手區 (Wait Zone): 0 到 -1σ
+            # ⚪ 觀望/空手區 (Wait Zone): 0 到 -1σ [新增]
             fig_main.add_hrect(
                 y0=0, y1=sigma_neg_1,
-                fillcolor="#95a5a6", opacity=0.15,
+                fillcolor="#95a5a6", opacity=0.15, # 灰色
                 layer="below", line_width=0,
                 secondary_y=False,
                 annotation_text="空手觀望區", annotation_position="top left", annotation_font_color="#7f8c8d"
@@ -204,7 +204,7 @@ if submitted and selected_file:
             )
 
             # 輔助線 (邊界線)
-            fig_main.add_hline(y=0, line_dash="solid", line_color="#95a5a6", line_width=1, secondary_y=False)
+            fig_main.add_hline(y=0, line_dash="solid", line_color="#95a5a6", line_width=1, secondary_y=False) # 0軸
             fig_main.add_hline(y=sigma_neg_1, line_dash="dash", line_color="#2ecc71", line_width=1, secondary_y=False)
             fig_main.add_hline(y=sigma_neg_2, line_dash="dash", line_color="#e74c3c", line_width=1, secondary_y=False)
 
@@ -226,6 +226,7 @@ if submitted and selected_file:
                 st.subheader("📊 指標落點分佈")
                 fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='#2980b9', opacity=0.6, name='分佈'))
                 
+                # 分佈圖輔助線
                 fig_hist.add_vline(x=0, line_dash="solid", line_width=1, line_color="#95a5a6", annotation_text="0軸")
                 fig_hist.add_vline(x=sigma_neg_1, line_dash="dash", line_width=2, line_color="#2ecc71", annotation_text="定投線")
                 fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=3, line_color="#e74c3c", annotation_text="抄底線")
@@ -235,6 +236,7 @@ if submitted and selected_file:
             with col_r:
                 st.subheader("🎯 策略回測 (5日後表現)")
                 
+                # 觀望區統計 (0 ~ -1σ)
                 wait_t = df[(df['Gap'] < 0) & (df['Gap'] > sigma_neg_1)].dropna(subset=['Return_5D'])
                 wr_wait = len(wait_t[wait_t['Return_5D'] > 0]) / len(wait_t) if not wait_t.empty else 0
 
@@ -252,13 +254,13 @@ if submitted and selected_file:
                 st.write(f"💡 樣本數：觀望 {len(wait_t)} / 定投 {len(dca_t)} / 抄底 {len(bot_t)}")
                 st.caption("註：觀望區指價格低於均線但未達定投標準。")
 
-            # --- 數據摘要 (User Requested Update) ---
+            # --- 數據摘要 ---
             st.divider()
-            st.subheader("📋 囤幣價格參考表")
+            st.subheader("📋 定投抄底價格參考表")
 
-            # 重新計算建議價格 (Price = SMA * (1 + Gap))
+            # 重新計算建議價格
             current_sma = df['SMA'].iloc[-1]
-            price_at_zero = current_sma
+            price_at_zero = current_sma # 0軸就是均線價
             price_at_dca = current_sma * (1 + sigma_neg_1)
             price_at_bot = current_sma * (1 + sigma_neg_2)
             
@@ -269,15 +271,13 @@ if submitted and selected_file:
 
             with k2:
                 # 顯示空手觀望區間 (SMA ~ -1σ)
-                st.metric("⚪ 目前空手價格", f"{price_at_zero:.2f} ~ {price_at_dca:.2f}", delta="保留現金", delta_color="off")
+                st.metric("⚪ 空手觀望區間", f"{price_at_dca:.2f} ~ {price_at_zero:.2f}", delta="保留現金", delta_color="off")
                 
             with k3:
-                # 定投觸發價 (-1σ)
-                st.metric("🟢 目前定投價格", f"{price_at_dca:.2f}", delta="低於此價", delta_color="inverse")
+                st.metric("🟢 定投買入價 (< -1σ)", f"{price_at_dca:.2f}", delta="開始分批", delta_color="inverse")
                 
             with k4:
-                # 抄底觸發價 (-2σ)
-                st.metric("🔴 目前抄底價格", f"{price_at_bot:.2f}", delta="低於此價", delta_color="inverse")
+                st.metric("🔴 抄底買入價 (< -2σ)", f"{price_at_bot:.2f}", delta="重倉機會", delta_color="inverse")
 
     except Exception as e:
         st.error(f"分析過程中發生錯誤：{e}")
