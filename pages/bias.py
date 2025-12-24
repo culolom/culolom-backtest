@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — SMA 乖離率戰情室 (線條寬度優化版)
+# app.py — SMA 乖離率戰情室 (含乖離統計數據版)
 ###############################################################
 
 import streamlit as st
@@ -20,7 +20,7 @@ with st.sidebar:
     st.title("🐹 倉鼠導覽")
     st.page_link("https://hamr-lab.com/", label="回到量化戰情室首頁", icon="🏠")
     st.divider()
-    st.info("💡 視覺調整：已將收盤價橘線調細，並優化層次感。")
+    st.info("💡 更新日誌：新增正/負乖離率的平均值與中位數統計。")
 
 st.title("📊 SMA 乖離率深度量化戰情室")
 
@@ -54,6 +54,7 @@ if submitted or ticker_input:
     
     if not df_raw.empty:
         df = df_raw.copy()
+        # 處理 MultiIndex 列名 (yfinance 新版相容性)
         df = df.xs('Close', axis=1, level=0) if isinstance(df.columns, pd.MultiIndex) else df['Close']
         df = pd.DataFrame(df); df.columns = ['Price']
         
@@ -70,7 +71,7 @@ if submitted or ticker_input:
         fig_main.add_trace(go.Scatter(
             x=df.index, y=df['Gap'], name="乖離率 (左軸)", 
             line=dict(color='royalblue', width=1),
-            fill='tozeroy', fillcolor='rgba(65, 105, 225, 0.1)' # 降低填充透明度
+            fill='tozeroy', fillcolor='rgba(65, 105, 225, 0.1)'
         ), secondary_y=False)
 
         # SMA (右軸)
@@ -79,7 +80,7 @@ if submitted or ticker_input:
             line=dict(color='#7f8c8d', width=1.2, dash='dash'), opacity=0.5
         ), secondary_y=True)
 
-        # 價格 (右軸) - [關鍵修改：調細線條 width=2.5]
+        # 價格 (右軸)
         fig_main.add_trace(go.Scatter(
             x=df.index, y=df['Price'], name="收盤價 (右軸)", 
             line=dict(color='#ff7f0e', width=2.5) 
@@ -121,12 +122,40 @@ if submitted or ticker_input:
             c_rc2.metric("恐慌期待上漲勝率", f"{wr_un:.1%}")
             st.write(f"💡 樣本數：過熱觸發 {len(ov_t)} 次 / 恐慌觸發 {len(un_t)} 次")
 
-        # --- 數據摘要 ---
+        # --- 數據摘要 (含新功能) ---
         st.divider()
+        st.subheader("📋 乖離率統計摘要")
+        
+        # 1. 基礎數據
         m1, m2, m3 = st.columns(3)
         m1.metric("目前價格", f"{df['Price'].iloc[-1]:.2f}")
         m2.metric("目前乖離率", f"{df['Gap'].iloc[-1]:.2%}")
         m3.metric("歷史最大/小乖離", f"{df['Gap'].max():.1%} / {df['Gap'].min():.1%}")
+
+        st.caption("以下數據僅統計歷史中「大於 0」或「小於 0」的天數：")
+
+        # 2. 進階統計 (新增功能)
+        # 分離正負乖離數據
+        pos_gaps = df[df['Gap'] > 0]['Gap']
+        neg_gaps = df[df['Gap'] < 0]['Gap']
+
+        stat1, stat2, stat3, stat4 = st.columns(4)
+        
+        with stat1:
+            val = pos_gaps.mean() if not pos_gaps.empty else 0
+            st.metric("📈 正乖離平均", f"{val:.2%}")
+        
+        with stat2:
+            val = pos_gaps.median() if not pos_gaps.empty else 0
+            st.metric("📈 正乖離中位數", f"{val:.2%}")
+            
+        with stat3:
+            val = neg_gaps.mean() if not neg_gaps.empty else 0
+            st.metric("📉 負乖離平均", f"{val:.2%}")
+            
+        with stat4:
+            val = neg_gaps.median() if not neg_gaps.empty else 0
+            st.metric("📉 負乖離中位數", f"{val:.2%}")
 
 else:
     st.info("👆 請輸入代號並點擊「開始量化回測與分析」。")
