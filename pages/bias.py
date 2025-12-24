@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — SMA 乖離率戰情室 (含標準差統計版)
+# app.py — SMA 乖離率戰情室 (主圖表含警戒線版)
 ###############################################################
 
 import streamlit as st
@@ -20,7 +20,7 @@ with st.sidebar:
     st.title("🐹 倉鼠導覽")
     st.page_link("https://hamr-lab.com/", label="回到量化戰情室首頁", icon="🏠")
     st.divider()
-    st.info("💡 更新日誌：新增 ±2σ (兩倍標準差) 統計線，協助判斷常態分佈外的極端值。")
+    st.info("💡 更新日誌：主圖表現在包含高低位警戒線與 ±2σ 標準差線。")
 
 st.title("📊 SMA 乖離率深度量化戰情室")
 
@@ -64,7 +64,7 @@ if submitted or ticker_input:
         df['Return_5D'] = (df['Price'].shift(-5) - df['Price']) / df['Price']
         df = df.dropna(subset=['SMA', 'Gap'])
 
-        # --- 統計數據計算 (新增標準差) ---
+        # --- 統計數據計算 (標準差) ---
         gap_mean_all = df['Gap'].mean()
         gap_std_all = df['Gap'].std()
         
@@ -93,6 +93,25 @@ if submitted or ticker_input:
             line=dict(color='#ff7f0e', width=2.5) 
         ), secondary_y=True)
 
+        # --- [新增] 在主圖表加上警戒線 (對應左軸 Gap) ---
+        # 1. 自訂高位 (紅色虛線)
+        fig_main.add_hline(y=overbought_pct/100, line_dash="dash", line_color="#e74c3c", opacity=0.7, secondary_y=False)
+        # 2. 自訂低位 (綠色虛線)
+        fig_main.add_hline(y=oversold_pct/100, line_dash="dash", line_color="#27ae60", opacity=0.7, secondary_y=False)
+        
+        # 3. +2σ 標準差 (紫色點線)
+        fig_main.add_hline(
+            y=sigma_pos_2, line_dash="dot", line_color="#9b59b6", line_width=1.5,
+            annotation_text=f"+2σ ({sigma_pos_2:.1%})", annotation_position="top left", 
+            annotation_font_color="#9b59b6", secondary_y=False
+        )
+        # 4. -2σ 標準差 (紫色點線)
+        fig_main.add_hline(
+            y=sigma_neg_2, line_dash="dot", line_color="#9b59b6", line_width=1.5,
+            annotation_text=f"-2σ ({sigma_neg_2:.1%})", annotation_position="bottom left", 
+            annotation_font_color="#9b59b6", secondary_y=False
+        )
+
         # 佈局美化
         fig_main.update_layout(
             height=600, hovermode="x unified", plot_bgcolor='white',
@@ -108,14 +127,12 @@ if submitted or ticker_input:
         col_l, col_r = st.columns(2)
 
         with col_l:
-            st.subheader("📊 乖離率歷史分佈圖 (含 ±2σ)")
+            st.subheader("📊 乖離率歷史分佈圖")
             fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='royalblue', opacity=0.6, name='分佈'))
             
-            # 原本的固定警戒線
+            # 分佈圖上的輔助線
             fig_hist.add_vline(x=overbought_pct/100, line_dash="dash", line_color="#e74c3c", annotation_text="設定高位")
             fig_hist.add_vline(x=oversold_pct/100, line_dash="dash", line_color="#27ae60", annotation_text="設定低位")
-            
-            # 新增標準差線 (紫色)
             fig_hist.add_vline(x=sigma_pos_2, line_dash="dot", line_width=2, line_color="#9b59b6", annotation_text="+2σ")
             fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=2, line_color="#9b59b6", annotation_text="-2σ", annotation_position="bottom right")
 
@@ -140,13 +157,11 @@ if submitted or ticker_input:
         st.divider()
         st.subheader("📋 乖離率統計摘要")
         
-        # 1. 基礎數據
         m1, m2, m3 = st.columns(3)
         m1.metric("目前價格", f"{df['Price'].iloc[-1]:.2f}")
         m2.metric("目前乖離率", f"{df['Gap'].iloc[-1]:.2%}")
         m3.metric("歷史最大/小乖離", f"{df['Gap'].max():.1%} / {df['Gap'].min():.1%}")
 
-        # 2. 進階統計：標準差 (新增區塊)
         st.caption("🔍 波動率統計 (基於歷史常態分佈)：")
         sd1, sd2, sd3, sd4 = st.columns(4)
         with sd1:
@@ -158,25 +173,20 @@ if submitted or ticker_input:
         with sd4:
             sd4.metric("-2σ 位置", f"{sigma_neg_2:.2%}", delta="極端超跌參考")
 
-        # 3. 分群統計 (原本的功能)
         st.caption("📊 正負乖離分群統計：")
         pos_gaps = df[df['Gap'] > 0]['Gap']
         neg_gaps = df[df['Gap'] < 0]['Gap']
 
         stat1, stat2, stat3, stat4 = st.columns(4)
-        
         with stat1:
             val = pos_gaps.mean() if not pos_gaps.empty else 0
             st.metric("📈 正乖離平均", f"{val:.2%}")
-        
         with stat2:
             val = pos_gaps.median() if not pos_gaps.empty else 0
             st.metric("📈 正乖離中位數", f"{val:.2%}")
-            
         with stat3:
             val = neg_gaps.mean() if not neg_gaps.empty else 0
             st.metric("📉 負乖離平均", f"{val:.2%}")
-            
         with stat4:
             val = neg_gaps.median() if not neg_gaps.empty else 0
             st.metric("📉 負乖離中位數", f"{val:.2%}")
