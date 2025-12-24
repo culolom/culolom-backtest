@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — SMA 乖離率戰情室 (定投/抄底實戰版)
+# app.py — SMA 乖離率戰情室 (定投/抄底實戰版 - 修復日期裁切Bug)
 ###############################################################
 
 import streamlit as st
@@ -84,40 +84,45 @@ if submitted and selected_file:
         else:
             st.error("CSV 缺少 'Date' 欄位。")
             st.stop()
-            
-        # 篩選日期
-        tz_start = pd.to_datetime(start_date)
-        tz_end = pd.to_datetime(end_date)
-        df = df_raw.sort_index().loc[tz_start:tz_end].copy()
 
-        # 確保價格欄位
-        if 'Close' not in df.columns:
-            if 'Adj Close' in df.columns:
-                df['Price'] = df['Adj Close']
+        # 確保價格欄位存在
+        if 'Close' not in df_raw.columns:
+            if 'Adj Close' in df_raw.columns:
+                df_raw['Price'] = df_raw['Adj Close']
             else:
                 st.error("找不到 'Close' 欄位。")
                 st.stop()
         else:
-            df['Price'] = df['Close']
+            df_raw['Price'] = df_raw['Close']
         
-        df['Price'] = pd.to_numeric(df['Price'], errors='coerce')
-        df = df.dropna(subset=['Price'])
+        # 轉為數值並去除空值
+        df_raw['Price'] = pd.to_numeric(df_raw['Price'], errors='coerce')
+        df_raw = df_raw.dropna(subset=['Price'])
+
+        # --- [關鍵修正]：先在「全體數據」上計算指標，再切分時間 ---
+        # 這樣做可以確保切分起始點的 SMA 已經有數值，不會因為 rolling 視窗不足被刪除
+        df_raw['SMA'] = df_raw['Price'].rolling(window=sma_window).mean()
+        df_raw['Gap'] = (df_raw['Price'] - df_raw['SMA']) / df_raw['SMA']
+        df_raw['Return_5D'] = (df_raw['Price'].shift(-5) - df_raw['Price']) / df_raw['Price']
+
+        # --- [關鍵修正]：指標算完後，才進行時間切分 ---
+        tz_start = pd.to_datetime(start_date)
+        tz_end = pd.to_datetime(end_date)
+        df = df_raw.sort_index().loc[tz_start:tz_end].copy()
+
+        # 最後只刪除「選定區間內」依然是空值的資料 (例如剛好是全歷史的最開頭)
+        df = df.dropna(subset=['SMA', 'Gap'])
 
         if df.empty:
-            st.warning("⚠️ 選定區間無數據。")
+            st.warning(f"⚠️ 選定區間 ({start_date} ~ {end_date}) 內無有效 SMA 數據。可能原因：選定的開始日期太早，導致資料不足以計算 {sma_window}MA。")
         else:
-            # --- 指標計算 ---
-            df['SMA'] = df['Price'].rolling(window=sma_window).mean()
-            df['Gap'] = (df['Price'] - df['SMA']) / df['SMA']
-            df['Return_5D'] = (df['Price'].shift(-5) - df['Price']) / df['Price']
-            df = df.dropna(subset=['SMA', 'Gap'])
-
             # --- 統計數據 (只取需要的) ---
+            # 注意：標準差建議用「選定區間」還是「全歷史」？
+            # 這裡我們維持用「選定區間」的波動特性來畫線，如果想看全歷史標準差，可以改用 df_raw 計算
             gap_mean_all = df['Gap'].mean()
             gap_std_all = df['Gap'].std()
             
             # 定義：定投線 (-1σ), 抄底線 (-2σ)
-            # 正乖離線均已移除
             sigma_neg_1 = gap_mean_all - (1 * gap_std_all) # 定投
             sigma_neg_2 = gap_mean_all - (2 * gap_std_all) # 抄底
 
@@ -143,7 +148,7 @@ if submitted and selected_file:
                 line=dict(color='#ff7f0e', width=2.5) 
             ), secondary_y=True)
 
-            # --- [修改核心] 繪製定投線與抄底線 ---
+            # --- 繪製定投線與抄底線 ---
             
             # 1. 定投線 (-1σ): 綠色 (#2ecc71)
             fig_main.add_hline(
@@ -180,7 +185,7 @@ if submitted and selected_file:
             
             st.plotly_chart(fig_main, use_container_width=True)
 
-            # --- 歷史分佈圖 (同步修改) ---
+            # --- 歷史分佈圖 ---
             st.divider()
             col_l, col_r = st.columns(2)
 
