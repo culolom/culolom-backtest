@@ -83,7 +83,7 @@ with st.container(border=True):
 
     with c1:
         if available_options:
-            selected_option = st.selectbox("選擇囤幣標的 (台股正2)", available_options, index=0)
+            selected_option = st.selectbox("選擇標的 (台股正2)", available_options, index=0)
             selected_file = TARGET_MAP[selected_option]
             ticker_name = selected_option 
         else:
@@ -100,7 +100,7 @@ with st.container(border=True):
     with c5:
         st.write("") 
 
-    submitted = st.button("🚀 開始分析囤幣區間", use_container_width=True, type="primary")
+    submitted = st.button("🚀 開始分析區間", use_container_width=True, type="primary")
 
 # ===============================================================
 # 區塊 2: 繪圖與回測邏輯
@@ -203,7 +203,7 @@ if submitted and selected_file:
             fig_main.add_hline(y=sigma_neg_2, line_dash="dash", line_color="#e74c3c", line_width=1, secondary_y=False)
 
             fig_main.update_layout(
-                title=f"{ticker_name} - 囤幣指標走勢圖",
+                title=f"{ticker_name} - 定投抄底指標走勢圖",
                 height=600, hovermode="x unified", plot_bgcolor='white',
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
@@ -243,7 +243,7 @@ if submitted and selected_file:
 
             # --- 數據摘要 (精簡版) ---
             st.divider()
-            st.subheader("📋 囤幣價格參考表")
+            st.subheader("📋 定投抄底價格參考表")
 
             # 重新計算建議價格
             current_sma = df['SMA'].iloc[-1]
@@ -268,4 +268,4 @@ else:
     if not available_options:
          st.info("👆 請確認 data 資料夾內有 00631L, 00663L, 00675L 或 00685L 的 CSV 檔案。")
     elif not submitted:
-         st.info("👆 請選擇囤幣標的並點擊「開始分析囤幣區間」。")
+         st.info("👆 請選擇定投抄底標的並點擊「開始分析區間」。")
