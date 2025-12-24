@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 50正2定投抄底指標 (精簡版 + Auth 驗證)
+# app.py — 50正2定投抄底指標 (色塊區域版 + Auth)
 ###############################################################
 
 import streamlit as st
@@ -48,8 +48,8 @@ with st.sidebar:
     st.info("💡 設計理念：致敬比特幣 ahr999 囤幣指標。")
     st.markdown("""
     **策略邏輯：**
-    - **定投區 (綠線 -1σ)**: 價格回落至合理區間，適合執行定期定額。
-    - **抄底區 (紅線 -2σ)**: 極度恐慌時刻，價格遭錯殺，考慮加大部位抄底。
+    - **🟢 定投區 (-1σ ~ -2σ)**: 綠色區塊。價格回落至合理區間，適合執行定期定額。
+    - **🔴 抄底區 (< -2σ)**: 紅色區塊。極度恐慌時刻，價格遭錯殺，考慮加大部位抄底。
     """)
 
 # 主標題
@@ -154,38 +154,53 @@ if submitted and selected_file:
             # 定義：定投線 (-1σ), 抄底線 (-2σ)
             sigma_neg_1 = gap_mean_all - (1 * gap_std_all)
             sigma_neg_2 = gap_mean_all - (2 * gap_std_all)
+            
+            # 定義區域下限 (為了畫紅色區塊，取一個比歷史最低還低一點的值)
+            min_gap_display = min(df['Gap'].min(), sigma_neg_2) * 1.2
 
             # --- 主圖表 ---
             fig_main = make_subplots(specs=[[{"secondary_y": True}]])
             
-            # 乖離率 (左軸)
+            # 1. 乖離率 (左軸) - 藍色線
             fig_main.add_trace(go.Scatter(
                 x=df.index, y=df['Gap'], name="指標數值 (左軸)", 
-                line=dict(color='royalblue', width=1),
-                fill='tozeroy', fillcolor='rgba(65, 105, 225, 0.1)'
+                line=dict(color='#2980b9', width=1.5),
+                # 移除原本的藍色填充，避免與背景色塊混淆，或者保留淡淡的
+                # fill='tozeroy', fillcolor='rgba(41, 128, 185, 0.05)' 
             ), secondary_y=False)
 
-            # SMA (右軸)
-            fig_main.add_trace(go.Scatter(
-                x=df.index, y=df['SMA'], name=f"{sma_window} MA (右軸)", 
-                line=dict(color='#7f8c8d', width=1.2, dash='dash'), opacity=0.5
-            ), secondary_y=True)
-
-            # 價格 (右軸)
+            # 2. 價格 (右軸) - 橘色線
             fig_main.add_trace(go.Scatter(
                 x=df.index, y=df['Price'], name="收盤價 (右軸)", 
                 line=dict(color='#ff7f0e', width=2.5) 
             ), secondary_y=True)
 
-            # --- 繪製定投線與抄底線 ---
-            fig_main.add_hline(
-                y=sigma_neg_1, line_dash="dash", line_color="#2ecc71", line_width=1.5, 
-                annotation_text=f"🟢 定投線 (DCA)", annotation_position="bottom left", annotation_font_color="#2ecc71", secondary_y=False
+            # 3. [已移除] SMA 線 
+            # 依據需求，這裡不再繪製 SMA 線，但保留在變數中供計算使用
+
+            # --- 繪製背景色塊 (Zones) ---
+            
+            # 🟢 定投區 (Green Zone): -1σ 到 -2σ 之間
+            fig_main.add_hrect(
+                y0=sigma_neg_1, y1=sigma_neg_2,
+                fillcolor="#2ecc71", opacity=0.15,
+                layer="below", line_width=0,
+                secondary_y=False,
+                annotation_text="定投區", annotation_position="top left", annotation_font_color="#27ae60"
             )
-            fig_main.add_hline(
-                y=sigma_neg_2, line_dash="dot", line_color="#e74c3c", line_width=2.5, 
-                annotation_text=f"🔴 抄底線 (Buy the Dip)", annotation_position="bottom left", annotation_font_color="#e74c3c", secondary_y=False
+
+            # 🔴 抄底區 (Red Zone): -2σ 以下
+            fig_main.add_hrect(
+                y0=sigma_neg_2, y1=min_gap_display, # 延伸到圖表底部
+                fillcolor="#e74c3c", opacity=0.15,
+                layer="below", line_width=0,
+                secondary_y=False,
+                annotation_text="抄底區", annotation_position="bottom left", annotation_font_color="#c0392b"
             )
+
+            # 輔助線 (邊界線) - 讓區間邊界更清楚
+            fig_main.add_hline(y=sigma_neg_1, line_dash="dash", line_color="#2ecc71", line_width=1, secondary_y=False)
+            fig_main.add_hline(y=sigma_neg_2, line_dash="dash", line_color="#e74c3c", line_width=1, secondary_y=False)
 
             fig_main.update_layout(
                 title=f"{ticker_name} - 囤幣指標走勢圖",
@@ -203,9 +218,10 @@ if submitted and selected_file:
 
             with col_l:
                 st.subheader("📊 指標落點分佈")
-                fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='royalblue', opacity=0.6, name='分佈'))
-                fig_hist.add_vline(x=sigma_neg_1, line_dash="dash", line_width=2, line_color="#2ecc71", annotation_text="定投區")
-                fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=3, line_color="#e74c3c", annotation_text="抄底區")
+                fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='#2980b9', opacity=0.6, name='分佈'))
+                # 分佈圖也加上色塊或線條對照
+                fig_hist.add_vline(x=sigma_neg_1, line_dash="dash", line_width=2, line_color="#2ecc71", annotation_text="定投線")
+                fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=3, line_color="#e74c3c", annotation_text="抄底線")
                 fig_hist.update_layout(xaxis_tickformat=".0%", height=350, plot_bgcolor='white', bargap=0.1)
                 st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -219,10 +235,10 @@ if submitted and selected_file:
                 wr_bot = len(bot_t[bot_t['Return_5D'] > 0]) / len(bot_t) if not bot_t.empty else 0
 
                 c_rc1, c_rc2 = st.columns(2)
-                c_rc1.metric("定投區 (綠線) 勝率", f"{wr_dca:.1%}")
-                c_rc2.metric("抄底區 (紅線) 勝率", f"{wr_bot:.1%}")
+                c_rc1.metric("定投區 (綠區) 勝率", f"{wr_dca:.1%}")
+                c_rc2.metric("抄底區 (紅區) 勝率", f"{wr_bot:.1%}")
                 
-                st.write(f"💡 機會次數：定投區出現 {len(dca_t)} 天 / 抄底區出現 {len(bot_t)} 天")
+                st.write(f"💡 機會次數：落入綠區 {len(dca_t)} 天 / 落入紅區 {len(bot_t)} 天")
                 st.caption("註：勝率為訊號出現後持有 5 日為正報酬的機率。")
 
             # --- 數據摘要 (精簡版) ---
@@ -234,17 +250,16 @@ if submitted and selected_file:
             price_at_dca = current_sma * (1 + sigma_neg_1)
             price_at_bot = current_sma * (1 + sigma_neg_2)
             
-            # 使用 3 欄位佈局，只顯示最重要的三個價格
             k1, k2, k3 = st.columns(3)
             
             with k1:
                 st.metric("目前價格", f"{df['Price'].iloc[-1]:.2f}")
                 
             with k2:
-                st.metric("🟢 定投買入價 (< -1σ)", f"{price_at_dca:.2f}", delta="開始分批", delta_color="off")
+                st.metric("🟢 定投買入價 (進入綠區)", f"{price_at_dca:.2f}", delta="開始分批", delta_color="off")
                 
             with k3:
-                st.metric("🔴 抄底買入價 (< -2σ)", f"{price_at_bot:.2f}", delta="重倉機會", delta_color="inverse")
+                st.metric("🔴 抄底買入價 (進入紅區)", f"{price_at_bot:.2f}", delta="重倉機會", delta_color="inverse")
 
     except Exception as e:
         st.error(f"分析過程中發生錯誤：{e}")
