@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — SMA 乖離率戰情室 (定投/抄底實戰版 - 修復日期裁切Bug)
+# app.py — SMA 乖離率戰情室 (限定4檔正2實戰版)
 ###############################################################
 
 import streamlit as st
@@ -12,7 +12,7 @@ import os
 
 # 1. 頁面設定
 st.set_page_config(
-    page_title="Hamr Lab | 乖離率戰情室 (實戰版)",
+    page_title="Hamr Lab | 乖離率戰情室 (正2限定版)",
     layout="wide",
 )
 
@@ -20,39 +20,52 @@ with st.sidebar:
     st.title("🐹 倉鼠導覽")
     st.page_link("https://hamr-lab.com/", label="回到量化戰情室首頁", icon="🏠")
     st.divider()
-    st.info("💡 策略模式：專注於負向乖離。")
+    st.info("💡 策略模式：專注於台股槓桿 ETF (正2)。")
     st.markdown("""
+    **觀察重點：**
     - **定投線 (-1σ)**: 綠色，價格回落至合理區間，維持紀律。
     - **抄底線 (-2σ)**: 紅色，極端恐慌時刻，考慮加大部位。
     """)
 
-st.title("📊 SMA 乖離率戰情室 (定投/抄底實戰版)")
+st.title("📊 SMA 乖離率戰情室 (正2限定版)")
 
 # ===============================================================
 # 區塊 1: 參數設定與檔案讀取
 # ===============================================================
 with st.container(border=True):
-    # --- 自動掃描 data 資料夾 ---
-    data_dir = "data"
-    csv_files = []
-    selected_file = None 
+    # --- 定義限定的 4 檔正2 (顯示名稱 -> 檔案名稱) ---
+    TARGET_MAP = {
+        "00631L 元大台灣50正2": "00631L.TW.csv",
+        "00663L 國泰台灣加權正2": "00663L.TW.csv",
+        "00675L 富邦台灣加權正2": "00675L.TW.csv",
+        "00685L 群益台灣加權正2": "00685L.TW.csv"
+    }
     
+    data_dir = "data"
+    available_options = []
+    
+    # 檢查哪些檔案實際存在於 data 資料夾中
     if os.path.exists(data_dir):
-        # 讀取目錄下所有 csv 檔案
-        csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
-        csv_files.sort()
+        for display_name, filename in TARGET_MAP.items():
+            if os.path.exists(os.path.join(data_dir, filename)):
+                available_options.append(display_name)
     else:
         st.error(f"❌ 找不到 '{data_dir}' 資料夾，請確認目錄結構。")
 
     c1, c2, c3 = st.columns([2, 1.5, 1.5])
     
+    selected_file = None
+    ticker_name = "未知標的"
+
     with c1:
-        if csv_files:
-            selected_file = st.selectbox("選擇本地標的 (從 data 資料夾)", csv_files, index=0)
-            ticker_name = selected_file.replace(".csv", "")
+        if available_options:
+            # 顯示限定的選項
+            selected_option = st.selectbox("選擇正2標的", available_options, index=0)
+            # 從選項反查檔名
+            selected_file = TARGET_MAP[selected_option]
+            ticker_name = selected_option # 顯示名稱直接用選項名
         else:
-            st.warning("⚠️ data 資料夾內沒有 CSV 檔案")
-            ticker_name = "未知標的"
+            st.warning("⚠️ data 資料夾內找不到指定的正2 CSV 檔案 (00631L, 00663L, 00675L, 00685L)")
             
     with c2:
         start_date = st.date_input("開始日期", datetime.now() - timedelta(days=365*5))
@@ -99,32 +112,29 @@ if submitted and selected_file:
         df_raw['Price'] = pd.to_numeric(df_raw['Price'], errors='coerce')
         df_raw = df_raw.dropna(subset=['Price'])
 
-        # --- [關鍵修正]：先在「全體數據」上計算指標，再切分時間 ---
-        # 這樣做可以確保切分起始點的 SMA 已經有數值，不會因為 rolling 視窗不足被刪除
+        # --- 先計算全歷史指標 (避免切分後無 MA) ---
         df_raw['SMA'] = df_raw['Price'].rolling(window=sma_window).mean()
         df_raw['Gap'] = (df_raw['Price'] - df_raw['SMA']) / df_raw['SMA']
         df_raw['Return_5D'] = (df_raw['Price'].shift(-5) - df_raw['Price']) / df_raw['Price']
 
-        # --- [關鍵修正]：指標算完後，才進行時間切分 ---
+        # --- 再進行時間切分 ---
         tz_start = pd.to_datetime(start_date)
         tz_end = pd.to_datetime(end_date)
         df = df_raw.sort_index().loc[tz_start:tz_end].copy()
 
-        # 最後只刪除「選定區間內」依然是空值的資料 (例如剛好是全歷史的最開頭)
+        # 刪除無效數據
         df = df.dropna(subset=['SMA', 'Gap'])
 
         if df.empty:
-            st.warning(f"⚠️ 選定區間 ({start_date} ~ {end_date}) 內無有效 SMA 數據。可能原因：選定的開始日期太早，導致資料不足以計算 {sma_window}MA。")
+            st.warning(f"⚠️ 選定區間 ({start_date} ~ {end_date}) 內無有效數據。")
         else:
-            # --- 統計數據 (只取需要的) ---
-            # 注意：標準差建議用「選定區間」還是「全歷史」？
-            # 這裡我們維持用「選定區間」的波動特性來畫線，如果想看全歷史標準差，可以改用 df_raw 計算
+            # --- 統計數據 ---
             gap_mean_all = df['Gap'].mean()
             gap_std_all = df['Gap'].std()
             
             # 定義：定投線 (-1σ), 抄底線 (-2σ)
-            sigma_neg_1 = gap_mean_all - (1 * gap_std_all) # 定投
-            sigma_neg_2 = gap_mean_all - (2 * gap_std_all) # 抄底
+            sigma_neg_1 = gap_mean_all - (1 * gap_std_all)
+            sigma_neg_2 = gap_mean_all - (2 * gap_std_all)
 
             # --- 主圖表 ---
             fig_main = make_subplots(specs=[[{"secondary_y": True}]])
@@ -149,32 +159,15 @@ if submitted and selected_file:
             ), secondary_y=True)
 
             # --- 繪製定投線與抄底線 ---
-            
-            # 1. 定投線 (-1σ): 綠色 (#2ecc71)
             fig_main.add_hline(
-                y=sigma_neg_1, 
-                line_dash="dash", 
-                line_color="#2ecc71", 
-                line_width=1.5, 
-                annotation_text=f"定投線 (-1σ)", 
-                annotation_position="bottom left", 
-                annotation_font_color="#2ecc71",
-                secondary_y=False
+                y=sigma_neg_1, line_dash="dash", line_color="#2ecc71", line_width=1.5, 
+                annotation_text=f"定投線 (-1σ)", annotation_position="bottom left", annotation_font_color="#2ecc71", secondary_y=False
             )
-            
-            # 2. 抄底線 (-2σ): 紅色 (#e74c3c), 加粗
             fig_main.add_hline(
-                y=sigma_neg_2, 
-                line_dash="dot", 
-                line_color="#e74c3c", 
-                line_width=2.5, 
-                annotation_text=f"抄底線 (-2σ)", 
-                annotation_position="bottom left", 
-                annotation_font_color="#e74c3c",
-                secondary_y=False
+                y=sigma_neg_2, line_dash="dot", line_color="#e74c3c", line_width=2.5, 
+                annotation_text=f"抄底線 (-2σ)", annotation_position="bottom left", annotation_font_color="#e74c3c", secondary_y=False
             )
 
-            # 佈局美化
             fig_main.update_layout(
                 title=f"{ticker_name} - 乖離率實戰分析",
                 height=600, hovermode="x unified", plot_bgcolor='white',
@@ -192,22 +185,17 @@ if submitted and selected_file:
             with col_l:
                 st.subheader("📊 乖離率分佈與落點")
                 fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='royalblue', opacity=0.6, name='分佈'))
-                
-                # 分佈圖線條同步
                 fig_hist.add_vline(x=sigma_neg_1, line_dash="dash", line_width=2, line_color="#2ecc71", annotation_text="定投區")
                 fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=3, line_color="#e74c3c", annotation_text="抄底區")
-
                 fig_hist.update_layout(xaxis_tickformat=".0%", height=350, plot_bgcolor='white', bargap=0.1)
                 st.plotly_chart(fig_hist, use_container_width=True)
 
             with col_r:
                 st.subheader("🎯 實戰訊號 5日回測")
                 
-                # 計算：跌破定投線後的表現
                 dca_t = df[df['Gap'] <= sigma_neg_1].dropna(subset=['Return_5D'])
                 wr_dca = len(dca_t[dca_t['Return_5D'] > 0]) / len(dca_t) if not dca_t.empty else 0
                 
-                # 計算：跌破抄底線後的表現
                 bot_t = df[df['Gap'] <= sigma_neg_2].dropna(subset=['Return_5D'])
                 wr_bot = len(bot_t[bot_t['Return_5D'] > 0]) / len(bot_t) if not bot_t.empty else 0
 
@@ -230,11 +218,6 @@ if submitted and selected_file:
             st.caption("👇 你的進場參考點 (基於乖離率推算)：")
             sd1, sd2, sd3 = st.columns(3)
             
-            # 推算當前均線下的對應價格
-            current_sma = df['SMA'].iloc[-1]
-            price_at_dca = current_sma * (1 + sigma_neg_1)
-            price_at_bot = current_sma * (1 + sigma_neg_2)
-
             with sd1:
                  sd1.metric("📉 負乖離平均", f"{df[df['Gap'] < 0]['Gap'].mean():.2%}")
             with sd2:
@@ -246,7 +229,7 @@ if submitted and selected_file:
         st.error(f"分析過程中發生錯誤：{e}")
 
 else:
-    if not selected_file:
-         st.info("👆 請確認 data 資料夾內有 CSV 檔案。")
+    if not available_options:
+         st.info("👆 請確認 data 資料夾內有 00631L, 00663L, 00675L 或 00685L 的 CSV 檔案。")
     elif not submitted:
          st.info("👆 請選擇標的並點擊「讀取檔案並分析」。")
