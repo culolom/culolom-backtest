@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — SMA 乖離率戰情室 (主圖表含警戒線版)
+# app.py — SMA 乖離率戰情室 (純標準差版 ±1σ & ±2σ)
 ###############################################################
 
 import streamlit as st
@@ -20,9 +20,9 @@ with st.sidebar:
     st.title("🐹 倉鼠導覽")
     st.page_link("https://hamr-lab.com/", label="回到量化戰情室首頁", icon="🏠")
     st.divider()
-    st.info("💡 更新日誌：主圖表現在包含高低位警戒線與 ±2σ 標準差線。")
+    st.info("💡 邏輯更新：移除固定百分比警戒，改為顯示 ±1σ 與 ±2σ 標準差，回測亦基於 ±2σ 訊號。")
 
-st.title("📊 SMA 乖離率深度量化戰情室")
+st.title("📊 SMA 乖離率深度量化戰情室 (標準差版)")
 
 # ===============================================================
 # 區塊 1: 參數設定
@@ -36,13 +36,12 @@ with st.container(border=True):
     with c3:
         end_date = st.date_input("結束日期", datetime.now())
 
-    c4, c5, c6 = st.columns(3)
+    # 移除了手動設定的高低位警戒，只保留 SMA 週期
+    c4, c5 = st.columns([1, 2])
     with c4:
         sma_window = st.number_input("SMA 均線週期", value=200)
     with c5:
-        overbought_pct = st.number_input("高位警戒 (%)", value=40)
-    with c6:
-        oversold_pct = st.number_input("低位警戒 (%)", value=-20)
+        st.write("") # 佔位用
 
     submitted = st.button("🚀 開始量化回測與分析", use_container_width=True, type="primary")
 
@@ -68,6 +67,9 @@ if submitted or ticker_input:
         gap_mean_all = df['Gap'].mean()
         gap_std_all = df['Gap'].std()
         
+        # 計算 1倍 與 2倍 標準差位置
+        sigma_pos_1 = gap_mean_all + (1 * gap_std_all)
+        sigma_neg_1 = gap_mean_all - (1 * gap_std_all)
         sigma_pos_2 = gap_mean_all + (2 * gap_std_all)
         sigma_neg_2 = gap_mean_all - (2 * gap_std_all)
 
@@ -93,24 +95,14 @@ if submitted or ticker_input:
             line=dict(color='#ff7f0e', width=2.5) 
         ), secondary_y=True)
 
-        # --- [新增] 在主圖表加上警戒線 (對應左軸 Gap) ---
-        # 1. 自訂高位 (紅色虛線)
-        fig_main.add_hline(y=overbought_pct/100, line_dash="dash", line_color="#e74c3c", opacity=0.7, secondary_y=False)
-        # 2. 自訂低位 (綠色虛線)
-        fig_main.add_hline(y=oversold_pct/100, line_dash="dash", line_color="#27ae60", opacity=0.7, secondary_y=False)
-        
-        # 3. +2σ 標準差 (紫色點線)
-        fig_main.add_hline(
-            y=sigma_pos_2, line_dash="dot", line_color="#9b59b6", line_width=1.5,
-            annotation_text=f"+2σ ({sigma_pos_2:.1%})", annotation_position="top left", 
-            annotation_font_color="#9b59b6", secondary_y=False
-        )
-        # 4. -2σ 標準差 (紫色點線)
-        fig_main.add_hline(
-            y=sigma_neg_2, line_dash="dot", line_color="#9b59b6", line_width=1.5,
-            annotation_text=f"-2σ ({sigma_neg_2:.1%})", annotation_position="bottom left", 
-            annotation_font_color="#9b59b6", secondary_y=False
-        )
+        # --- [修改] 在主圖表加上標準差警戒線 ---
+        # ±2σ (紫色，較粗，代表極端)
+        fig_main.add_hline(y=sigma_pos_2, line_dash="dot", line_color="#9b59b6", line_width=1.5, annotation_text=f"+2σ", annotation_position="top left", secondary_y=False)
+        fig_main.add_hline(y=sigma_neg_2, line_dash="dot", line_color="#9b59b6", line_width=1.5, annotation_text=f"-2σ", annotation_position="bottom left", secondary_y=False)
+
+        # ±1σ (灰色，較細，代表常態邊界)
+        fig_main.add_hline(y=sigma_pos_1, line_dash="dash", line_color="gray", line_width=1, opacity=0.5, annotation_text=f"+1σ", annotation_position="top left", secondary_y=False)
+        fig_main.add_hline(y=sigma_neg_1, line_dash="dash", line_color="gray", line_width=1, opacity=0.5, annotation_text=f"-1σ", annotation_position="bottom left", secondary_y=False)
 
         # 佈局美化
         fig_main.update_layout(
@@ -127,31 +119,34 @@ if submitted or ticker_input:
         col_l, col_r = st.columns(2)
 
         with col_l:
-            st.subheader("📊 乖離率歷史分佈圖")
+            st.subheader("📊 乖離率常態分佈圖")
             fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='royalblue', opacity=0.6, name='分佈'))
             
-            # 分佈圖上的輔助線
-            fig_hist.add_vline(x=overbought_pct/100, line_dash="dash", line_color="#e74c3c", annotation_text="設定高位")
-            fig_hist.add_vline(x=oversold_pct/100, line_dash="dash", line_color="#27ae60", annotation_text="設定低位")
+            # 分佈圖上的標準差線
             fig_hist.add_vline(x=sigma_pos_2, line_dash="dot", line_width=2, line_color="#9b59b6", annotation_text="+2σ")
             fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=2, line_color="#9b59b6", annotation_text="-2σ", annotation_position="bottom right")
+            fig_hist.add_vline(x=sigma_pos_1, line_dash="dash", line_width=1, line_color="gray", annotation_text="+1σ")
+            fig_hist.add_vline(x=sigma_neg_1, line_dash="dash", line_width=1, line_color="gray", annotation_text="-1σ")
 
             fig_hist.update_layout(xaxis_tickformat=".0%", height=350, plot_bgcolor='white', bargap=0.1)
             st.plotly_chart(fig_hist, use_container_width=True)
 
         with col_r:
-            st.subheader("🎯 極端訊號 5 日回測勝率")
-            # 過熱統計
-            ov_t = df[df['Gap'] >= overbought_pct/100].dropna(subset=['Return_5D'])
+            st.subheader("🎯 極端訊號 (±2σ) 5日回測")
+            # 改用標準差作為回測基準
+            # 過熱統計 (> +2σ)
+            ov_t = df[df['Gap'] >= sigma_pos_2].dropna(subset=['Return_5D'])
             wr_ov = len(ov_t[ov_t['Return_5D'] < 0]) / len(ov_t) if not ov_t.empty else 0
-            # 恐慌統計
-            un_t = df[df['Gap'] <= oversold_pct/100].dropna(subset=['Return_5D'])
+            
+            # 恐慌統計 (< -2σ)
+            un_t = df[df['Gap'] <= sigma_neg_2].dropna(subset=['Return_5D'])
             wr_un = len(un_t[un_t['Return_5D'] > 0]) / len(un_t) if not un_t.empty else 0
 
             c_rc1, c_rc2 = st.columns(2)
-            c_rc1.metric("過熱期待下跌勝率", f"{wr_ov:.1%}")
-            c_rc2.metric("恐慌期待上漲勝率", f"{wr_un:.1%}")
-            st.write(f"💡 樣本數：過熱觸發 {len(ov_t)} 次 / 恐慌觸發 {len(un_t)} 次")
+            c_rc1.metric("高於 +2σ 後下跌勝率", f"{wr_ov:.1%}")
+            c_rc2.metric("低於 -2σ 後上漲勝率", f"{wr_un:.1%}")
+            st.write(f"💡 樣本數：觸發 +2σ {len(ov_t)} 次 / 觸發 -2σ {len(un_t)} 次")
+            st.caption("註：勝率計算基礎為該極端值出現後，持有5日是否反向回歸。")
 
         # --- 數據摘要 ---
         st.divider()
@@ -165,13 +160,13 @@ if submitted or ticker_input:
         st.caption("🔍 波動率統計 (基於歷史常態分佈)：")
         sd1, sd2, sd3, sd4 = st.columns(4)
         with sd1:
-            sd1.metric("乖離率標準差 (σ)", f"{gap_std_all:.2%}")
+            sd1.metric("標準差 (σ)", f"{gap_std_all:.2%}")
         with sd2:
             sd2.metric("平均乖離", f"{gap_mean_all:.2%}")
         with sd3:
-            sd3.metric("+2σ 位置", f"{sigma_pos_2:.2%}", delta="極端過熱參考", delta_color="inverse")
+            sd3.metric("+2σ 價格/乖離", f"{sigma_pos_2:.2%}")
         with sd4:
-            sd4.metric("-2σ 位置", f"{sigma_neg_2:.2%}", delta="極端超跌參考")
+            sd4.metric("-2σ 價格/乖離", f"{sigma_neg_2:.2%}")
 
         st.caption("📊 正負乖離分群統計：")
         pos_gaps = df[df['Gap'] > 0]['Gap']
