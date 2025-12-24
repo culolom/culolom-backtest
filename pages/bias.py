@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 50正2定投抄底指標 (ahr999 概念版 + Auth 驗證)
+# app.py — 50正2定投抄底指標 (精簡版 + Auth 驗證)
 ###############################################################
 
 import streamlit as st
@@ -21,9 +21,8 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------
-# 🔒 驗證守門員 (必須放在 set_page_config 之後，sidebar 之前)
+# 🔒 驗證守門員
 # ------------------------------------------------------
-# 讓 pages 資料夾能讀到根目錄的 auth.py
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 try:
@@ -31,7 +30,6 @@ try:
     if not auth.check_password():
         st.stop()  # 驗證沒過就停止執行
 except ImportError:
-    # 這是為了防止在本地測試沒有 auth.py 時報錯，正式環境應確保有 auth.py
     st.warning("⚠️ 找不到 auth 模組，跳過驗證 (僅限測試模式)")
 
 # ------------------------------------------------------
@@ -61,7 +59,6 @@ st.title("🚀 50正2定投抄底指標 (Accumulation Index)")
 # 區塊 1: 參數設定與檔案讀取
 # ===============================================================
 with st.container(border=True):
-    # --- 定義限定的 4 檔正2 (顯示名稱 -> 檔案名稱) ---
     TARGET_MAP = {
         "00631L 元大台灣50正2": "00631L.TW.csv",
         "00663L 國泰台灣加權正2": "00663L.TW.csv",
@@ -72,7 +69,6 @@ with st.container(border=True):
     data_dir = "data"
     available_options = []
     
-    # 檢查哪些檔案實際存在於 data 資料夾中
     if os.path.exists(data_dir):
         for display_name, filename in TARGET_MAP.items():
             if os.path.exists(os.path.join(data_dir, filename)):
@@ -229,29 +225,26 @@ if submitted and selected_file:
                 st.write(f"💡 機會次數：定投區出現 {len(dca_t)} 天 / 抄底區出現 {len(bot_t)} 天")
                 st.caption("註：勝率為訊號出現後持有 5 日為正報酬的機率。")
 
-            # --- 數據摘要 ---
+            # --- 數據摘要 (精簡版) ---
             st.divider()
             st.subheader("📋 囤幣價格參考表")
-            
-            m1, m2, m3 = st.columns(3)
-            m1.metric("目前價格", f"{df['Price'].iloc[-1]:.2f}")
-            m2.metric("目前指標強度", f"{df['Gap'].iloc[-1]:.2%}")
-            m3.metric("波動度 (σ)", f"{gap_std_all:.2%}")
 
-            st.caption("👇 若依據今日均線，建議掛單價格：")
-            sd1, sd2, sd3 = st.columns(3)
-            
             # 重新計算建議價格
             current_sma = df['SMA'].iloc[-1]
             price_at_dca = current_sma * (1 + sigma_neg_1)
             price_at_bot = current_sma * (1 + sigma_neg_2)
-
-            with sd1:
-                 sd1.metric("📉 負乖離平均", f"{df[df['Gap'] < 0]['Gap'].mean():.2%}")
-            with sd2:
-                sd2.metric("🟢 定投買入價 (< -1σ)", f"{price_at_dca:.2f}", delta="開始分批", delta_color="off")
-            with sd3:
-                sd3.metric("🔴 抄底買入價 (< -2σ)", f"{price_at_bot:.2f}", delta="重倉機會", delta_color="inverse")
+            
+            # 使用 3 欄位佈局，只顯示最重要的三個價格
+            k1, k2, k3 = st.columns(3)
+            
+            with k1:
+                st.metric("目前價格", f"{df['Price'].iloc[-1]:.2f}")
+                
+            with k2:
+                st.metric("🟢 定投買入價 (< -1σ)", f"{price_at_dca:.2f}", delta="開始分批", delta_color="off")
+                
+            with k3:
+                st.metric("🔴 抄底買入價 (< -2σ)", f"{price_at_bot:.2f}", delta="重倉機會", delta_color="inverse")
 
     except Exception as e:
         st.error(f"分析過程中發生錯誤：{e}")
