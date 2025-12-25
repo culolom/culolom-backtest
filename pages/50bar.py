@@ -544,8 +544,167 @@ if st.button("開始回測 🚀"):
     }
     df_v = pd.DataFrame(data_dict, index=metrics_order)
     
-    # 簡易表格渲染
-    st.write(df_v.style.format({
-        "期末資產": "{:,.0f}", "總報酬率": "{:.2%}", "CAGR (年化)": "{:.2%}", "最大回撤 (MDD)": "{:.2%}", "年化波動": "{:.2%}",
-        "Calmar Ratio": "{:.2f}", "Sharpe Ratio": "{:.2f}", "Sortino Ratio": "{:.2f}", "交易次數": "{:.0f}"
-    }))
+    # 表格
+    metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
+    
+    # 準備原始數據
+    data_dict = {
+        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>LRS+DCA</span>": {
+            "期末資產": capital_lrs_final,
+            "總報酬率": final_ret_lrs,
+            "CAGR (年化)": cagr_lrs,
+            "Calmar Ratio": calmar_lrs,
+            "最大回撤 (MDD)": mdd_lrs,
+            "年化波動": vol_lrs,
+            "Sharpe Ratio": sharpe_lrs,
+            "Sortino Ratio": sortino_lrs,
+            "交易次數": trade_count_lrs,
+        },
+        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
+            "期末資產": capital_lev_final,
+            "總報酬率": final_ret_lev,
+            "CAGR (年化)": cagr_lev,
+            "Calmar Ratio": calmar_lev,
+            "最大回撤 (MDD)": mdd_lev,
+            "年化波動": vol_lev,
+            "Sharpe Ratio": sharpe_lev,
+            "Sortino Ratio": sortino_lev,
+            "交易次數": -1, 
+        },
+        f"<b>{base_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
+            "期末資產": capital_base_final,
+            "總報酬率": final_ret_base,
+            "CAGR (年化)": cagr_base,
+            "Calmar Ratio": calmar_base,
+            "最大回撤 (MDD)": mdd_base,
+            "年化波動": vol_base,
+            "Sharpe Ratio": sharpe_base,
+            "Sortino Ratio": sortino_base,
+            "交易次數": -1,
+        }
+    }
+
+    # 建立 DataFrame 並排序
+    df_vertical = pd.DataFrame(data_dict).reindex(metrics_order)
+
+    # 定義格式化與「好壞方向」
+    metrics_config = {
+        "期末資產":       {"fmt": fmt_money, "invert": False},
+        "總報酬率":       {"fmt": fmt_pct,   "invert": False},
+        "CAGR (年化)":    {"fmt": fmt_pct,   "invert": False},
+        "Calmar Ratio":   {"fmt": fmt_num,   "invert": False},
+        "最大回撤 (MDD)": {"fmt": fmt_pct,   "invert": True},  # 越小越贏
+        "年化波動":       {"fmt": fmt_pct,   "invert": True},  # 越小越贏
+        "Sharpe Ratio":   {"fmt": fmt_num,   "invert": False},
+        "Sortino Ratio":  {"fmt": fmt_num,   "invert": False},
+        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
+    }
+
+    # 生成 HTML (回復原本的高級樣式)
+    html_code = """
+    <style>
+        .comparison-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            border-radius: 12px;
+            border: 1px solid var(--secondary-background-color);
+            font-family: 'Noto Sans TC', sans-serif;
+            margin-bottom: 1rem;
+            font-size: 0.95rem;
+        }
+        .comparison-table th {
+            background-color: var(--secondary-background-color);
+            color: var(--text-color);
+            padding: 14px;
+            text-align: center;
+            font-weight: 600;
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
+        }
+        .comparison-table td.metric-name {
+            background-color: transparent;
+            color: var(--text-color);
+            font-weight: 500;
+            text-align: left;
+            padding: 12px 16px;
+            width: 25%;
+            font-size: 0.9rem;
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
+            opacity: 0.9;
+        }
+        .comparison-table td.data-cell {
+            text-align: center;
+            padding: 12px;
+            color: var(--text-color);
+            border-bottom: 1px solid rgba(128,128,128, 0.1);
+        }
+        .comparison-table td.lrs-col {
+            background-color: rgba(128, 128, 128, 0.03); 
+        }
+        .trophy-icon {
+            margin-left: 6px;
+            font-size: 1.1em;
+            text-shadow: 0 0 5px rgba(255, 215, 0, 0.4);
+        }
+        .comparison-table tr:hover td {
+            background-color: rgba(128,128,128, 0.05);
+        }
+    </style>
+    <table class="comparison-table">
+        <thead>
+            <tr>
+                <th style="text-align:left; padding-left:16px; width:25%;">指標</th>
+    """
+    
+    # 寫入表頭
+    for col_name in df_vertical.columns:
+        html_code += f"<th>{col_name}</th>"
+    html_code += "</tr></thead><tbody>"
+
+    # 寫入內容
+    for metric in df_vertical.index:
+        config = metrics_config.get(metric, {"fmt": fmt_num, "invert": False})
+        
+        # 1. 找出該列的「最佳值」
+        raw_row_values = df_vertical.loc[metric].values
+        # 過濾掉 -1 (代表無此數據) 和 NaN
+        valid_values = [x for x in raw_row_values if isinstance(x, (int, float)) and x != -1 and not pd.isna(x)]
+        
+        target_val = None
+        if valid_values and metric != "交易次數": 
+            if config["invert"]:
+                target_val = min(valid_values) 
+            else:
+                target_val = max(valid_values) 
+
+        html_code += f"<tr><td class='metric-name'>{metric}</td>"
+        
+        # 2. 逐欄填入
+        for i, strategy in enumerate(df_vertical.columns):
+            val = df_vertical.at[metric, strategy]
+            
+            # 格式化數值
+            if isinstance(val, (int, float)) and val != -1:
+                display_text = config["fmt"](val)
+            else:
+                display_text = "—"
+            
+            # 判斷是否為冠軍
+            is_winner = False
+            if target_val is not None and isinstance(val, (int, float)) and val == target_val:
+                is_winner = True
+            
+            if is_winner:
+                display_text = f"{display_text} <span class='trophy-icon'>🏆</span>"
+            
+            # 第一欄 (LRS+DCA) 加粗顯示
+            is_lrs = (i == 0)
+            lrs_class = "lrs-col" if is_lrs else ""
+            font_weight = "bold" if is_lrs else "normal"
+            
+            html_code += f"<td class='data-cell {lrs_class}' style='font-weight:{font_weight};'>{display_text}</td>"
+        
+        html_code += "</tr>"
+
+    html_code += "</tbody></table>"
+    st.write(html_code, unsafe_allow_html=True)
