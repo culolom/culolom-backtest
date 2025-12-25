@@ -38,10 +38,9 @@ st.set_page_config(
     layout="wide",
 )
 # ------------------------------------------------------
-# 🔒 驗證守門員 (必須放在 set_page_config 之後，sidebar 之前)
+# 🔒 驗證守門員
 # ------------------------------------------------------
 import sys
-# 讓 pages 資料夾能讀到根目錄的 auth.py
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 try:
@@ -49,7 +48,7 @@ try:
     if not auth.check_password():
         st.stop()  # 驗證沒過就停止執行
 except ImportError:
-    pass # 本地測試若無 auth 模組可略過
+    pass 
 
 # ------------------------------------------------------
 with st.sidebar:
@@ -189,7 +188,7 @@ with col2:
 s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
-# 改為 4 欄位，增加 SMA 設定
+# 4 欄位：開始日期、結束日期、本金、SMA
 col3, col4, col5, col6 = st.columns(4)
 with col3:
     start = st.date_input(
@@ -228,7 +227,7 @@ position_mode = st.radio(
 
 if st.button("開始回測 🚀"):
 
-    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60) # 動態調整讀取緩衝區
+    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60) # 動態緩衝
 
     with st.spinner("讀取 CSV 中…"):
         df_base_raw = load_csv(base_symbol)
@@ -259,28 +258,56 @@ if st.button("開始回測 🚀"):
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
 
     ###############################################################
-    # LRS 訊號
+    # LRS 訊號與持倉邏輯 (修正版：過濾無效訊號)
     ###############################################################
 
-    df["Signal"] = 0
+    # 1. 初始化容器
+    executed_signals = [0] * len(df) # 記錄真正執行的訊號
+    positions = [0] * len(df)        # 記錄每天的持倉狀態
+
+    # 2. 設定初始狀態
+    # 如果選 "一開始就全倉"，第 0 天就是持倉 (1)，否則為空手 (0)
+    current_pos = 1 if "全倉" in position_mode else 0
+    positions[0] = current_pos
+
+    # 3. 逐日遍歷 (將訊號與持倉邏輯綁定)
     for i in range(1, len(df)):
-        p, m = df["Price_base"].iloc[i], df["MA_Signal"].iloc[i]
-        p0, m0 = df["Price_base"].iloc[i-1], df["MA_Signal"].iloc[i-1]
+        p = df["Price_base"].iloc[i]
+        m = df["MA_Signal"].iloc[i]
+        p0 = df["Price_base"].iloc[i-1]
+        m0 = df["MA_Signal"].iloc[i-1]
 
+        # 先判斷技術面訊號 (Raw Signal)
+        # 1 = 黃金交叉, -1 = 死亡交叉, 0 = 無
+        raw_signal = 0
         if p > m and p0 <= m0:
-            df.iloc[i, df.columns.get_loc("Signal")] = 1
+            raw_signal = 1
         elif p < m and p0 >= m0:
-            df.iloc[i, df.columns.get_loc("Signal")] = -1
+            raw_signal = -1
 
-    ###############################################################
-    # Position
-    ###############################################################
+        # 再判斷 "實際執行" (根據當下持倉過濾)
+        daily_signal = 0 
+        
+        if current_pos == 0:
+            # 狀況 A：目前空手 -> 只能接受買入訊號
+            if raw_signal == 1:
+                daily_signal = 1
+                current_pos = 1 # 狀態轉為持倉
+        
+        elif current_pos == 1:
+            # 狀況 B：目前持倉 -> 只能接受賣出訊號
+            if raw_signal == -1:
+                daily_signal = -1
+                current_pos = 0 # 狀態轉為空手
+            # 如果 raw_signal == 1 (又出現買訊)，因為已持倉，直接忽略
+        
+        # 記錄結果
+        executed_signals[i] = daily_signal
+        positions[i] = current_pos
 
-    current_pos = 0 if "空手" in position_mode else 1
-    df["Position"] = [
-        current_pos := (1 if s == 1 else 0 if s == -1 else current_pos)
-        for s in df["Signal"]
-    ]
+    # 4. 寫回 DataFrame
+    df["Signal"] = executed_signals
+    df["Position"] = positions
 
     ###############################################################
     # 資金曲線
@@ -356,7 +383,7 @@ if st.button("開始回測 🚀"):
         hovertemplate=f"<b>{base_label}</b><br>日期: %{{x|%Y-%m-%d}}<br>價格: %{{y:,.2f}} 元<extra></extra>"
     ))
 
-    # 2. [左軸] SMA
+    # 2. [左軸] SMA (動態)
     fig_price.add_trace(go.Scatter(
         x=df.index, 
         y=df["MA_Signal"], 
