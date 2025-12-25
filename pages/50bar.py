@@ -61,7 +61,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿 + 智能 DCA 回測</h1>",
+    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿</h1>",
     unsafe_allow_html=True,
 )
 
@@ -70,7 +70,8 @@ st.markdown(
 <b>本工具比較三種策略：</b><br>
 1️⃣ 原型 ETF Buy & Hold（0050 / 006208）<br>
 2️⃣ 槓桿 ETF Buy & Hold（00631L / 00663L / 00675L / 00685L）<br>
-3️⃣ <b>LRS + DCA 混合策略</b>：跌破均線賣出後，可選擇「定期定額買回」或「等待下次突破」。
+3️⃣ 槓桿 ETF LRS（訊號來自原型 ETF 的 SMA 均線，實際進出槓桿 ETF）<br>
+4️⃣ <b>LRS + DCA 混合策略</b>：跌破均線賣出後，可選擇「定期定額買回」或「等待下次突破」。
 """,
     unsafe_allow_html=True,
 )
