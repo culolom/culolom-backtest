@@ -310,15 +310,18 @@ if st.button("開始回測 🚀"):
     df["Position"] = positions
 
     ###############################################################
-    # 資金曲線
+    # 資金曲線 (修正版：包含賣出當日損益)
     ###############################################################
 
     equity_lrs = [1.0]
     for i in range(1, len(df)):
-        if df["Position"].iloc[i] == 1 and df["Position"].iloc[i-1] == 1:
+        # 邏輯修正：只要「昨天收盤」是持有狀態，今天就要計算漲跌幅
+        # (因為是看收盤價進出，所以今天賣出代表今天整天的漲跌都要算)
+        if df["Position"].iloc[i-1] == 1:
             r = df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]
             equity_lrs.append(equity_lrs[-1] * r)
         else:
+            # 昨天空手，今天不管買不買，損益都是從明天開始算 (收盤才買進)
             equity_lrs.append(equity_lrs[-1])
 
     df["Equity_LRS"] = equity_lrs
@@ -649,12 +652,14 @@ if st.button("開始回測 🚀"):
         }
 
         .kpi-value {
-            font-size: 2rem; /* 數字加大 */
-            font-weight: 800;
+            font-size: 2.2rem; /* 數字再加大一點 */
+            font-weight: 900; /* 使用最粗的字體 */
             color: var(--text-color);
             margin-bottom: 16px;
             font-family: 'Noto Sans TC', sans-serif;
             line-height: 1.2;
+            /* 增加文字陰影來模擬更加粗的效果，確保視覺上的粗體 */
+            text-shadow: 0.5px 0 0 currentColor; 
         }
 
         /* 漲跌幅標籤 (Chip) */
@@ -714,7 +719,7 @@ if st.button("開始回測 🚀"):
         return f"""
         <div class="kpi-card">
             <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
+            <div class="kpi-value" style="font-weight:900;">{value}</div>
             <div class="delta-chip {delta_class}">
                 {delta_text}
             </div>
