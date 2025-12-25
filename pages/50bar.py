@@ -217,7 +217,7 @@ with col6:
 
 position_mode = st.radio(
     "策略初始狀態",
-    ["一開始就全倉槓桿 ETF","空手起跑（標準 LRS）"],
+    ["空手起跑（標準 LRS）","一開始就全倉槓桿 ETF"],
     index=0,
 )
 
