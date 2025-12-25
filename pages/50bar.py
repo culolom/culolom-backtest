@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — CSV 版 0050LRS 回測（不使用 yfinance）
+# app.py — CSV 版 0050LRS 回測 (含訊號延遲確認功能)
 ###############################################################
 
 import os
@@ -11,6 +11,7 @@ import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 from pathlib import Path
+import sys
 
 ###############################################################
 # 字型設定
@@ -37,10 +38,10 @@ st.set_page_config(
     page_icon="📈",
     layout="wide",
 )
+
 # ------------------------------------------------------
 # 🔒 驗證守門員
 # ------------------------------------------------------
-import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 try:
@@ -188,8 +189,8 @@ with col2:
 s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
-# 4 欄位：開始日期、結束日期、本金、SMA
-col3, col4, col5, col6 = st.columns(4)
+# 改為 5 欄位：開始日期、結束日期、本金、SMA、訊號確認天數
+col3, col4, col5, col6, col7 = st.columns(5)
 with col3:
     start = st.date_input(
         "開始日期",
@@ -213,6 +214,16 @@ with col6:
         value=200, 
         step=10,
         help="設定 LRS 策略的均線參數，預設為 200，最高可設為 240。"
+    )
+
+with col7:
+    signal_delay = st.number_input(
+        "訊號確認天數",
+        min_value=1,
+        max_value=10,
+        value=1,
+        step=1,
+        help="設定 1 為當日突破即交易。設定 N 為連續 N 天收盤價符合條件才交易，用以過濾假突破。"
     )
 
 position_mode = st.radio(
@@ -258,7 +269,7 @@ if st.button("開始回測 🚀"):
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
 
     ###############################################################
-    # LRS 訊號與持倉邏輯 (修正版：過濾無效訊號)
+    # LRS 訊號與持倉邏輯 (修正版：加入延遲確認 Time Filter)
     ###############################################################
 
     # 1. 初始化容器
@@ -266,40 +277,46 @@ if st.button("開始回測 🚀"):
     positions = [0] * len(df)        # 記錄每天的持倉狀態
 
     # 2. 設定初始狀態
-    # 如果選 "一開始就全倉"，第 0 天就是持倉 (1)，否則為空手 (0)
     current_pos = 1 if "全倉" in position_mode else 0
     positions[0] = current_pos
+    
+    # 初始化計數器 (記錄連續符合條件的天數)
+    days_above = 0 
+    days_below = 0
 
-    # 3. 逐日遍歷 (將訊號與持倉邏輯綁定)
+    # 3. 逐日遍歷 (修正邏輯：連續 N 天滿足條件才動作)
     for i in range(1, len(df)):
         p = df["Price_base"].iloc[i]
         m = df["MA_Signal"].iloc[i]
-        p0 = df["Price_base"].iloc[i-1]
-        m0 = df["MA_Signal"].iloc[i-1]
 
-        # 先判斷技術面訊號 (Raw Signal)
-        # 1 = 黃金交叉, -1 = 死亡交叉, 0 = 無
-        raw_signal = 0
-        if p > m and p0 <= m0:
-            raw_signal = 1
-        elif p < m and p0 >= m0:
-            raw_signal = -1
+        # 更新狀態計數器
+        if p > m:
+            days_above += 1
+            days_below = 0
+        elif p < m:
+            days_below += 1
+            days_above = 0
+        else:
+            # 極少見剛好相等的情況，重置
+            days_above = 0
+            days_below = 0
 
-        # 再判斷 "實際執行" (根據當下持倉過濾)
+        # 判斷 "實際執行" (根據當下持倉 + 延遲確認)
         daily_signal = 0 
         
         if current_pos == 0:
-            # 狀況 A：目前空手 -> 只能接受買入訊號
-            if raw_signal == 1:
+            # 狀況 A：目前空手 -> 等待買入訊號
+            # 條件：價格在均線之上，且持續天數 >= 設定的延遲天數
+            if days_above >= signal_delay:
                 daily_signal = 1
                 current_pos = 1 # 狀態轉為持倉
         
         elif current_pos == 1:
-            # 狀況 B：目前持倉 -> 只能接受賣出訊號
-            if raw_signal == -1:
+            # 狀況 B：目前持倉 -> 等待賣出訊號
+            # 條件：價格在均線之下，且持續天數 >= 設定的延遲天數
+            if days_below >= signal_delay:
                 daily_signal = -1
                 current_pos = 0 # 狀態轉為空手
-            # 如果 raw_signal == 1 (又出現買訊)，因為已持倉，直接忽略
         
         # 記錄結果
         executed_signals[i] = daily_signal
@@ -316,12 +333,11 @@ if st.button("開始回測 🚀"):
     equity_lrs = [1.0]
     for i in range(1, len(df)):
         # 邏輯修正：只要「昨天收盤」是持有狀態，今天就要計算漲跌幅
-        # (因為是看收盤價進出，所以今天賣出代表今天整天的漲跌都要算)
         if df["Position"].iloc[i-1] == 1:
             r = df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]
             equity_lrs.append(equity_lrs[-1] * r)
         else:
-            # 昨天空手，今天不管買不買，損益都是從明天開始算 (收盤才買進)
+            # 昨天空手，今天不管買不買，損益都是從明天開始算
             equity_lrs.append(equity_lrs[-1])
 
     df["Equity_LRS"] = equity_lrs
@@ -368,7 +384,7 @@ if st.button("開始回測 🚀"):
     trade_count_lrs = int((df["Signal"] != 0).sum())
 
     ###############################################################
-    # ⬇⬇⬇ 以下內容完全保留（圖表 + KPI + 表格）
+    # ⬇⬇⬇ 以下內容圖表 + KPI + 表格
     ###############################################################
 
     # --- 原型 & MA & 槓桿價格 (雙軸圖表) ---
@@ -403,14 +419,14 @@ if st.button("開始回測 🚀"):
         name=f"{lev_label} (右軸)", 
         mode="lines",
         line=dict(width=1, color="#00CC96", dash='dot'), # 虛線
-        opacity=0.6, # 半透明，避免搶戲
+        opacity=0.6, # 半透明
         yaxis="y2",  # 指定到右邊的 Y 軸
         hovertemplate=f"<b>{lev_label}</b><br>日期: %{{x|%Y-%m-%d}}<br>價格: %{{y:,.2f}} 元<extra></extra>"
     ))
 
     # 4. [標記] 買進點 (顯示雙價格)
     if not buys.empty:
-        # 準備 Tooltip 需要的數據：同時包含 Base 和 Lev 的價格
+        # 準備 Tooltip 需要的數據
         buy_hover_text = [
             f"<b>▲ 買進訊號 (Buy)</b><br>"
             f"日期: {d.strftime('%Y-%m-%d')}<br>"
@@ -422,7 +438,7 @@ if st.button("開始回測 🚀"):
 
         fig_price.add_trace(go.Scatter(
             x=buys.index, 
-            y=buys["Price_base"], # 標記還是畫在左軸(訊號線)上，視覺上才準
+            y=buys["Price_base"], 
             mode="markers",
             name="買進訊號", 
             marker=dict(color="#00C853", size=12, symbol="triangle-up", line=dict(width=1, color="white")),
@@ -465,7 +481,7 @@ if st.button("開始回測 🚀"):
             title=f"{lev_label} 價格",
             overlaying="y", # 疊加在第一個 y 軸上
             side="right",   # 放在右邊
-            showgrid=False, # 右軸不顯示網格，避免線條太亂
+            showgrid=False, # 右軸不顯示網格
             zeroline=False
         ),
         legend=dict(
@@ -516,16 +532,10 @@ if st.button("開始回測 🚀"):
         # 1. 準備數據
         radar_categories = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反轉)"]
 
-        # 這裡為了雷達圖好看，將數據標準化 (0~1) 或是直接繪製原始數值
-        # 為了避免不同量級(如 30% 和 1.1) 顯示問題，建議先做簡單的 Min-Max Scaling 顯示相對強弱
-        # 或者直接顯示數值，但要注意軸的刻度。這裡維持您的原始邏輯 (數值)，但優化視覺。
-        
         # 建立數據 List
         radar_lrs  = [nz(cagr_lrs),  nz(sharpe_lrs),  nz(sortino_lrs),  nz(-mdd_lrs),  nz(-vol_lrs)]
         radar_lev  = [nz(cagr_lev),  nz(sharpe_lev),  nz(sortino_lev),  nz(-mdd_lev),  nz(-vol_lev)]
         radar_base = [nz(cagr_base), nz(sharpe_base), nz(sortino_base), nz(-mdd_base), nz(-vol_base)]
-
-        # 為了讓雷達圖閉合，通常 Plotly 需要把最後一點重複加回第一點 (但在 Scatterpolar 有 fill 屬性時通常會自動閉合，保險起見這裡不手動加，直接畫)
 
         fig_radar = go.Figure()
 
@@ -536,7 +546,7 @@ if st.button("開始回測 🚀"):
             fill='toself', 
             name='LRS 策略',
             line=dict(color='#636EFA', width=3),
-            fillcolor='rgba(99, 110, 250, 0.2)' # 半透明填充
+            fillcolor='rgba(99, 110, 250, 0.2)'
         ))
 
         # 槓桿 BH (對照組1 - 紅色系)
@@ -559,21 +569,20 @@ if st.button("開始回測 🚀"):
             fillcolor='rgba(0, 204, 150, 0.1)'
         ))
 
-        # 2. 視覺設定 (關鍵修復部分)
+        # 2. 視覺設定
         fig_radar.update_layout(
             height=480,
-            # 移除 template="plotly_white"，改為全透明設定
-            paper_bgcolor='rgba(0,0,0,0)', # 外框透明
-            plot_bgcolor='rgba(0,0,0,0)',  # 繪圖區透明
+            paper_bgcolor='rgba(0,0,0,0)', 
+            plot_bgcolor='rgba(0,0,0,0)',  
             polar=dict(
-                bgcolor='rgba(0,0,0,0)',   # 雷達圖圓盤背景透明 (關鍵!)
+                bgcolor='rgba(0,0,0,0)',   
                 radialaxis=dict(
                     visible=True,
-                    range=[None, None], # 自動抓範圍
+                    range=[None, None], 
                     showticklabels=True,
-                    ticks='', # 不顯示刻度線
-                    gridcolor='rgba(128, 128, 128, 0.2)', # 網格線改為淡灰色 (深淺通用)
-                    linecolor='rgba(128, 128, 128, 0.3)'  # 軸線淡灰
+                    ticks='', 
+                    gridcolor='rgba(128, 128, 128, 0.2)', 
+                    linecolor='rgba(128, 128, 128, 0.3)'  
                 ),
                 angularaxis=dict(
                     gridcolor='rgba(128, 128, 128, 0.2)',
@@ -581,16 +590,15 @@ if st.button("開始回測 🚀"):
                 )
             ),
             legend=dict(
-                orientation="h",  # 圖例水平排列
+                orientation="h", 
                 yanchor="bottom",
-                y=-0.15,          # 放在圖表下方
+                y=-0.15,          
                 xanchor="center",
                 x=0.5
             ),
             font=dict(
                 family="Noto Sans TC",
                 size=12,
-                # 不指定 color，讓 Streamlit 自動根據 theme 決定文字顏色 (黑/白)
             ),
             margin=dict(l=40, r=40, t=40, b=40)
         )
@@ -617,89 +625,72 @@ if st.button("開始回測 🚀"):
     vol_gap_lrs_vs_lev = (vol_lrs - vol_lev) * 100
     mdd_gap_lrs_vs_lev = (mdd_lrs - mdd_lev) * 100
 
-    # 2. 定義高級 CSS 樣式 (卡片、陰影、圓角)
+    # 2. 定義高級 CSS 樣式
     st.markdown("""
     <style>
-        /* 卡片容器：背景色、圓角、陰影 */
         .kpi-card {
             background-color: var(--secondary-background-color);
-            border-radius: 16px; /* 更圓潤的角 */
+            border-radius: 16px;
             padding: 24px 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04); /* 靜態微陰影 */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
             border: 1px solid rgba(128, 128, 128, 0.1);
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             height: 100%;
-            transition: all 0.3s ease; /* 動畫過渡 */
+            transition: all 0.3s ease;
         }
-        
-        /* 滑鼠懸停效果：浮起 + 加深陰影 */
         .kpi-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
             border-color: rgba(128, 128, 128, 0.2);
         }
-
         .kpi-label {
             font-size: 0.9rem;
             color: var(--text-color);
             opacity: 0.7;
             font-weight: 500;
             margin-bottom: 8px;
-            text-transform: uppercase; /* 標籤全大寫看起來比較高級 */
+            text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-
         .kpi-value {
-            font-size: 2.2rem; /* 數字再加大一點 */
-            font-weight: 900; /* 使用最粗的字體 */
+            font-size: 2.2rem;
+            font-weight: 900;
             color: var(--text-color);
             margin-bottom: 16px;
             font-family: 'Noto Sans TC', sans-serif;
             line-height: 1.2;
-            /* 增加文字陰影來模擬更加粗的效果，確保視覺上的粗體 */
             text-shadow: 0.5px 0 0 currentColor; 
         }
-
-        /* 漲跌幅標籤 (Chip) */
         .delta-chip {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             padding: 6px 12px;
-            border-radius: 20px; /* 膠囊形狀 */
+            border-radius: 20px;
             font-size: 0.85rem;
             font-weight: 700;
             width: fit-content;
         }
-
-        /* 正值 (>0) 樣式：綠色背景 + 深綠字 */
         .delta-positive {
             background-color: rgba(33, 195, 84, 0.12);
             color: #21c354;
         }
-
-        /* 負值 (<0) 樣式：紅色背景 + 深紅字 */
         .delta-negative {
             background-color: rgba(255, 60, 60, 0.12);
             color: #ff3c3c;
         }
-
-        /* 中性值 (=0) 樣式：灰色 */
         .delta-neutral {
             background-color: rgba(128, 128, 128, 0.1);
             color: var(--text-color);
             opacity: 0.6;
         }
-
     </style>
     """, unsafe_allow_html=True)
 
-    # 3. 輔助函式 (邏輯：正數綠色，負數紅色)
+    # 3. 輔助函式
     def kpi_card_html(label, value, gap_val):
-        
-        # 判定顏色與箭頭
         if gap_val > 0.001:
             delta_class = "delta-positive"
             icon = "▲"
@@ -707,13 +698,12 @@ if st.button("開始回測 🚀"):
         elif gap_val < -0.001:
             delta_class = "delta-negative"
             icon = "▼"
-            sign_str = "" # 負數自帶負號
+            sign_str = ""
         else:
             delta_class = "delta-neutral"
             icon = "➖"
             sign_str = ""
 
-        # 組合顯示文字
         delta_text = f"{icon} {sign_str}{gap_val:.2f}% (vs 槓桿)"
 
         return f"""
@@ -726,7 +716,7 @@ if st.button("開始回測 🚀"):
         </div>
         """
 
-    # 4. 建立佈局並渲染 (請確認這邊只有一次 st.columns)
+    # 4. 渲染 KPI
     row_kpi = st.columns(4)
 
     with row_kpi[0]:
@@ -757,7 +747,6 @@ if st.button("開始回測 🚀"):
             mdd_gap_lrs_vs_lev
         ), unsafe_allow_html=True)
     
-    # 增加底部間距，避免與下方圖表太近
     st.markdown("<div style='margin-bottom: 30px'></div>", unsafe_allow_html=True)
 
     ###############################################################
@@ -811,7 +800,6 @@ if st.button("開始回測 🚀"):
     df_vertical = pd.DataFrame(data_dict).reindex(metrics_order)
 
     # 4. 定義格式化與「好壞方向」
-    # invert=True 代表數值「越小越好」
     metrics_config = {
         "期末資產":       {"fmt": fmt_money, "invert": False},
         "總報酬率":       {"fmt": fmt_pct,   "invert": False},
@@ -821,7 +809,7 @@ if st.button("開始回測 🚀"):
         "年化波動":       {"fmt": fmt_pct,   "invert": True},  # 越小越贏
         "Sharpe Ratio":   {"fmt": fmt_num,   "invert": False},
         "Sortino Ratio":  {"fmt": fmt_num,   "invert": False},
-        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} # 假設次數少較好，或不比較
+        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
     }
 
     # 5. 生成 HTML (樣式極簡化)
@@ -832,14 +820,12 @@ if st.button("開始回測 🚀"):
             border-collapse: separate;
             border-spacing: 0;
             border-radius: 12px;
-            /* 極簡邊框 */
             border: 1px solid var(--secondary-background-color);
             font-family: 'Noto Sans TC', sans-serif;
             margin-bottom: 1rem;
             font-size: 0.95rem;
         }
         .comparison-table th {
-            /* 表頭使用次要背景色 */
             background-color: var(--secondary-background-color);
             color: var(--text-color);
             padding: 14px;
@@ -864,18 +850,16 @@ if st.button("開始回測 🚀"):
             color: var(--text-color);
             border-bottom: 1px solid rgba(128,128,128, 0.1);
         }
-        /* 移除 LRS 的明顯底色，改為極淡的背景區分，或完全透明 */
         .comparison-table td.lrs-col {
             background-color: rgba(128, 128, 128, 0.03); 
         }
-        /* 冠軍圖示樣式 */
         .trophy-icon {
             margin-left: 6px;
             font-size: 1.1em;
-            text-shadow: 0 0 5px rgba(255, 215, 0, 0.4); /* 讓獎盃微微發光 */
+            text-shadow: 0 0 5px rgba(255, 215, 0, 0.4);
         }
         .comparison-table tr:hover td {
-            background-color: rgba(128,128,128, 0.05); /* Hover 整行微亮 */
+            background-color: rgba(128,128,128, 0.05);
         }
     </style>
     <table class="comparison-table">
@@ -893,17 +877,16 @@ if st.button("開始回測 🚀"):
     for metric in df_vertical.index:
         config = metrics_config.get(metric, {"fmt": fmt_num, "invert": False})
         
-        # 1. 找出該列的「最佳值」(Winner Value)
-        # 先取出所有有效數值
+        # 1. 找出該列的「最佳值」
         raw_row_values = df_vertical.loc[metric].values
         valid_values = [x for x in raw_row_values if isinstance(x, (int, float)) and x != -1 and not pd.isna(x)]
         
         target_val = None
-        if valid_values and metric != "交易次數": # 交易次數通常不比獎盃，看您需求
+        if valid_values and metric != "交易次數": 
             if config["invert"]:
-                target_val = min(valid_values) # 越小越好 (MDD, 波動)
+                target_val = min(valid_values) 
             else:
-                target_val = max(valid_values) # 越大越好 (報酬, Sharpe)
+                target_val = max(valid_values) 
 
         html_code += f"<tr><td class='metric-name'>{metric}</td>"
         
@@ -918,13 +901,9 @@ if st.button("開始回測 🚀"):
             if target_val is not None and isinstance(val, (int, float)) and val == target_val:
                 is_winner = True
             
-            # 如果是冠軍，加上獎盃
             if is_winner:
                 display_text = f"{display_text} <span class='trophy-icon'>🏆</span>"
-                # 也可以選擇讓冠軍文字變色，例如：
-                # display_text = f"<span style='color:#e6a23c; font-weight:bold'>{display_text}</span> 🏆"
             
-            # LRS 欄位樣式
             is_lrs = (i == 0)
             lrs_class = "lrs-col" if is_lrs else ""
             font_weight = "bold" if is_lrs else "normal"
