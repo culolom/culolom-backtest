@@ -211,7 +211,7 @@ st.write("### ⚙️ 策略進階設定")
 # 移除 Checkbox，只保留 Radio Button
 position_mode = st.radio(
     "策略初始狀態",
-    ["空手起跑（嚴格等待黃金交叉）", "一開始就全倉槓桿 ETF"],
+    ["空手起跑", "一開始就全倉槓桿 ETF"],
     index=0,
     help="空手起跑：若開始時價格已在均線上，會保持空手，直到下次黃金交叉才進場。"
 )
@@ -219,9 +219,9 @@ position_mode = st.radio(
 with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=True):
     col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
     with col_dca1:
-        enable_dca = st.toggle("啟用 DCA 接刀", value=False, help="開啟後，當賣出訊號出現，會分批買回，而不是空手等待。")
+        enable_dca = st.toggle("啟用 DCA定期定額", value=False, help="開啟後，當賣出訊號出現，會分批買回，而不是空手等待。")
     with col_dca2:
-        dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=3, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
+        dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=7, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
     with col_dca3:
         dca_pct = st.number_input("每次買進資金比例 (%)", min_value=1, max_value=100, value=10, step=5, disabled=not enable_dca, help="每次投入總資金的多少百分比")
 
