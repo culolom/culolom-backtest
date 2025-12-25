@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — CSV 版 0050LRS + 跌破均線後 DCA 定投策略
+# app.py — 0050LRS + DCA + 嚴格進場模式 (完整版)
 ###############################################################
 
 import os
@@ -34,7 +34,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="0050LRS 回測系統 (DCA版)",
+    page_title="0050LRS 回測系統 (DCA+嚴格版)",
     page_icon="📈",
     layout="wide",
 )
@@ -70,7 +70,7 @@ st.markdown(
 <b>本工具比較三種策略：</b><br>
 1️⃣ 原型 ETF Buy & Hold（0050 / 006208）<br>
 2️⃣ 槓桿 ETF Buy & Hold（00631L / 00663L / 00675L / 00685L）<br>
-3️⃣ <b>LRS + DCA 混合策略</b>：跌破均線賣出後，啟動定期定額慢慢買回，直到漲回均線全倉。
+3️⃣ <b>LRS + DCA 混合策略</b>：跌破均線賣出後，可選擇「定期定額買回」或「嚴格等待下次突破」。
 """,
     unsafe_allow_html=True,
 )
@@ -204,8 +204,28 @@ with col5:
 with col6:
     sma_window = st.number_input("均線週期 (SMA)", min_value=10, max_value=240, value=200, step=10)
 
-# --- DCA 進階設定區塊 ---
-with st.expander("⚙️ 進階設定：跌破均線後的 DCA 定投策略", expanded=True):
+# --- 策略進階設定 ---
+st.write("---")
+st.write("### ⚙️ 策略進階設定")
+
+col_mode, col_strict = st.columns(2)
+with col_mode:
+    position_mode = st.radio(
+        "策略初始狀態",
+        ["空手起跑（標準 LRS）","一開始就全倉槓桿 ETF"],
+        index=0,
+    )
+
+with col_strict:
+    st.write("") # Spacer
+    st.write("") 
+    strict_entry = st.checkbox(
+        "🛑 嚴格等待黃金交叉", 
+        value=False, 
+        help="勾選後：如果起跑時價格已在均線上，系統會強制空手，直到價格跌破均線並再次突破（黃金交叉）才進場。\n\n未勾選（預設）：若起跑時在均線上，第一天直接買進（避免踏空）。"
+    )
+
+with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=True):
     col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
     with col_dca1:
         enable_dca = st.toggle("啟用 DCA 接刀", value=False, help="開啟後，當賣出訊號出現，會分批買回，而不是空手等待。")
@@ -214,11 +234,6 @@ with st.expander("⚙️ 進階設定：跌破均線後的 DCA 定投策略", ex
     with col_dca3:
         dca_pct = st.number_input("每次買進資金比例 (%)", min_value=1, max_value=100, value=10, step=5, disabled=not enable_dca, help="每次投入總資金的多少百分比")
 
-position_mode = st.radio(
-    "策略初始狀態",
-    ["空手起跑（標準 LRS）","一開始就全倉槓桿 ETF"],
-    index=0,
-)
 
 ###############################################################
 # 主程式開始
@@ -257,7 +272,7 @@ if st.button("開始回測 🚀"):
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
 
     ###############################################################
-    # LRS + DCA 混合策略邏輯
+    # LRS + DCA + 嚴格進場 混合策略邏輯
     ###############################################################
 
     # 1. 初始化容器
@@ -265,13 +280,21 @@ if st.button("開始回測 🚀"):
     positions = [0.0] * len(df)      # 記錄持倉比例 (0.0 ~ 1.0)
 
     # 2. 設定初始狀態
-    # 這裡的 current_pos 代表「倉位百分比」，1.0 = 100%, 0.5 = 50%
     current_pos = 1.0 if "全倉" in position_mode else 0.0
     positions[0] = current_pos
     
     # DCA 計數器
     dca_wait_counter = 0 
     
+    # 嚴格進場控制變數
+    # 如果勾選嚴格模式，且一開始就空手，則預設鎖住 (False)，直到發生死亡交叉才解鎖
+    # 如果沒勾選，預設開放 (True)
+    can_buy_permission = not strict_entry 
+    
+    # 特例：如果使用者選「一開始就全倉」，那當然要有買入權限
+    if "全倉" in position_mode:
+        can_buy_permission = True
+
     # 3. 逐日遍歷
     for i in range(1, len(df)):
         p = df["Price_base"].iloc[i]
@@ -279,22 +302,31 @@ if st.button("開始回測 🚀"):
         p0 = df["Price_base"].iloc[i-1]
         m0 = df["MA_Signal"].iloc[i-1]
 
-        # 判斷當前價格狀態 (均線上 or 均線下)
+        # 判斷當前價格狀態
         is_above_sma = p > m
         
         daily_signal = 0
 
         if is_above_sma:
-            # === 狀況 1: 價格在均線上 (多頭) ===
-            # 無論之前有沒有 DCA，只要站上均線，就全倉 (100%)
-            current_pos = 1.0
-            daily_signal = 1 if p0 <= m0 else 0 # 剛突破時標記一下
+            # === 狀況 1: 價格在均線上 ===
             
-            # 重置 DCA 計數器
+            # 檢查是否有買入權限
+            if can_buy_permission:
+                current_pos = 1.0
+                daily_signal = 1 if p0 <= m0 else 0 # 剛突破時標記一下
+            else:
+                # 沒權限 (嚴格模式生效中)，強迫空手
+                current_pos = 0.0
+                daily_signal = 0
+            
+            # 只要在均線上，重置 DCA 計數器
             dca_wait_counter = 0
 
         else:
-            # === 狀況 2: 價格在均線下 (空頭/整理) ===
+            # === 狀況 2: 價格在均線下 ===
+            
+            # 關鍵：只要跌到均線下，就解鎖「買入權限」 (因為下次突破就是真正的黃金交叉了)
+            can_buy_permission = True
             
             # 2-1. 剛跌破那天 (死亡交叉)
             if p0 > m0:
@@ -310,16 +342,16 @@ if st.button("開始回測 🚀"):
                     
                     # 達到間隔天數，執行買進
                     if dca_wait_counter >= dca_interval:
-                        current_pos += (dca_pct / 100.0) # 增加倉位 (例如 +0.1)
+                        current_pos += (dca_pct / 100.0) # 增加倉位
                         if current_pos > 1.0: 
-                            current_pos = 1.0 # 上限 100%
+                            current_pos = 1.0 
                         
                         daily_signal = 2 # 標記為 DCA 買進點
-                        dca_wait_counter = 0 # 重置計數，等待下一個間隔
+                        dca_wait_counter = 0 
 
         # 記錄結果
         executed_signals[i] = daily_signal
-        positions[i] = round(current_pos, 4) # 避免浮點數誤差
+        positions[i] = round(current_pos, 4) 
 
     # 4. 寫回 DataFrame
     df["Signal"] = executed_signals
@@ -332,15 +364,13 @@ if st.button("開始回測 🚀"):
     equity_lrs = [1.0]
     
     for i in range(1, len(df)):
-        # 取得昨天的持倉比例 (因為今天的漲跌幅是基於昨天的持倉)
+        # 取得昨天的持倉比例
         pos_weight = df["Position"].iloc[i-1]
         
         # 槓桿 ETF 今天的漲跌幅
         lev_ret = (df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]) - 1
         
-        # 計算新的淨值：
-        # 淨值 = 前日淨值 * (1 + (漲跌幅 * 持倉比例))
-        # 假設未投入資金 (Cash) 報酬率為 0
+        # 計算新的淨值
         new_equity = equity_lrs[-1] * (1 + (lev_ret * pos_weight))
         
         equity_lrs.append(new_equity)
@@ -473,7 +503,6 @@ if st.button("開始回測 🚀"):
         st.plotly_chart(fig_equity, use_container_width=True)
 
     with tab_pos:
-        # 新增持倉水位圖，方便觀察 DCA 過程
         fig_pos = go.Figure()
         fig_pos.add_trace(go.Scatter(
             x=df.index, y=df["Position"], mode="lines", name="持倉比例",
@@ -513,7 +542,6 @@ if st.button("開始回測 🚀"):
     ###############################################################
     # KPI Summary & Table
     ###############################################################
-    # (此處沿用原有的 KPI 卡片與表格樣式，僅變數名稱對接)
     
     asset_gap_lrs_vs_lev = ((capital_lrs_final / capital_lev_final) - 1) * 100
     cagr_gap_lrs_vs_lev = (cagr_lrs - cagr_lev) * 100
@@ -535,15 +563,6 @@ if st.button("開始回測 🚀"):
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # 表格
-    metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
-    data_dict = {
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em'>LRS+DCA</span>": [capital_lrs_final, final_ret_lrs, cagr_lrs, calmar_lrs, mdd_lrs, vol_lrs, sharpe_lrs, sortino_lrs, trade_count_lrs],
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em'>Buy & Hold</span>": [capital_lev_final, final_ret_lev, cagr_lev, calmar_lev, mdd_lev, vol_lev, sharpe_lev, sortino_lev, -1],
-        f"<b>{base_label}</b><br><span style='font-size:0.8em'>Buy & Hold</span>": [capital_base_final, final_ret_base, cagr_base, calmar_base, mdd_base, vol_base, sharpe_base, sortino_base, -1]
-    }
-    df_v = pd.DataFrame(data_dict, index=metrics_order)
-    
     # 表格
     metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
     
