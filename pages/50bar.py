@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS + DCA (直覺版：空手即等待)
+# app.py — 0050LRS + DCA (直覺版：空手即等待 + 日報酬分佈)
 ###############################################################
 
 import os
@@ -61,7 +61,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿</h1>",
+    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿 + 智能 DCA 回測</h1>",
     unsafe_allow_html=True,
 )
 
@@ -70,8 +70,7 @@ st.markdown(
 <b>本工具比較三種策略：</b><br>
 1️⃣ 原型 ETF Buy & Hold（0050 / 006208）<br>
 2️⃣ 槓桿 ETF Buy & Hold（00631L / 00663L / 00675L / 00685L）<br>
-3️⃣ 槓桿 ETF LRS（訊號來自原型 ETF 的 SMA 均線，實際進出槓桿 ETF）<br>
-4️⃣ <b>LRS + DCA 混合策略</b>：跌破均線賣出後，可選擇「定期定額買回」或「等待下次突破」。
+3️⃣ <b>LRS + DCA 混合策略</b>：跌破均線賣出後，可選擇「定期定額買回」或「等待下次突破」。
 """,
     unsafe_allow_html=True,
 )
@@ -212,7 +211,7 @@ st.write("### ⚙️ 策略進階設定")
 # 移除 Checkbox，只保留 Radio Button
 position_mode = st.radio(
     "策略初始狀態",
-    ["空手起跑", "一開始就全倉槓桿 ETF"],
+    ["空手起跑（嚴格等待黃金交叉）", "一開始就全倉槓桿 ETF"],
     index=0,
     help="空手起跑：若開始時價格已在均線上，會保持空手，直到下次黃金交叉才進場。"
 )
@@ -220,9 +219,9 @@ position_mode = st.radio(
 with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=True):
     col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
     with col_dca1:
-        enable_dca = st.toggle("啟用 DCA定期定額", value=False, help="開啟後，當賣出訊號出現，會分批買回，而不是空手等待。")
+        enable_dca = st.toggle("啟用 DCA 接刀", value=False, help="開啟後，當賣出訊號出現，會分批買回，而不是空手等待。")
     with col_dca2:
-        dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=7, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
+        dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=3, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
     with col_dca3:
         dca_pct = st.number_input("每次買進資金比例 (%)", min_value=1, max_value=100, value=10, step=5, disabled=not enable_dca, help="每次投入總資金的多少百分比")
 
@@ -483,8 +482,8 @@ if st.button("開始回測 🚀"):
     # Tabs
     ###############################################################
 
-    st.markdown("<h3>📊 資金曲線與持倉水位</h3>", unsafe_allow_html=True)
-    tab_equity, tab_pos, tab_dd, tab_radar = st.tabs(["資金曲線", "持倉水位 %", "回撤比較", "風險雷達"])
+    st.markdown("<h3>📊 資金曲線與風險解析</h3>", unsafe_allow_html=True)
+    tab_equity, tab_dd, tab_radar, tab_hist = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈"])
 
     with tab_equity:
         fig_equity = go.Figure()
@@ -493,18 +492,6 @@ if st.button("開始回測 🚀"):
         fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="LRS+DCA"))
         fig_equity.update_layout(template="plotly_white", height=420, yaxis=dict(tickformat=".0%"))
         st.plotly_chart(fig_equity, use_container_width=True)
-
-    with tab_pos:
-        fig_pos = go.Figure()
-        fig_pos.add_trace(go.Scatter(
-            x=df.index, y=df["Position"], mode="lines", name="持倉比例",
-            fill='tozeroy', line=dict(color="#636EFA")
-        ))
-        fig_pos.update_layout(
-            template="plotly_white", height=420, 
-            yaxis=dict(tickformat=".0%", title="持倉比例 (1.0 = 100%)", range=[0, 1.1])
-        )
-        st.plotly_chart(fig_pos, use_container_width=True)
 
     with tab_dd:
         dd_base = (df["Equity_BH_Base"] / df["Equity_BH_Base"].cummax() - 1) * 100
@@ -530,6 +517,15 @@ if st.button("開始回測 🚀"):
         
         fig_radar.update_layout(height=480, paper_bgcolor='rgba(0,0,0,0)', polar=dict(radialaxis=dict(visible=True, showticklabels=True, ticks='')))
         st.plotly_chart(fig_radar, use_container_width=True)
+
+    with tab_hist:
+        fig_hist = go.Figure()
+        fig_hist.add_trace(go.Histogram(x=df["Return_base"] * 100, name="原型BH", opacity=0.6))
+        fig_hist.add_trace(go.Histogram(x=df["Return_lev"] * 100, name="槓桿BH", opacity=0.6))
+        fig_hist.add_trace(go.Histogram(x=df["Return_LRS"] * 100, name="LRS+DCA", opacity=0.7))
+        fig_hist.update_layout(barmode="overlay", template="plotly_white", height=480)
+
+        st.plotly_chart(fig_hist, use_container_width=True)
 
     ###############################################################
     # KPI Summary & Table
