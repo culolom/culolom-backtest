@@ -220,7 +220,7 @@ position_mode = st.radio(
 with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=True):
     col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
     with col_dca1:
-        enable_dca = st.toggle("啟用 DCA 接刀", value=False, help="開啟後，當賣出訊號出現，會分批買回，而不是空手等待。")
+        enable_dca = st.toggle("啟用 DCA定期定額", value=False, help="開啟後，當賣出訊號出現，會分批買回，而不是空手等待。")
     with col_dca2:
         dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=3, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
     with col_dca3:
