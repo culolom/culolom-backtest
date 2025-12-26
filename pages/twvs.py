@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 正2 直球對決 + 布林通道調節 (含訊號線過濾版)
+# app.py — 正2 直球對決 + 布林通道調節 (含回檔過濾版)
 ###############################################################
 
 import os
@@ -30,7 +30,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="正2 布林動態策略 (訊號優化版)",
+    page_title="正2 布林動態策略 (回檔過濾版)",
     page_icon="⚡",
     layout="wide",
 )
@@ -57,18 +57,18 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚡ 正2 布林動態調節 (訊號線過濾版)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>⚡ 正2 布林動態調節 (回檔過濾版)</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-<b>策略邏輯 (使用短均線作為訊號源)：</b><br>
-1️⃣ <b>抄底 (最高優先)</b>：<span style='color:#E040FB'><b>訊號線</b></span> < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進加碼</b></span>。<br>
+<b>策略邏輯 (含盤整濾網)：</b><br>
+1️⃣ <b>抄底 (優先)</b>：<span style='color:#E040FB'><b>訊號線</b></span> < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進加碼</b></span>。<br>
 2️⃣ <b>進場</b>：<span style='color:#E040FB'><b>訊號線</b></span> 黃金交叉 200SMA ⮕ <span style='color:#4CAF50'><b>All In (100%)</b></span>。<br>
 3️⃣ <b>獲利調節</b>：<span style='color:#E040FB'><b>訊號線</b></span> > 布林上軌 (2σ) ⮕ <span style='color:#FFA726'><b>賣出減碼</b></span>。<br>
-4️⃣ <b>停損</b>：<span style='color:#E040FB'><b>訊號線</b></span> 死亡交叉 200SMA ⮕ <span style='color:#FF5252'><b>清空 (0%)</b></span>。<br>
-<small>註：實際成交價格仍為當日收盤價 (Close)。</small>
+4️⃣ <b>停損 (雙重條件)</b>：<span style='color:#E040FB'><b>訊號線</b></span> 在 200SMA 之下 <b>且</b> <span style='color:#FF5252'><b>收盤價跌破高點門檻</b></span> ⮕ 清空。<br>
+<small>💡 濾網目的：避免在均線附近盤整時頻繁被洗出場，只有確認大幅回檔才真正離場。</small>
 """,
     unsafe_allow_html=True,
 )
@@ -167,26 +167,26 @@ with col6:
 st.write("---")
 st.write("### ⚙️ 策略參數設定")
 
-col_sig, col_bb, col_act = st.columns([1, 1, 2])
-
+col_sig, col_bb = st.columns(2)
 with col_sig:
-    st.markdown("#### 🎯 訊號源設定")
-    signal_window = st.number_input("訊號判定週期 (天)", min_value=1, max_value=60, value=5, help="用幾日均線來判定黃金/死亡交叉。設為 1 即為使用收盤價。")
-    st.caption("ℹ️ 建議設 5~10 日以過濾假訊號")
+    st.markdown("#### 🎯 訊號與濾網")
+    c1, c2 = st.columns(2)
+    with c1:
+        signal_window = st.number_input("訊號判定週期 (天)", value=5, help="用幾日均線作為訊號線")
+    with c2:
+        high_window = st.number_input("高點回溯 (天)", value=100, help="計算最近 N 天最高價")
+        
+    dd_pct = st.number_input("停損過濾：需跌破高點 (%)", value=30.0, step=5.0, help="只有當 訊號<200SMA 且 價格<最高價*(1-X%) 時才真正賣出")
 
 with col_bb:
-    st.markdown("#### 🌊 布林通道")
-    bb_std_dev = st.number_input("通道倍數 (σ)", min_value=1.0, max_value=4.0, value=2.0, step=0.1)
-    
-with col_act:
-    st.markdown("#### ⚖️ 加減碼規則")
-    c1_act, c2_act, c3_act = st.columns(3)
-    with c1_act:
-        action_pct = st.number_input("加/減碼 (%)", min_value=5, max_value=50, value=10, step=5)
-    with c2_act:
-        add_interval = st.number_input("加碼冷卻(天)", 1, 30, 3)
-    with c3_act:
-        reduce_interval = st.number_input("減碼冷卻(天)", 1, 30, 5)
+    st.markdown("#### 🌊 布林通道與操作")
+    c3, c4 = st.columns(2)
+    with c3:
+        bb_std_dev = st.number_input("通道倍數 (σ)", value=2.0, step=0.1)
+        action_pct = st.number_input("加/減碼幅度 (%)", value=10, step=5)
+    with c4:
+        add_interval = st.number_input("加碼冷卻(天)", value=3)
+        reduce_interval = st.number_input("減碼冷卻(天)", value=5)
 
 ###############################################################
 # 主程式開始
@@ -194,7 +194,7 @@ with col_act:
 
 if st.button("開始回測 🚀"):
 
-    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60) 
+    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + max(200, high_window)) 
 
     with st.spinner("讀取 CSV 中…"):
         df_raw = load_csv(lev_symbol)
@@ -206,23 +206,27 @@ if st.button("開始回測 🚀"):
     df_raw = df_raw.loc[start_early:end]
 
     df = pd.DataFrame(index=df_raw.index)
-    df["Price"] = df_raw["Price"] # 單一價格來源
+    df["Price"] = df_raw["Price"]
     df = df.sort_index()
 
     # 1. 計算技術指標
     df["MA_Long"] = df["Price"].rolling(sma_window).mean()
     df["Std_Dev"] = df["Price"].rolling(sma_window).std()
-    
-    # 🌟 新增：訊號線 (短期均線)
     df["Signal_Price"] = df["Price"].rolling(signal_window).mean()
     
-    # 布林通道 (基於長天期 MA)
+    # 布林通道
     df["BB_Upper"] = df["MA_Long"] + (bb_std_dev * df["Std_Dev"])
     df["BB_Lower"] = df["MA_Long"] - (bb_std_dev * df["Std_Dev"])
 
-    df = df.dropna(subset=["MA_Long", "BB_Upper", "Signal_Price"])
+    # 🌟 新增：高點回落濾網計算
+    # 找出過去 N 天的最高「收盤價」
+    df["Rolling_Max"] = df["Price"].rolling(high_window).max()
+    # 計算「真正停損價位」 = 最高價 * (1 - 跌幅%)
+    df["Stop_Threshold"] = df["Rolling_Max"] * (1 - dd_pct / 100.0)
 
+    df = df.dropna(subset=["MA_Long", "BB_Upper", "Signal_Price", "Stop_Threshold"])
     df = df.loc[start:end]
+    
     if df.empty:
         st.error("⚠️ 有效回測區間不足")
         st.stop()
@@ -233,71 +237,77 @@ if st.button("開始回測 🚀"):
     # 核心交易邏輯
     # ###############################################################
 
-    executed_signals = [0] * len(df)  # 記錄訊號
-    positions = [0.0] * len(df)       # 記錄持倉比例
+    executed_signals = [0] * len(df)
+    positions = [0.0] * len(df)
     
     # 初始狀態
     current_pos = 0.0 
     days_since_add = 999 
     days_since_reduce = 999
 
-    # 初始判斷：用第一天的 Signal_Price 決定
+    # 初始判斷
     if df["Signal_Price"].iloc[0] > df["MA_Long"].iloc[0]:
         current_pos = 1.0
 
     positions[0] = current_pos
 
     for i in range(1, len(df)):
-        # 價格 (用於計算資產，實際上你買到的是這個價格)
         price = df["Price"].iloc[i]
-        
-        # 🌟 訊號源 (所有的邏輯判斷改成看這個)
         sig_curr = df["Signal_Price"].iloc[i]
         sig_prev = df["Signal_Price"].iloc[i-1]
         
-        # 指標
         sma = df["MA_Long"].iloc[i]
         prev_sma = df["MA_Long"].iloc[i-1]
         
         upper = df["BB_Upper"].iloc[i]
         lower = df["BB_Lower"].iloc[i]
+        
+        # 濾網門檻價
+        stop_line = df["Stop_Threshold"].iloc[i]
 
         signal_code = 0
         days_since_add += 1
         days_since_reduce += 1
 
         # ==========================================================
-        # 交易邏輯 (全部改用 sig_curr 判斷)
+        # 交易邏輯
         # ==========================================================
 
-        # 1. 【霸王條款】訊號線跌破布林下軌 -> 買進 (Buy on Dip)
+        # 1. 抄底 (霸王條款)：訊號線跌破下軌
         if sig_curr < lower:
             if days_since_add >= add_interval:
                 current_pos += (action_pct / 100.0)
                 if current_pos > 1.0: current_pos = 1.0
-                signal_code = 2 # Buy Signal
+                signal_code = 2 # Buy
                 days_since_add = 0
 
-        # 2. 黃金交叉 (訊號線 穿過 長均線) -> All In
+        # 2. 進場：黃金交叉 (訊號線站上 SMA)
         elif sig_curr > sma and sig_prev <= prev_sma:
             current_pos = 1.0
             signal_code = 1 # All In
 
-        # 3. 訊號線漲破布林上軌 -> 減碼 (Take Profit)
+        # 3. 減碼：漲破上軌
         elif sig_curr > upper and current_pos > 0:
             if days_since_reduce >= reduce_interval:
                 current_pos -= (action_pct / 100.0)
                 if current_pos < 0.0: current_pos = 0.0
-                signal_code = -2 # Sell Signal
+                signal_code = -2 # Sell
                 days_since_reduce = 0
 
-        # 4. 死亡交叉 (訊號線 跌破 長均線) -> 清空
-        elif sig_curr < sma and sig_prev >= prev_sma:
-            if current_pos > 0: 
-                current_pos = 0.0
-                signal_code = -1 # Clear Signal
+        # 4. 停損 (雙重條件)：
+        #    (A) 訊號線在 SMA 下方 (包含剛跌破或已經跌破)
+        #    (B) 收盤價 < 高點回落門檻 (真正大跌)
+        elif sig_curr < sma:
+            # 只有當價格也跌破「容忍門檻」時，才真正清空
+            if price < stop_line:
+                if current_pos > 0:
+                    current_pos = 0.0
+                    signal_code = -1 # Clear (Stop Loss)
+            else:
+                # 雖然跌破均線，但還沒跌破 30% (舉例)，視為盤整，續抱
+                pass
 
-        # 5. 其他情況：續抱
+        # 5. 其他
         else:
             pass
         
@@ -325,14 +335,14 @@ if st.button("開始回測 🚀"):
     df["Pct_BH"] = df["Equity_BH"] - 1
     df["Pct_LRS"] = df["Equity_LRS"] - 1
 
-    # 篩選訊號點位 (為了畫圖好看，我們還是標記在當天的 Price 上)
+    # 篩選訊號點位
     sig_all_in = df[df["Signal"] == 1]
     sig_clear  = df[df["Signal"] == -1]
     sig_buy_bb = df[df["Signal"] == 2]
     sig_sell_bb = df[df["Signal"] == -2]
 
     # ###############################################################
-    # 指標計算
+    # 統計指標
     # ###############################################################
 
     years_len = (df.index[-1] - df.index[0]).days / 365
@@ -355,43 +365,49 @@ if st.button("開始回測 🚀"):
 
     capital_lrs_final = eq_lrs_final * capital
     capital_bh_final = eq_bh_final * capital
-    
     trade_count_lrs = int((df["Signal"] != 0).sum())
 
     # ###############################################################
-    # 圖表 + KPI + 表格
+    # 視覺化
     # ###############################################################
 
     st.markdown(f"<h3>📌 {lev_label} 策略執行圖</h3>", unsafe_allow_html=True)
     
     fig_price = go.Figure()
 
-    # 1. 價格 (收盤價) - 變細一點，讓主角變成訊號線
+    # 1. 價格
     fig_price.add_trace(go.Scatter(
         x=df.index, y=df["Price"], name=f"{lev_label} 收盤價", 
-        mode="lines", line=dict(width=1, color="rgba(99, 110, 250, 0.5)"),
+        mode="lines", line=dict(width=1, color="rgba(99, 110, 250, 0.4)"),
     ))
 
-    # 🌟 2. 訊號線 (主角)
+    # 2. 訊號線
     fig_price.add_trace(go.Scatter(
-        x=df.index, y=df["Signal_Price"], name=f"訊號線 ({signal_window}SMA)", 
-        mode="lines", line=dict(width=2, color="#E040FB"), # 紫色
+        x=df.index, y=df["Signal_Price"], name=f"訊號線 ({signal_window}MA)", 
+        mode="lines", line=dict(width=1.5, color="#E040FB"),
     ))
 
-    # 3. SMA 長線
+    # 3. SMA
     fig_price.add_trace(go.Scatter(
         x=df.index, y=df["MA_Long"], name=f"趨勢線 ({sma_window}SMA)", 
         mode="lines", line=dict(width=1.5, color="#FFA15A"),
     ))
 
-    # 4. 布林通道
+    # 🌟 4. 停損過濾線 (虛線)
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["Stop_Threshold"], name=f"停損門檻 (高點-{dd_pct}%)", 
+        mode="lines", line=dict(width=1, color="gray", dash="dash"),
+        visible="legendonly" # 預設隱藏，點擊圖例可顯示，保持畫面乾淨
+    ))
+
+    # 5. 布林通道
     fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig_price.add_trace(go.Scatter(
         x=df.index, y=df["BB_Lower"], name=f"布林通道 (±{bb_std_dev}σ)", 
         mode="lines", line=dict(width=0), fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
     ))
 
-    # 5. 訊號標記 (畫在實際成交的 Price 上，因為那是你買到的價格)
+    # 6. 標記
     if not sig_all_in.empty:
         fig_price.add_trace(go.Scatter(
             x=sig_all_in.index, y=sig_all_in["Price"], mode="markers", name="All In (黃金交叉)", 
@@ -399,17 +415,17 @@ if st.button("開始回測 🚀"):
         ))
     if not sig_clear.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_clear.index, y=sig_clear["Price"], mode="markers", name="清空 (死亡交叉)", 
+            x=sig_clear.index, y=sig_clear["Price"], mode="markers", name=f"清空 (破線且跌{dd_pct}%)", 
             marker=dict(color="#D50000", size=10, symbol="x", line=dict(width=1, color="white"))
         ))
     if not sig_buy_bb.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_buy_bb.index, y=sig_buy_bb["Price"], mode="markers", name=f"抄底 ({action_pct}%)", 
+            x=sig_buy_bb.index, y=sig_buy_bb["Price"], mode="markers", name="抄底", 
             marker=dict(color="#66BB6A", size=8, symbol="triangle-up")
         ))
     if not sig_sell_bb.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_sell_bb.index, y=sig_sell_bb["Price"], mode="markers", name=f"減碼 ({action_pct}%)", 
+            x=sig_sell_bb.index, y=sig_sell_bb["Price"], mode="markers", name="減碼", 
             marker=dict(color="#FFA726", size=8, symbol="triangle-down")
         ))
 
@@ -425,11 +441,11 @@ if st.button("開始回測 🚀"):
     st.markdown("<h3>📊 資金曲線比較</h3>", unsafe_allow_html=True)
     fig_equity = go.Figure()
     fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_BH"], mode="lines", name=f"{lev_label} (Buy&Hold)"))
-    fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name=f"策略 ({signal_window}MA訊號)", line=dict(width=2.5)))
+    fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="策略執行結果", line=dict(width=2.5)))
     fig_equity.update_layout(template="plotly_white", height=450, yaxis=dict(tickformat=".0%"))
     st.plotly_chart(fig_equity, use_container_width=True)
 
-    # --- KPI 表格 ---
+    # --- KPI 區塊 (保持不變) ---
     asset_gap = ((capital_lrs_final / capital_bh_final) - 1) * 100
     cagr_gap = (cagr_lrs - cagr_bh) * 100
     vol_gap = (vol_lrs - vol_bh) * 100
@@ -454,7 +470,7 @@ if st.button("開始回測 🚀"):
     metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
     
     data_dict = {
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>策略 ({signal_window}MA訊號)</span>": {
+        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>策略 (含濾網)</span>": {
             "期末資產": capital_lrs_final,
             "總報酬率": final_ret_lrs,
             "CAGR (年化)": cagr_lrs,
