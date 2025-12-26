@@ -375,7 +375,8 @@ if st.button("開始回測 🚀"):
     # ###############################################################
 
     st.markdown("<h3>📌 策略訊號與布林通道 (原型ETF)</h3>", unsafe_allow_html=True)
-        fig_price = go.Figure()
+    
+    fig_price = go.Figure()
 
     # 1. 原型價格
     fig_price.add_trace(go.Scatter(
@@ -498,6 +499,7 @@ if st.button("開始回測 🚀"):
         "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
     }
     
+    # ... (HTML Table generation logic remains the same)
     html_code = """
     <style>
         .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); font-family: 'Noto Sans TC', sans-serif; margin-bottom: 1rem; font-size: 0.95rem; }
