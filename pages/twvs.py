@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — LevLRS + DCA (修正版：現金+股數帳戶制)
+# app.py — LevLRS + DCA (修正版：現金+股數帳戶制 + 圖例左上)
 ###############################################################
 
 import os
@@ -454,7 +454,7 @@ if st.button("開始回測 🚀"):
     fig_price.update_layout(
         template="plotly_white", height=450, hovermode="x unified",
         yaxis=dict(title=f"{lev_label} 價格", showgrid=True, zeroline=False),
-        legend=dict(orientation="h", y=1.02, x=1, xanchor="right"),
+        legend=dict(orientation="h", y=1.02, x=0, xanchor="left"), # 修改這裡：圖例靠左上
         margin=dict(l=10, r=10, t=30, b=10)
     )
     st.plotly_chart(fig_price, use_container_width=True)
@@ -470,7 +470,12 @@ if st.button("開始回測 🚀"):
         fig_equity = go.Figure()
         fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name=f"{lev_label} BH"))
         fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="LRS+DCA"))
-        fig_equity.update_layout(template="plotly_white", height=420, yaxis=dict(tickformat=".0%"))
+        fig_equity.update_layout(
+            template="plotly_white", 
+            height=420, 
+            yaxis=dict(tickformat=".0%"),
+            legend=dict(orientation="h", y=1.02, x=0, xanchor="left") # 修改這裡：圖例靠左上
+        )
         st.plotly_chart(fig_equity, use_container_width=True)
 
     with tab_dd:
@@ -480,7 +485,11 @@ if st.button("開始回測 🚀"):
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lev, name=f"{lev_label} BH"))
         fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lrs, name="LRS+DCA", fill="tozeroy"))
-        fig_dd.update_layout(template="plotly_white", height=420)
+        fig_dd.update_layout(
+            template="plotly_white", 
+            height=420,
+            legend=dict(orientation="h", y=1.02, x=0, xanchor="left") # 修改這裡：圖例靠左上
+        )
         st.plotly_chart(fig_dd, use_container_width=True)
 
     with tab_radar:
@@ -499,7 +508,7 @@ if st.button("開始回測 🚀"):
         fig_hist = go.Figure()
         fig_hist.add_trace(go.Histogram(x=df["Return_lev"] * 100, name=f"{lev_label} BH", opacity=0.6))
         fig_hist.add_trace(go.Histogram(x=df["Return_LRS"] * 100, name="LRS+DCA", opacity=0.7))
-        fig_hist.update_layout(barmode="overlay", template="plotly_white", height=480)
+        fig_hist.update_layout(barmode="overlay", template="plotly_white", height=480, legend=dict(orientation="h", y=1.02, x=0, xanchor="left"))
 
         st.plotly_chart(fig_hist, use_container_width=True)
 
