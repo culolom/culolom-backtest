@@ -1,5 +1,6 @@
 ###############################################################
 # app.py — 槓桿 ETF 直球對決版 (SMA 訊號源自自身 + 緩衝濾網)
+# 修正: 統一函式名稱 fmt_money / fmt_pct
 ###############################################################
 
 import os
@@ -512,11 +513,12 @@ if st.button("開始回測 🚀"):
         sign = "+" if gap > 0 else ""
         return f"""<div class="kpi-card"><div style="opacity:0.7; font-weight:500; margin-bottom:8px;">{lbl}</div><div class="kpi-value">{val}</div><div class="{cls}">{sign}{gap:.2f}% (vs B&H)</div></div>"""
 
+    # 修正處: 將 format_currency 改為 fmt_money, format_percent 改為 fmt_pct
     rk = st.columns(4)
-    with rk[0]: st.markdown(kpi_html("期末資產", format_currency(capital_lrs_final), asset_gap), unsafe_allow_html=True)
-    with rk[1]: st.markdown(kpi_html("CAGR", format_percent(cagr_lrs), cagr_gap), unsafe_allow_html=True)
-    with rk[2]: st.markdown(kpi_html("波動率", format_percent(vol_lrs), vol_gap), unsafe_allow_html=True)
-    with rk[3]: st.markdown(kpi_html("最大回撤", format_percent(mdd_lrs), mdd_gap), unsafe_allow_html=True)
+    with rk[0]: st.markdown(kpi_html("期末資產", fmt_money(capital_lrs_final), asset_gap), unsafe_allow_html=True)
+    with rk[1]: st.markdown(kpi_html("CAGR", fmt_pct(cagr_lrs), cagr_gap), unsafe_allow_html=True)
+    with rk[2]: st.markdown(kpi_html("波動率", fmt_pct(vol_lrs), vol_gap), unsafe_allow_html=True)
+    with rk[3]: st.markdown(kpi_html("最大回撤", fmt_pct(mdd_lrs), mdd_gap), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -550,7 +552,6 @@ if st.button("開始回測 🚀"):
 
     df_vertical = pd.DataFrame(data_dict).reindex(metrics_order)
 
-    # ... (HTML Table generation Logic is Same as before)
     metrics_config = {
         "期末資產":       {"fmt": fmt_money, "invert": False},
         "總報酬率":       {"fmt": fmt_pct,   "invert": False},
