@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 正2 直球對決 + 布林通道調節 (參數分離版 - 修正SyntaxError)
+# app.py — 正2 核心衛星策略 (50% B&H + 50% 布林網格) - Debug版
 ###############################################################
 
 import os
@@ -30,8 +30,8 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="正2 布林動態策略",
-    page_icon="⚡",
+    page_title="正2 核心衛星策略",
+    page_icon="🛡️",
     layout="wide",
 )
 
@@ -57,23 +57,24 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚡ 正2 布林動態調節 (直球對決版)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>🛡️ 50/50 核心衛星策略 (布林波動)</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-<b>策略邏輯 (直接使用正2均線)：</b><br>
-1️⃣ <b>抄底 (最高優先)</b>：收盤 < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進加碼</b></span>。<br>
-2️⃣ <b>進場</b>：漲破 200SMA ⮕ <span style='color:#4CAF50'><b>All In (100%)</b></span>。<br>
-3️⃣ <b>獲利調節</b>：收盤 > 布林上軌 (2σ) ⮕ <span style='color:#FFA726'><b>賣出減碼</b></span>。<br>
-4️⃣ <b>停損</b>：<b>剛跌破 200SMA 瞬間</b> ⮕ <span style='color:#FF5252'><b>清空 (0%)</b></span> (若已在線下則不再清空，保留抄底部位)。<br>
+<b>策略邏輯：</b><br>
+1️⃣ <b>核心部位 (Core)</b>：初始資金 50% 買進正2，<b>長期持有不動</b> (作為底倉)。<br>
+2️⃣ <b>衛星部位 (Cash)</b>：初始資金 50% 保留為現金，依據布林通道進行加減碼。<br>
+3️⃣ <b>交易規則 (不看 200SMA)</b>：<br>
+&nbsp;&nbsp;&nbsp;&nbsp;• <b>買進</b>：跌破布林下軌 ⮕ 動用現金加碼。<br>
+&nbsp;&nbsp;&nbsp;&nbsp;• <b>賣出</b>：突破布林上軌 ⮕ 賣出<b>加碼的部位</b> (底倉不動)。<br>
 """,
     unsafe_allow_html=True,
 )
 
 ###############################################################
-# ETF 名稱清單 (只保留槓桿)
+# ETF 名稱清單
 ###############################################################
 
 LEV_ETFS = {
@@ -147,7 +148,7 @@ def nz(x, default=0.0):
 
 col_sel, col_info = st.columns([1, 2])
 with col_sel:
-    lev_label = st.selectbox("選擇交易標的 (兼訊號源)", list(LEV_ETFS.keys()))
+    lev_label = st.selectbox("選擇交易標的", list(LEV_ETFS.keys()))
     lev_symbol = LEV_ETFS[lev_label]
 
 s_min, s_max = get_full_range_from_csv(lev_symbol)
@@ -161,30 +162,30 @@ with col3:
 with col4:
     end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
 with col5:
-    capital = st.number_input("投入本金（元）", 1000, 5_000_000, 100_000, step=10_000)
+    capital = st.number_input("總投入本金（元）", 1000, 50_000_000, 100_000, step=10_000)
 with col6:
-    sma_window = st.number_input("均線週期 (SMA)", min_value=10, max_value=240, value=200, step=10)
+    init_pos_pct = st.number_input("初始正2持倉比例 (%)", 0, 100, 50, step=10, help="剩下的比例為現金，用來加碼")
 
 # --- 策略進階設定 ---
 st.write("---")
-st.write("### ⚙️ 策略參數設定")
+st.write("### ⚙️ 參數設定")
 
 col_bb1, col_bb2 = st.columns(2)
 
 with col_bb1:
     st.markdown("#### 🌊 布林通道設定")
-    bb_std_dev = st.number_input("布林通道倍數 (σ)", min_value=1.0, max_value=4.0, value=2.0, step=0.1, help="設定通道寬度，通常為 2.0")
-    st.caption("ℹ️ 訊號直接來自正2價格")
+    bb_window = st.number_input("布林均線週期 (MA)", 10, 240, 20, 10, help="標準布林通道通常使用 20MA")
+    bb_std_dev = st.number_input("布林通道倍數 (σ)", 1.0, 4.0, 2.0, 0.1, help="越大交易越少，但越精準")
     
 with col_bb2:
     st.markdown("#### ⚖️ 加減碼規則")
-    action_pct = st.number_input("單次加/減碼比例 (%)", min_value=5, max_value=50, value=10, step=5)
+    action_pct = st.number_input("單次交易金額 (%)", 1, 20, 10, step=1, help="每次加碼/減碼總本金的多少百分比")
     
     c1, c2 = st.columns(2)
     with c1:
-        add_interval = st.number_input("加碼間隔天數", min_value=1, max_value=30, value=3, help="跌破下軌後的買進冷卻時間")
+        add_interval = st.number_input("加碼冷卻 (日)", 1, 30, 3, help="跌破下軌後的買進間隔")
     with c2:
-        reduce_interval = st.number_input("減碼間隔天數", min_value=1, max_value=30, value=5, help="漲破上軌後的賣出冷卻時間")
+        reduce_interval = st.number_input("減碼冷卻 (日)", 1, 30, 5, help="漲破上軌後的賣出間隔")
 
 ###############################################################
 # 主程式開始
@@ -192,7 +193,7 @@ with col_bb2:
 
 if st.button("開始回測 🚀"):
 
-    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60) 
+    start_early = start - dt.timedelta(days=int(bb_window * 2) + 60) 
 
     with st.spinner("讀取 CSV 中…"):
         df_raw = load_csv(lev_symbol)
@@ -204,161 +205,151 @@ if st.button("開始回測 🚀"):
     df_raw = df_raw.loc[start_early:end]
 
     df = pd.DataFrame(index=df_raw.index)
-    df["Price"] = df_raw["Price"] # 單一價格來源
+    df["Price"] = df_raw["Price"] 
     df = df.sort_index()
 
-    # 1. 計算技術指標 (直接用正2算)
-    df["MA_Signal"] = df["Price"].rolling(sma_window).mean()
-    df["Std_Dev"] = df["Price"].rolling(sma_window).std()
+    # 1. 計算布林通道 (不做 SMA 交易訊號，純粹畫軌道)
+    df["MA_BB"] = df["Price"].rolling(bb_window).mean()
+    df["Std_Dev"] = df["Price"].rolling(bb_window).std()
     
-    # 布林通道
-    df["BB_Upper"] = df["MA_Signal"] + (bb_std_dev * df["Std_Dev"])
-    df["BB_Lower"] = df["MA_Signal"] - (bb_std_dev * df["Std_Dev"])
+    df["BB_Upper"] = df["MA_BB"] + (bb_std_dev * df["Std_Dev"])
+    df["BB_Lower"] = df["MA_BB"] - (bb_std_dev * df["Std_Dev"])
 
-    df = df.dropna(subset=["MA_Signal", "BB_Upper"])
+    df = df.dropna(subset=["MA_BB", "BB_Upper"])
 
     df = df.loc[start:end]
     if df.empty:
         st.error("⚠️ 有效回測區間不足")
         st.stop()
 
-    df["Return"] = df["Price"].pct_change().fillna(0)
-
     # ###############################################################
-    # 核心交易邏輯
+    # 核心交易邏輯 (現金流模擬)
     # ###############################################################
-
-    executed_signals = [0] * len(df)  # 記錄訊號
-    positions = [0.0] * len(df)       # 記錄持倉比例
     
-    # 初始狀態
-    current_pos = 0.0 
+    # 初始化資金狀態
+    current_cash = capital * (1 - init_pos_pct / 100.0)
+    current_shares = (capital * (init_pos_pct / 100.0)) / df["Price"].iloc[0]
+    
+    # 設定「底倉股數」(Floor Shares) - 這部分是不動產
+    base_shares_floor = current_shares 
+    
+    # 記錄每日狀態
+    equity_curve = []
+    cash_curve = []
+    pos_pct_curve = []
+    signals = [] # 1=Buy, -1=Sell, 0=None
+
     days_since_add = 999 
     days_since_reduce = 999
+    
+    trade_count = 0
 
-    # 如果第一天價格就在均線上，給予初始倉位
-    if df["Price"].iloc[0] > df["MA_Signal"].iloc[0]:
-        current_pos = 1.0
-
-    positions[0] = current_pos
-
-    for i in range(1, len(df)):
+    for i in range(len(df)):
         price = df["Price"].iloc[i]
-        prev_price = df["Price"].iloc[i-1]
-        
-        sma = df["MA_Signal"].iloc[i]
-        prev_sma = df["MA_Signal"].iloc[i-1]
-        
         upper = df["BB_Upper"].iloc[i]
         lower = df["BB_Lower"].iloc[i]
-
-        signal_code = 0
+        
+        signal = 0
         days_since_add += 1
         days_since_reduce += 1
+        
+        # 交易金額基礎 (例如每次投入總本金的 10%)
+        trade_amount = capital * (action_pct / 100.0)
 
-        # ==========================================================
-        # 交易邏輯
-        # ==========================================================
-
-        # 1. 【霸王條款】跌破布林下軌 -> 買進 (Buy on Dip)
+        # === 規則 1: 跌破下軌 -> 用現金買進 ===
         if price < lower:
             if days_since_add >= add_interval:
-                current_pos += (action_pct / 100.0)
-                if current_pos > 1.0: current_pos = 1.0
-                signal_code = 2 # Buy Signal
-                days_since_add = 0
+                # 檢查現金夠不夠
+                if current_cash >= trade_amount:
+                    shares_to_buy = trade_amount / price
+                    current_shares += shares_to_buy
+                    current_cash -= trade_amount
+                    
+                    signal = 1 # Buy
+                    days_since_add = 0
+                    trade_count += 1
+                else:
+                    # 現金不足，All in 剩餘現金 (可選)
+                    if current_cash > 0:
+                        shares_to_buy = current_cash / price
+                        current_shares += shares_to_buy
+                        current_cash = 0
+                        signal = 1
+                        days_since_add = 0
+                        trade_count += 1
 
-        # 2. 站上均線 -> All In (Trend Following)
-        elif price > sma and prev_price <= prev_sma:
-            current_pos = 1.0
-            signal_code = 1 # All In
-            # 這裡不重置 add/reduce 計數，讓它們獨立運作比較合理
-
-        # 3. 漲破布林上軌 -> 減碼 (Take Profit)
-        elif price > upper and current_pos > 0:
+        # === 規則 2: 漲破上軌 -> 賣出 (但保留底倉) ===
+        elif price > upper:
             if days_since_reduce >= reduce_interval:
-                current_pos -= (action_pct / 100.0)
-                if current_pos < 0.0: current_pos = 0.0
-                signal_code = -2 # Sell Signal
-                days_since_reduce = 0
-
-        # 4. 剛跌破均線 -> 清空 (Stop Loss)
-        # 關鍵：只在跌破瞬間執行
-        elif price < sma and prev_price >= prev_sma:
-            if current_pos > 0: 
-                current_pos = 0.0
-                signal_code = -1 # Clear Signal
-                # 這裡不需要重置間隔計數，因為清空是最高指導原則
-
-        # 5. 其他情況：續抱
-        else:
-            pass
+                # 計算可賣股數 (目前持股 - 底倉)
+                tradable_shares = current_shares - base_shares_floor
+                
+                if tradable_shares > 0:
+                    shares_to_sell = trade_amount / price
+                    
+                    # 如果想賣的 > 可賣的，就只賣可賣的
+                    if shares_to_sell > tradable_shares:
+                        shares_to_sell = tradable_shares
+                    
+                    if shares_to_sell > 0:
+                        current_shares -= shares_to_sell
+                        current_cash += (shares_to_sell * price)
+                        
+                        signal = -1 # Sell
+                        days_since_reduce = 0
+                        trade_count += 1
         
-        positions[i] = round(current_pos, 4)
-        executed_signals[i] = signal_code
+        # 記錄當日淨值
+        total_equity = current_cash + (current_shares * price)
+        equity_curve.append(total_equity)
+        cash_curve.append(current_cash)
+        pos_pct_curve.append((current_shares * price) / total_equity)
+        signals.append(signal)
 
-    df["Signal"] = executed_signals
-    df["Position"] = positions
-
-    # ###############################################################
-    # 資金曲線計算
-    # ###############################################################
-
-    equity_lrs = [1.0]
+    df["Equity_Strategy"] = equity_curve
+    df["Signal"] = signals
+    df["Pos_Pct"] = pos_pct_curve
+    df["Cash_Val"] = cash_curve # 新增這一行方便畫圖
     
-    for i in range(1, len(df)):
-        pos_weight = df["Position"].iloc[i-1]
-        lev_ret = df["Return"].iloc[i]
-        new_equity = equity_lrs[-1] * (1 + (lev_ret * pos_weight))
-        equity_lrs.append(new_equity)
-
-    df["Equity_LRS"] = equity_lrs
-    df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
-
-    # Buy & Hold (就是正2本身)
-    df["Equity_BH"] = (1 + df["Return"]).cumprod()
-
-    df["Pct_BH"] = df["Equity_BH"] - 1
-    df["Pct_LRS"] = df["Equity_LRS"] - 1
-
-    # 篩選訊號點位
-    sig_all_in = df[df["Signal"] == 1]
-    sig_clear  = df[df["Signal"] == -1]
-    sig_buy_bb = df[df["Signal"] == 2]
-    sig_sell_bb = df[df["Signal"] == -2]
+    # 比較基準: 100% Buy & Hold
+    initial_shares_bh = capital / df["Price"].iloc[0]
+    df["Equity_BH_100"] = initial_shares_bh * df["Price"]
+    
+    # 比較基準: 50% Buy & Hold (不做再平衡，剩下的現金放著)
+    # 假設現金不生利息
+    initial_cash_50 = capital * (1 - init_pos_pct/100.0)
+    initial_shares_50 = (capital * (init_pos_pct/100.0)) / df["Price"].iloc[0]
+    df["Equity_BH_50"] = initial_cash_50 + (initial_shares_50 * df["Price"])
 
     # ###############################################################
     # 指標計算
     # ###############################################################
+    
+    df["Ret_Strategy"] = df["Equity_Strategy"].pct_change().fillna(0)
+    df["Ret_BH_100"] = df["Equity_BH_100"].pct_change().fillna(0)
 
     years_len = (df.index[-1] - df.index[0]).days / 365
 
     def calc_core(eq, rets):
         final_eq = eq.iloc[-1]
-        final_ret = final_eq - 1
-        cagr = (1 + final_ret)**(1/years_len) - 1 if years_len > 0 else np.nan
+        final_ret = (final_eq / capital) - 1
+        cagr = (final_eq / capital)**(1/years_len) - 1 if years_len > 0 else np.nan
         mdd = 1 - (eq / eq.cummax()).min()
         vol, sharpe, sortino = calc_metrics(rets)
-        calmar = cagr / mdd if mdd > 0 else np.nan
-        return final_eq, final_ret, cagr, mdd, vol, sharpe, sortino, calmar
+        return final_eq, final_ret, cagr, mdd, vol, sharpe
 
-    eq_lrs_final, final_ret_lrs, cagr_lrs, mdd_lrs, vol_lrs, sharpe_lrs, sortino_lrs, calmar_lrs = calc_core(
-        df["Equity_LRS"], df["Return_LRS"]
-    )
-    eq_bh_final, final_ret_bh, cagr_bh, mdd_bh, vol_bh, sharpe_bh, sortino_bh, calmar_bh = calc_core(
-        df["Equity_BH"], df["Return"]
-    )
+    eq_str_final, ret_str, cagr_str, mdd_str, vol_str, sharpe_str = calc_core(df["Equity_Strategy"], df["Ret_Strategy"])
+    eq_bh_final, ret_bh, cagr_bh, mdd_bh, vol_bh, sharpe_bh = calc_core(df["Equity_BH_100"], df["Ret_BH_100"])
 
-    capital_lrs_final = eq_lrs_final * capital
-    capital_bh_final = eq_bh_final * capital
-    
-    trade_count_lrs = int((df["Signal"] != 0).sum())
+    # 篩選訊號點位 for Plotting
+    sig_buy = df[df["Signal"] == 1]
+    sig_sell = df[df["Signal"] == -1]
 
     # ###############################################################
-    # 圖表 + KPI + 表格
+    # 圖表呈現
     # ###############################################################
 
-    st.markdown(f"<h3>📌 {lev_label} 策略執行圖</h3>", unsafe_allow_html=True)
+    st.markdown(f"<h3>📌 {lev_label} 交易執行圖</h3>", unsafe_allow_html=True)
     
     fig_price = go.Figure()
 
@@ -368,38 +359,22 @@ if st.button("開始回測 🚀"):
         mode="lines", line=dict(width=2, color="#636EFA"),
     ))
 
-    # 2. SMA
-    fig_price.add_trace(go.Scatter(
-        x=df.index, y=df["MA_Signal"], name=f"{sma_window} SMA", 
-        mode="lines", line=dict(width=1.5, color="#FFA15A"),
-    ))
-
-    # 3. 布林通道
+    # 2. 布林通道
     fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig_price.add_trace(go.Scatter(
         x=df.index, y=df["BB_Lower"], name=f"布林通道 (±{bb_std_dev}σ)", 
         mode="lines", line=dict(width=0), fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
     ))
 
-    # 4. 訊號
-    if not sig_all_in.empty:
+    # 3. 訊號
+    if not sig_buy.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_all_in.index, y=sig_all_in["Price"], mode="markers", name="All In (站上均線)", 
-            marker=dict(color="#00C853", size=12, symbol="star", line=dict(width=1, color="white"))
+            x=sig_buy.index, y=sig_buy["Price"], mode="markers", name=f"加碼買進", 
+            marker=dict(color="#00C853", size=8, symbol="triangle-up")
         ))
-    if not sig_clear.empty:
+    if not sig_sell.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_clear.index, y=sig_clear["Price"], mode="markers", name="清空 (剛跌破)", 
-            marker=dict(color="#D50000", size=10, symbol="x", line=dict(width=1, color="white"))
-        ))
-    if not sig_buy_bb.empty:
-        fig_price.add_trace(go.Scatter(
-            x=sig_buy_bb.index, y=sig_buy_bb["Price"], mode="markers", name=f"抄底加碼 ({action_pct}%)", 
-            marker=dict(color="#66BB6A", size=8, symbol="triangle-up")
-        ))
-    if not sig_sell_bb.empty:
-        fig_price.add_trace(go.Scatter(
-            x=sig_sell_bb.index, y=sig_sell_bb["Price"], mode="markers", name=f"高檔減碼 ({action_pct}%)", 
+            x=sig_sell.index, y=sig_sell["Price"], mode="markers", name=f"減碼獲利", 
             marker=dict(color="#FFA726", size=8, symbol="triangle-down")
         ))
 
@@ -411,111 +386,41 @@ if st.button("開始回測 🚀"):
     )
     st.plotly_chart(fig_price, use_container_width=True)
 
-    # --- 資金曲線 ---
-    st.markdown("<h3>📊 資金曲線比較</h3>", unsafe_allow_html=True)
-    fig_equity = go.Figure()
-    fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_BH"], mode="lines", name=f"{lev_label} (Buy&Hold)"))
-    fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="LRS+BB動態", line=dict(width=2.5)))
-    fig_equity.update_layout(template="plotly_white", height=450, yaxis=dict(tickformat=".0%"))
-    st.plotly_chart(fig_equity, use_container_width=True)
+    # --- 倉位變化圖 (Stack Area) ---
+    st.markdown("<h3>📊 資產配置變化 (核心 vs 衛星)</h3>", unsafe_allow_html=True)
+    fig_pos = go.Figure()
+    
+    # 計算股票市值 = 總資產 - 現金
+    df["Stock_Val"] = df["Equity_Strategy"] - df["Cash_Val"]
+    
+    fig_pos.add_trace(go.Scatter(
+        x=df.index, y=df["Stock_Val"], mode='lines', name='正2持倉 (含底倉)', stackgroup='one', line=dict(width=0, color="#636EFA")
+    ))
+    fig_pos.add_trace(go.Scatter(
+        x=df.index, y=df["Cash_Val"], mode='lines', name='現金部位', stackgroup='one', line=dict(width=0, color="#00CC96")
+    ))
+    
+    fig_pos.update_layout(template="plotly_white", height=350, yaxis=dict(title="資產價值 (元)"), hovermode="x unified")
+    st.plotly_chart(fig_pos, use_container_width=True)
 
-    # --- KPI 表格 ---
-    asset_gap = ((capital_lrs_final / capital_bh_final) - 1) * 100
-    cagr_gap = (cagr_lrs - cagr_bh) * 100
-    vol_gap = (vol_lrs - vol_bh) * 100
-    mdd_gap = (mdd_lrs - mdd_bh) * 100
+    # --- 資金曲線比較 ---
+    st.markdown("<h3>💰 策略績效比較</h3>", unsafe_allow_html=True)
+    fig_eq = go.Figure()
+    fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], mode="lines", name="50/50 核心衛星", line=dict(width=2.5, color="#636EFA")))
+    fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_100"], mode="lines", name="100% 正2 B&H (高風險)", line=dict(width=1.5, color="#EF553B", dash="dot")))
+    fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_50"], mode="lines", name="50% 正2 B&H (躺平)", line=dict(width=1.5, color="gray")))
+    
+    fig_eq.update_layout(template="plotly_white", height=450, yaxis=dict(title="總資產 (元)"))
+    st.plotly_chart(fig_eq, use_container_width=True)
 
-    st.markdown("""<style>.kpi-card {background-color: var(--secondary-background-color); border-radius: 16px; padding: 24px 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.04); border: 1px solid rgba(128,128,128,0.1); display:flex; flex-direction:column; justify-content:space-between; height:100%;} .kpi-value {font-size:2.2rem; font-weight:900; margin-bottom:16px;} .delta-positive{background-color:rgba(33,195,84,0.12); color:#21c354; padding:6px 12px; border-radius:20px; font-weight:700; width:fit-content;} .delta-negative{background-color:rgba(255,60,60,0.12); color:#ff3c3c; padding:6px 12px; border-radius:20px; font-weight:700; width:fit-content;} .delta-neutral{background-color:rgba(128,128,128,0.1); color:gray; padding:6px 12px; border-radius:20px; width:fit-content;}</style>""", unsafe_allow_html=True)
-
-    def kpi_html(lbl, val, gap):
-        cls = "delta-positive" if gap > 0 else "delta-negative" if gap < 0 else "delta-neutral"
-        sign = "+" if gap > 0 else ""
-        return f"""<div class="kpi-card"><div style="opacity:0.7; font-weight:500; margin-bottom:8px;">{lbl}</div><div class="kpi-value">{val}</div><div class="{cls}">{sign}{gap:.2f}% (vs B&H)</div></div>"""
-
-    rk = st.columns(4)
-    with rk[0]: st.markdown(kpi_html("期末資產", fmt_money(capital_lrs_final), asset_gap), unsafe_allow_html=True)
-    with rk[1]: st.markdown(kpi_html("CAGR", fmt_pct(cagr_lrs), cagr_gap), unsafe_allow_html=True)
-    with rk[2]: st.markdown(kpi_html("波動率", fmt_pct(vol_lrs), vol_gap), unsafe_allow_html=True)
-    with rk[3]: st.markdown(kpi_html("最大回撤", fmt_pct(mdd_lrs), mdd_gap), unsafe_allow_html=True)
-
+    # --- KPI Table ---
     st.markdown("<br>", unsafe_allow_html=True)
-
-    # 最終表格
-    metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
     
-    data_dict = {
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>LRS+BB動態</span>": {
-            "期末資產": capital_lrs_final,
-            "總報酬率": final_ret_lrs,
-            "CAGR (年化)": cagr_lrs,
-            "Calmar Ratio": calmar_lrs,
-            "最大回撤 (MDD)": mdd_lrs,
-            "年化波動": vol_lrs,
-            "Sharpe Ratio": sharpe_lrs,
-            "Sortino Ratio": sortino_lrs,
-            "交易次數": trade_count_lrs,
-        },
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
-            "期末資產": capital_bh_final,
-            "總報酬率": final_ret_bh,
-            "CAGR (年化)": cagr_bh,
-            "Calmar Ratio": calmar_bh,
-            "最大回撤 (MDD)": mdd_bh,
-            "年化波動": vol_bh,
-            "Sharpe Ratio": sharpe_bh,
-            "Sortino Ratio": sortino_bh,
-            "交易次數": -1, 
-        }
-    }
+    col_kpi1, col_kpi2, col_kpi3, col_kpi4, col_kpi5 = st.columns(5)
+    with col_kpi1: st.metric("期末總資產", fmt_money(eq_str_final), delta=f"{ret_str*100:.1f}%")
+    with col_kpi2: st.metric("CAGR (年化)", fmt_pct(cagr_str))
+    with col_kpi3: st.metric("最大回撤 (MDD)", fmt_pct(mdd_str), help="越小越好")
+    with col_kpi4: st.metric("夏普比率 (Sharpe)", fmt_num(sharpe_str))
+    with col_kpi5: st.metric("交易次數", trade_count)
 
-    df_vertical = pd.DataFrame(data_dict).reindex(metrics_order)
-    
-    metrics_config = {
-        "期末資產":       {"fmt": fmt_money, "invert": False},
-        "總報酬率":       {"fmt": fmt_pct,   "invert": False},
-        "CAGR (年化)":    {"fmt": fmt_pct,   "invert": False},
-        "Calmar Ratio":   {"fmt": fmt_num,   "invert": False},
-        "最大回撤 (MDD)": {"fmt": fmt_pct,   "invert": True},
-        "年化波動":       {"fmt": fmt_pct,   "invert": True},
-        "Sharpe Ratio":   {"fmt": fmt_num,   "invert": False},
-        "Sortino Ratio":  {"fmt": fmt_num,   "invert": False},
-        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
-    }
-    
-    html_code = """
-    <style>
-        .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); font-family: 'Noto Sans TC', sans-serif; margin-bottom: 1rem; font-size: 0.95rem; }
-        .comparison-table th { background-color: var(--secondary-background-color); color: var(--text-color); padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128, 0.1); }
-        .comparison-table td.metric-name { background-color: transparent; color: var(--text-color); font-weight: 500; text-align: left; padding: 12px 16px; width: 25%; font-size: 0.9rem; border-bottom: 1px solid rgba(128,128,128, 0.1); opacity: 0.9; }
-        .comparison-table td.data-cell { text-align: center; padding: 12px; color: var(--text-color); border-bottom: 1px solid rgba(128,128,128, 0.1); }
-        .comparison-table td.lrs-col { background-color: rgba(128, 128, 128, 0.03); }
-        .trophy-icon { margin-left: 6px; font-size: 1.1em; text-shadow: 0 0 5px rgba(255, 215, 0, 0.4); }
-        .comparison-table tr:hover td { background-color: rgba(128,128,128, 0.05); }
-    </style>
-    <table class="comparison-table">
-        <thead><tr><th style="text-align:left; padding-left:16px; width:25%;">指標</th>
-    """
-    for col_name in df_vertical.columns: html_code += f"<th>{col_name}</th>"
-    html_code += "</tr></thead><tbody>"
-
-    for metric in df_vertical.index:
-        config = metrics_config.get(metric, {"fmt": fmt_num, "invert": False})
-        raw_row_values = df_vertical.loc[metric].values
-        valid_values = [x for x in raw_row_values if isinstance(x, (int, float)) and x != -1 and not pd.isna(x)]
-        target_val = None
-        if valid_values and metric != "交易次數": 
-            target_val = min(valid_values) if config["invert"] else max(valid_values)
-
-        html_code += f"<tr><td class='metric-name'>{metric}</td>"
-        for i, strategy in enumerate(df_vertical.columns):
-            val = df_vertical.at[metric, strategy]
-            display_text = config["fmt"](val) if isinstance(val, (int, float)) and val != -1 else "—"
-            is_winner = target_val is not None and isinstance(val, (int, float)) and val == target_val
-            if is_winner: display_text += " <span class='trophy-icon'>🏆</span>"
-            is_lrs = (i == 0)
-            lrs_class = "lrs-col" if is_lrs else ""
-            font_weight = "bold" if is_lrs else "normal"
-            html_code += f"<td class='data-cell {lrs_class}' style='font-weight:{font_weight};'>{display_text}</td>"
-        html_code += "</tr>"
-    html_code += "</tbody></table>"
-    st.write(html_code, unsafe_allow_html=True)
+    st.caption(f"比較基準：100% Buy&Hold 之 CAGR 為 {fmt_pct(cagr_bh)}，最大回撤為 {fmt_pct(mdd_bh)}。")
