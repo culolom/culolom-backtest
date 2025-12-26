@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — LevLRS + DCA (200SMA 清空 + 定期定額版)
+# app.py — LevLRS + DCA (防禦型：不追高，只在均下DCA，跌破即清空)
 ###############################################################
 
 import os
@@ -34,8 +34,8 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="LRS + DCA 混合策略 (帳戶制)",
-    page_icon="📉",
+    page_title="LRS 防禦型 DCA 策略",
+    page_icon="🛡️",
     layout="wide",
 )
 
@@ -61,16 +61,16 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>📊 槓桿 ETF 動態均線 + DCA 策略</h1>",
+    "<h1 style='margin-bottom:0.5em;'>🛡️ 槓桿 ETF 防禦型 DCA 策略</h1>",
     unsafe_allow_html=True,
 )
 
-st.info(
+st.warning(
     """
-    **策略邏輯：**
-    1. **跌破 200SMA (或指定均線)**：立刻清空所有持股 (轉為現金)。
-    2. **均線下方 (空頭)**：啟動 DCA 定期定額，每隔 N 天買入資金的 X%，直到現金用完或趨勢反轉。
-    3. **站上 200SMA (多頭)**：立刻將剩餘現金全數投入，恢復滿倉持有。
+    **策略邏輯（防禦版）：**
+    1. **📉 跌破 200SMA**：**立刻清空所有持股**，轉為 100% 現金。
+    2. **🌑 均線下方 (空頭)**：啟動 DCA 定期定額，分批向下承接，直到現金用完。
+    3. **📈 站上 200SMA (多頭)**：**❌ 不追高加碼**。停止 DCA，僅持有底部累積的籌碼讓獲利奔跑。
     """
 )
 
@@ -167,29 +167,21 @@ with col4:
 with col5:
     capital = st.number_input("投入本金（元）", 1000, 50_000_000, 1_000_000, step=10_000)
 with col6:
-    # 預設改為 200 SMA
     sma_window = st.number_input("均線週期 (SMA)", min_value=10, max_value=240, value=200, step=10)
 
 # --- 策略進階設定 ---
 st.write("---")
 st.write("### ⚙️ 策略進階設定")
 
-position_mode = st.radio(
-    "策略初始狀態",
-    [ "一開始就全倉投入","空手起跑"],
-    index=0,
-    help="空手起跑：若開始時價格已在均線上，會保持空手，直到下次黃金交叉才進場。"
-)
-
-with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=True):
-    col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
-    with col_dca1:
-        # 預設開啟 DCA
-        enable_dca = st.toggle("啟用 DCA定期定額", value=True, help="開啟後，當跌破均線賣出後，會分批買回。")
-    with col_dca2:
-        dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=10, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
-    with col_dca3:
-        dca_pct = st.number_input("每次買進資金比例 (%)", min_value=1, max_value=100, value=10, step=5, disabled=not enable_dca, help="以當時總資產的多少百分比金額買進")
+col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
+with col_dca1:
+    st.write("DCA 設定")
+    enable_dca = True # 強制開啟
+    st.caption("✅ 已啟用 DCA")
+with col_dca2:
+    dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=10, help="均線下每隔幾天買一次")
+with col_dca3:
+    dca_pct = st.number_input("每次買進資金比例 (%)", min_value=1, max_value=100, value=10, step=5, help="每次投入剩餘總資產的多少 %")
 
 
 ###############################################################
@@ -225,79 +217,66 @@ if st.button("開始回測 🚀", type="primary"):
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
 
     ###############################################################
-    # LRS + DCA 混合策略邏輯 (現金+股數 嚴格帳戶制)
+    # LRS + DCA 混合策略邏輯 (防禦版)
     ###############################################################
 
     # 1. 初始化容器
-    executed_signals = [0] * len(df) # 記錄訊號: 1=Full Buy, -1=Full Sell, 2=DCA Buy
-    positions_pct = [0.0] * len(df)  # 記錄"市值佔比"供繪圖用
+    executed_signals = [0] * len(df) # 記錄訊號: 1=CrossUp(Hold), -1=Sell All, 2=DCA Buy
+    positions_pct = [0.0] * len(df)  # 記錄"市值佔比"
     equity_curve = [0.0] * len(df)   # 記錄每日總淨值
 
     # 2. 初始化帳戶
     cash = float(capital)
     shares = 0.0
     
-    # 根據設定決定初始狀態
+    # 預設一開始如果是均線上，是否進場？
+    # 根據你的"防禦"邏輯，如果一開始就在均線上，我們可以選擇：
+    # A. 空手等跌破 (最嚴格)
+    # B. 先買滿 (比較符合人性)
+    # 這裡採用 B (一開始若在均線上先買滿)，但之後遵循"不加碼"原則。
     first_price = df["Price_lev"].iloc[0]
-    
-    can_buy_permission = False
-    
-    if "全倉" in position_mode:
-        # 開局直接買滿
+    first_ma = df["MA_Signal"].iloc[0]
+
+    if first_price > first_ma:
         shares = cash / first_price
         cash = 0.0
-        can_buy_permission = True
         positions_pct[0] = 1.0
     else:
-        # 空手起跑
         positions_pct[0] = 0.0
-        can_buy_permission = False 
 
     equity_curve[0] = cash + (shares * first_price)
     
     dca_wait_counter = 0 
 
-    # 3. 逐日遍歷 (Event-driven Loop)
+    # 3. 逐日遍歷
     for i in range(1, len(df)):
-        # 今日數據
         price = df["Price_lev"].iloc[i]
         ma = df["MA_Signal"].iloc[i]
         
-        # 昨日數據 (用於判斷交叉)
         prev_price = df["Price_lev"].iloc[i-1]
         prev_ma = df["MA_Signal"].iloc[i-1]
 
-        # 1. 計算當前總資產 (Mark to Market)
+        # 計算當前總資產
         curr_total_equity = cash + (shares * price)
         
-        # 2. 判斷訊號
         is_above_sma = price > ma
         daily_signal = 0
 
         # === 狀況 1: 價格在均線上 (多頭) ===
         if is_above_sma:
-            if can_buy_permission:
-                # 策略：多頭時保持滿倉。
-                # 如果手上有現金 (可能來自剛開始或 DCA 剩餘)，全部買進
-                if cash > 100: 
-                    shares += cash / price
-                    cash = 0.0
-                    # 如果昨天還在均線下，代表今天是黃金交叉突破日
-                    daily_signal = 1 if prev_price <= prev_ma else 0 
-            else:
-                # 無權限 (例如空手起跑模式尚未進場)，持續空手直到下一次黃金交叉
-                if shares > 0:
-                    cash += shares * price
-                    shares = 0.0
-                daily_signal = 0
+            # 你的需求：不管漲破就全倉 -> 意思是不追價，只持有既有的
+            # 所以這裡不做任何買進動作，只是持有 (Hold)
             
+            # 僅在剛突破第一天標記一下 (視覺用)，但不執行交易
+            if prev_price <= prev_ma:
+                daily_signal = 0 # 0 代表 Hold，不買不賣
+            
+            # 重置 DCA 計數器 (多頭市場不累計 DCA 時間)
             dca_wait_counter = 0
 
         # === 狀況 2: 價格在均線下 (空頭) ===
         else:
-            can_buy_permission = True # 解鎖買入權限 (允許之後的操作)
-            
-            # 2-1. 剛跌破 (死亡交叉) -> 清倉
+            # 2-1. 剛跌破 (死亡交叉) -> 清空 (Sell All)
             if prev_price > prev_ma:
                 if shares > 0:
                     cash += shares * price
@@ -305,32 +284,27 @@ if st.button("開始回測 🚀", type="primary"):
                 daily_signal = -1 # 標記賣出
                 dca_wait_counter = 0 # 重置 DCA 計數器
             
-            # 2-2. 持續在均線下 -> 檢查是否執行 DCA
+            # 2-2. 持續在均線下 -> 執行 DCA
             else:
-                if enable_dca:
-                    # 只有當還有現金時才 DCA
-                    if cash > 100:
-                        dca_wait_counter += 1
-                        if dca_wait_counter >= dca_interval:
-                            # 執行買進
-                            # 計算買入金額：總資產 * (dca_pct%)
-                            target_invest_amt = curr_total_equity * (dca_pct / 100.0)
-                            
-                            # 實際能買的金額 (不能超過現金)
-                            actual_invest_amt = min(cash, target_invest_amt)
-                            
-                            if actual_invest_amt > 0:
-                                shares += actual_invest_amt / price
-                                cash -= actual_invest_amt
-                                daily_signal = 2 # 標記 DCA 買入
-                                dca_wait_counter = 0
+                # 只有當還有現金時才 DCA
+                if cash > 100:
+                    dca_wait_counter += 1
+                    if dca_wait_counter >= dca_interval:
+                        # 執行買進
+                        target_invest_amt = curr_total_equity * (dca_pct / 100.0)
+                        actual_invest_amt = min(cash, target_invest_amt)
+                        
+                        if actual_invest_amt > 0:
+                            shares += actual_invest_amt / price
+                            cash -= actual_invest_amt
+                            daily_signal = 2 # 標記 DCA 買入
+                            dca_wait_counter = 0
 
-        # 3. 結算今日資產 (交易後)
+        # 3. 結算
         final_equity = cash + (shares * price)
         equity_curve[i] = final_equity
         executed_signals[i] = daily_signal
         
-        # 計算實際持倉比例 (供圖表用)
         if final_equity > 0:
             positions_pct[i] = (shares * price) / final_equity
         else:
@@ -342,15 +316,13 @@ if st.button("開始回測 🚀", type="primary"):
     df["Equity_LRS"] = equity_curve
     df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
 
-    # 計算 Buy & Hold Equity (對照組)
+    # 計算 Buy & Hold Equity
     df["Equity_BH_Lev"] = (1 + df["Return_lev"]).cumprod() * capital
-
-    # 計算百分比回報 (用於畫圖)
     df["Pct_Lev"] = (df["Equity_BH_Lev"] / capital) - 1
     df["Pct_LRS"] = (df["Equity_LRS"] / capital) - 1
 
     # 篩選訊號點位
-    buys = df[df["Signal"] == 1]       # 黃金交叉全倉
+    # 注意：這裡不再有 Signal=1 (全倉買進)，只有 Signal=2 (DCA) 和 Signal=-1 (清倉)
     sells = df[df["Signal"] == -1]     # 死亡交叉清倉
     dca_buys = df[df["Signal"] == 2]   # DCA 加碼點
 
@@ -382,10 +354,9 @@ if st.button("開始回測 🚀", type="primary"):
     trade_count_lrs = int((df["Signal"] != 0).sum())
 
     ###############################################################
-    # 圖表 + KPI + 表格
+    # 圖表
     ###############################################################
 
-    # --- 價格與 SMA 圖表 ---
     st.markdown("<h3>📌 策略訊號與執行價格</h3>", unsafe_allow_html=True)
 
     fig_price = go.Figure()
@@ -404,16 +375,7 @@ if st.button("開始回測 🚀", type="primary"):
         hovertemplate=f"<b>{sma_window}SMA</b><br>價格: %{{y:,.2f}} 元<extra></extra>"
     ))
 
-    # 3. [標記] 買進點 (Full Buy)
-    if not buys.empty:
-        buy_hover = [f"<b>▲ 黃金交叉 (全倉)</b><br>{d.strftime('%Y-%m-%d')}<br>成交: {p:.2f}" for d, p in zip(buys.index, buys["Price_lev"])]
-        fig_price.add_trace(go.Scatter(
-            x=buys.index, y=buys["Price_lev"], mode="markers", name="全倉買進", 
-            marker=dict(color="#00C853", size=12, symbol="triangle-up", line=dict(width=1, color="white")),
-            hoverinfo="text", hovertext=buy_hover
-        ))
-
-    # 4. [標記] 賣出點 (Full Sell)
+    # 3. [標記] 賣出點 (Full Sell)
     if not sells.empty:
         sell_hover = [f"<b>▼ 死亡交叉 (清倉)</b><br>{d.strftime('%Y-%m-%d')}<br>成交: {p:.2f}" for d, p in zip(sells.index, sells["Price_lev"])]
         fig_price.add_trace(go.Scatter(
@@ -422,7 +384,7 @@ if st.button("開始回測 🚀", type="primary"):
             hoverinfo="text", hovertext=sell_hover
         ))
 
-    # 5. [標記] DCA 買進點
+    # 4. [標記] DCA 買進點
     if not dca_buys.empty:
         dca_hover = [f"<b>● DCA 加碼 ({dca_pct}%)</b><br>{d.strftime('%Y-%m-%d')}<br>成交: {p:.2f}" for d, p in zip(dca_buys.index, dca_buys["Price_lev"])]
         fig_price.add_trace(go.Scatter(
@@ -449,7 +411,7 @@ if st.button("開始回測 🚀", type="primary"):
     with tab_equity:
         fig_equity = go.Figure()
         fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name=f"{lev_label} BH"))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="LRS+DCA"))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="防禦型 DCA (不追高)"))
         fig_equity.update_layout(
             template="plotly_white", 
             height=420, 
@@ -464,7 +426,7 @@ if st.button("開始回測 🚀", type="primary"):
         dd_lrs = (df["Equity_LRS"] / df["Equity_LRS"].cummax() - 1) * 100
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lev, name=f"{lev_label} BH"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lrs, name="LRS+DCA", fill="tozeroy"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lrs, name="防禦型 DCA", fill="tozeroy"))
         fig_dd.update_layout(
             template="plotly_white", 
             height=420,
@@ -478,7 +440,7 @@ if st.button("開始回測 🚀", type="primary"):
         radar_lev  = [nz(cagr_lev),  nz(sharpe_lev),  nz(sortino_lev),  nz(-mdd_lev),  nz(-vol_lev)]
 
         fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(r=radar_lrs, theta=radar_categories, fill='toself', name='LRS+DCA', line=dict(color='#636EFA', width=3), fillcolor='rgba(99, 110, 250, 0.2)'))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_lrs, theta=radar_categories, fill='toself', name='防禦型 DCA', line=dict(color='#636EFA', width=3), fillcolor='rgba(99, 110, 250, 0.2)'))
         fig_radar.add_trace(go.Scatterpolar(r=radar_lev, theta=radar_categories, fill='toself', name=f'{lev_label} BH', line=dict(color='#EF553B', width=2), fillcolor='rgba(239, 85, 59, 0.15)'))
         
         fig_radar.update_layout(height=480, paper_bgcolor='rgba(0,0,0,0)', polar=dict(radialaxis=dict(visible=True, showticklabels=True, ticks='')))
@@ -487,7 +449,7 @@ if st.button("開始回測 🚀", type="primary"):
     with tab_hist:
         fig_hist = go.Figure()
         fig_hist.add_trace(go.Histogram(x=df["Return_lev"] * 100, name=f"{lev_label} BH", opacity=0.6))
-        fig_hist.add_trace(go.Histogram(x=df["Return_LRS"] * 100, name="LRS+DCA", opacity=0.7))
+        fig_hist.add_trace(go.Histogram(x=df["Return_LRS"] * 100, name="防禦型 DCA", opacity=0.7))
         fig_hist.update_layout(barmode="overlay", template="plotly_white", height=480, legend=dict(orientation="h", y=1.02, x=0, xanchor="left"))
 
         st.plotly_chart(fig_hist, use_container_width=True)
@@ -520,7 +482,7 @@ if st.button("開始回測 🚀", type="primary"):
     metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
     
     data_dict = {
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>LRS+DCA</span>": {
+        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>防禦型 DCA</span>": {
             "期末資產": capital_lrs_final,
             "總報酬率": final_ret_lrs,
             "CAGR (年化)": cagr_lrs,
