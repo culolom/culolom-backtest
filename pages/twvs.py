@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — LevLRS + DCA (修正版：現金+股數帳戶制 + 圖例左上)
+# app.py — LevLRS + DCA (200SMA 清空 + 定期定額版)
 ###############################################################
 
 import os
@@ -34,13 +34,13 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="LRS 回測系統 (帳戶制精確版)",
-    page_icon="📈",
+    page_title="LRS + DCA 混合策略 (帳戶制)",
+    page_icon="📉",
     layout="wide",
 )
 
 # ------------------------------------------------------
-# 🔒 驗證守門員
+# 🔒 驗證守門員 (若無 auth 模組可註解掉)
 # ------------------------------------------------------
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -61,18 +61,17 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>📊 槓桿 ETF 動態均線策略 (帳戶制精確版)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>📊 槓桿 ETF 動態均線 + DCA 策略</h1>",
     unsafe_allow_html=True,
 )
 
-st.markdown(
+st.info(
     """
-<b>本工具比較兩種策略：</b><br>
-1️⃣ 槓桿 ETF Buy & Hold（00631L / 00663L / 00675L / 00685L）<br>
-2️⃣ <b>LRS + DCA 混合策略</b>：訊號<b>直接來自該 ETF 的 SMA 均線</b>。<br>
-   &nbsp;&nbsp;&nbsp;&nbsp;採用<b>現金+股數</b>嚴謹計算，跌破均線後持有現金，DCA 僅投入部分資金，回撤計算更準確。
-""",
-    unsafe_allow_html=True,
+    **策略邏輯：**
+    1. **跌破 200SMA (或指定均線)**：立刻清空所有持股 (轉為現金)。
+    2. **均線下方 (空頭)**：啟動 DCA 定期定額，每隔 N 天買入資金的 X%，直到現金用完或趨勢反轉。
+    3. **站上 200SMA (多頭)**：立刻將剩餘現金全數投入，恢復滿倉持有。
+    """
 )
 
 ###############################################################
@@ -126,44 +125,24 @@ def calc_metrics(series: pd.Series):
     sortino = (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
     return vol, sharpe, sortino
 
-
 def fmt_money(v):
     try: return f"{v:,.0f} 元"
     except: return "—"
-
 
 def fmt_pct(v, d=2):
     try: return f"{v:.{d}%}"
     except: return "—"
 
-
 def fmt_num(v, d=2):
     try: return f"{v:.{d}f}"
     except: return "—"
-
 
 def fmt_int(v):
     try: return f"{int(v):,}"
     except: return "—"
 
-
 def nz(x, default=0.0):
     return float(np.nan_to_num(x, nan=default))
-
-
-def format_currency(v):
-    try: return f"{v:,.0f} 元"
-    except: return "—"
-
-
-def format_percent(v, d=2):
-    try: return f"{v*100:.{d}f}%"
-    except: return "—"
-
-
-def format_number(v, d=2):
-    try: return f"{v:.{d}f}"
-    except: return "—"
 
 ###############################################################
 # UI 輸入
@@ -173,7 +152,7 @@ lev_label = st.selectbox("選擇回測標的", list(LEV_ETFS.keys()))
 lev_symbol = LEV_ETFS[lev_label]
 
 s_min, s_max = get_full_range_from_csv(lev_symbol)
-st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
+st.write(f"<small style='opacity:0.7'>資料區間：{s_min} ~ {s_max}</small>", unsafe_allow_html=True)
 
 # 基本參數
 col3, col4, col5, col6 = st.columns(4)
@@ -186,8 +165,9 @@ with col3:
 with col4:
     end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
 with col5:
-    capital = st.number_input("投入本金（元）", 1000, 5_000_000, 100_000, step=10_000)
+    capital = st.number_input("投入本金（元）", 1000, 50_000_000, 1_000_000, step=10_000)
 with col6:
+    # 預設改為 200 SMA
     sma_window = st.number_input("均線週期 (SMA)", min_value=10, max_value=240, value=200, step=10)
 
 # --- 策略進階設定 ---
@@ -204,9 +184,10 @@ position_mode = st.radio(
 with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=True):
     col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
     with col_dca1:
-        enable_dca = st.toggle("啟用 DCA定期定額", value=False, help="開啟後，當賣出訊號出現，會分批買回。")
+        # 預設開啟 DCA
+        enable_dca = st.toggle("啟用 DCA定期定額", value=True, help="開啟後，當跌破均線賣出後，會分批買回。")
     with col_dca2:
-        dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=3, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
+        dca_interval = st.number_input("買進間隔天數 (日)", min_value=1, max_value=60, value=10, disabled=not enable_dca, help="賣出後每隔幾天買進一次")
     with col_dca3:
         dca_pct = st.number_input("每次買進資金比例 (%)", min_value=1, max_value=100, value=10, step=5, disabled=not enable_dca, help="以當時總資產的多少百分比金額買進")
 
@@ -215,11 +196,11 @@ with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=T
 # 主程式開始
 ###############################################################
 
-if st.button("開始回測 🚀"):
+if st.button("開始回測 🚀", type="primary"):
 
     start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60)
 
-    with st.spinner("讀取 CSV 中…"):
+    with st.spinner("讀取 CSV 並計算策略中…"):
         df_lev_raw = load_csv(lev_symbol)
 
     if df_lev_raw.empty:
@@ -248,7 +229,7 @@ if st.button("開始回測 🚀"):
     ###############################################################
 
     # 1. 初始化容器
-    executed_signals = [0] * len(df) # 記錄訊號
+    executed_signals = [0] * len(df) # 記錄訊號: 1=Full Buy, -1=Full Sell, 2=DCA Buy
     positions_pct = [0.0] * len(df)  # 記錄"市值佔比"供繪圖用
     equity_curve = [0.0] * len(df)   # 記錄每日總淨值
 
@@ -258,7 +239,6 @@ if st.button("開始回測 🚀"):
     
     # 根據設定決定初始狀態
     first_price = df["Price_lev"].iloc[0]
-    first_ma = df["MA_Signal"].iloc[0]
     
     can_buy_permission = False
     
@@ -271,7 +251,7 @@ if st.button("開始回測 🚀"):
     else:
         # 空手起跑
         positions_pct[0] = 0.0
-        can_buy_permission = False # 需等待跌破後才能解鎖
+        can_buy_permission = False 
 
     equity_curve[0] = cash + (shares * first_price)
     
@@ -279,7 +259,7 @@ if st.button("開始回測 🚀"):
 
     # 3. 逐日遍歷 (Event-driven Loop)
     for i in range(1, len(df)):
-        # 今日價格數據
+        # 今日數據
         price = df["Price_lev"].iloc[i]
         ma = df["MA_Signal"].iloc[i]
         
@@ -288,24 +268,24 @@ if st.button("開始回測 🚀"):
         prev_ma = df["MA_Signal"].iloc[i-1]
 
         # 1. 計算當前總資產 (Mark to Market)
-        # 這是"交易前"的資產價值，DCA 金額會基於此計算
         curr_total_equity = cash + (shares * price)
         
         # 2. 判斷訊號
         is_above_sma = price > ma
         daily_signal = 0
 
-        # === 狀況 1: 價格在均線上 ===
+        # === 狀況 1: 價格在均線上 (多頭) ===
         if is_above_sma:
             if can_buy_permission:
-                # 應該全倉，檢查是否有現金
-                if cash > 100: # 留一點緩衝，大於100元才買
+                # 策略：多頭時保持滿倉。
+                # 如果手上有現金 (可能來自剛開始或 DCA 剩餘)，全部買進
+                if cash > 100: 
                     shares += cash / price
                     cash = 0.0
-                    daily_signal = 1 if prev_price <= prev_ma else 0 # 剛突破標記
+                    # 如果昨天還在均線下，代表今天是黃金交叉突破日
+                    daily_signal = 1 if prev_price <= prev_ma else 0 
             else:
-                # 無權限，強制空手
-                # 理論上若空手起跑，這裡應該 shares=0，確保乾淨
+                # 無權限 (例如空手起跑模式尚未進場)，持續空手直到下一次黃金交叉
                 if shares > 0:
                     cash += shares * price
                     shares = 0.0
@@ -313,19 +293,19 @@ if st.button("開始回測 🚀"):
             
             dca_wait_counter = 0
 
-        # === 狀況 2: 價格在均線下 ===
+        # === 狀況 2: 價格在均線下 (空頭) ===
         else:
-            can_buy_permission = True # 解鎖買入權限
+            can_buy_permission = True # 解鎖買入權限 (允許之後的操作)
             
             # 2-1. 剛跌破 (死亡交叉) -> 清倉
             if prev_price > prev_ma:
                 if shares > 0:
                     cash += shares * price
                     shares = 0.0
-                daily_signal = -1
-                dca_wait_counter = 0
+                daily_signal = -1 # 標記賣出
+                dca_wait_counter = 0 # 重置 DCA 計數器
             
-            # 2-2. 持續在均線下 -> 檢查 DCA
+            # 2-2. 持續在均線下 -> 檢查是否執行 DCA
             else:
                 if enable_dca:
                     # 只有當還有現金時才 DCA
@@ -342,7 +322,7 @@ if st.button("開始回測 🚀"):
                             if actual_invest_amt > 0:
                                 shares += actual_invest_amt / price
                                 cash -= actual_invest_amt
-                                daily_signal = 2
+                                daily_signal = 2 # 標記 DCA 買入
                                 dca_wait_counter = 0
 
         # 3. 結算今日資產 (交易後)
@@ -358,11 +338,11 @@ if st.button("開始回測 🚀"):
 
     # 4. 寫回 DataFrame
     df["Signal"] = executed_signals
-    df["Position"] = positions_pct # 這是真實的市值佔比
+    df["Position"] = positions_pct
     df["Equity_LRS"] = equity_curve
     df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
 
-    # 計算 Buy & Hold Equity
+    # 計算 Buy & Hold Equity (對照組)
     df["Equity_BH_Lev"] = (1 + df["Return_lev"]).cumprod() * capital
 
     # 計算百分比回報 (用於畫圖)
@@ -454,14 +434,14 @@ if st.button("開始回測 🚀"):
     fig_price.update_layout(
         template="plotly_white", height=450, hovermode="x unified",
         yaxis=dict(title=f"{lev_label} 價格", showgrid=True, zeroline=False),
-        legend=dict(orientation="h", y=1.02, x=0, xanchor="left"), # 修改這裡：圖例靠左上
+        legend=dict(orientation="h", y=1.02, x=0, xanchor="left"),
         margin=dict(l=10, r=10, t=30, b=10)
     )
     st.plotly_chart(fig_price, use_container_width=True)
 
-    ###############################################################
+    # ###############################################################
     # Tabs
-    ###############################################################
+    # ###############################################################
 
     st.markdown("<h3>📊 資金曲線與風險解析</h3>", unsafe_allow_html=True)
     tab_equity, tab_dd, tab_radar, tab_hist = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈"])
@@ -474,12 +454,12 @@ if st.button("開始回測 🚀"):
             template="plotly_white", 
             height=420, 
             yaxis=dict(tickformat=".0%"),
-            legend=dict(orientation="h", y=1.02, x=0, xanchor="left") # 修改這裡：圖例靠左上
+            legend=dict(orientation="h", y=1.02, x=0, xanchor="left")
         )
         st.plotly_chart(fig_equity, use_container_width=True)
 
     with tab_dd:
-        # DD 計算： (當前淨值 / 歷史最高淨值) - 1
+        # DD 計算
         dd_lev = (df["Equity_BH_Lev"] / df["Equity_BH_Lev"].cummax() - 1) * 100
         dd_lrs = (df["Equity_LRS"] / df["Equity_LRS"].cummax() - 1) * 100
         fig_dd = go.Figure()
@@ -488,7 +468,7 @@ if st.button("開始回測 🚀"):
         fig_dd.update_layout(
             template="plotly_white", 
             height=420,
-            legend=dict(orientation="h", y=1.02, x=0, xanchor="left") # 修改這裡：圖例靠左上
+            legend=dict(orientation="h", y=1.02, x=0, xanchor="left")
         )
         st.plotly_chart(fig_dd, use_container_width=True)
 
@@ -512,9 +492,9 @@ if st.button("開始回測 🚀"):
 
         st.plotly_chart(fig_hist, use_container_width=True)
 
-    ###############################################################
+    # ###############################################################
     # KPI Summary & Table
-    ###############################################################
+    # ###############################################################
     
     asset_gap_lrs_vs_lev = ((capital_lrs_final / capital_lev_final) - 1) * 100
     cagr_gap_lrs_vs_lev = (cagr_lrs - cagr_lev) * 100
