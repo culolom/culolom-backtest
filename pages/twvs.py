@@ -378,9 +378,6 @@ if st.button("開始回測 🚀"):
 
     st.markdown("<h3>📌 策略訊號與布林通道 (原型ETF)</h3>", unsafe_allow_html=True)
     
-
-[Image of Bollinger Bands trading strategy]
-
     fig_price = go.Figure()
 
     # 1. 原型價格
