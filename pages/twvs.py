@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 正2 策略 (SMA 斜率 + 布林通道 雙重邏輯版)
+# app.py — 0050LRS + 布林通道調節策略 (Bollinger Dynamic Position)
 ###############################################################
 
 import os
@@ -13,19 +13,33 @@ import plotly.graph_objects as go
 from pathlib import Path
 import sys
 
-# ... (字型設定與 Page Config 保持不變，省略以節省篇幅) ...
-# ... (請保留原本的字型設定程式碼) ...
+###############################################################
+# 字型設定
+###############################################################
+
+font_path = "./NotoSansTC-Bold.ttf"
+if os.path.exists(font_path):
+    fm.fontManager.addfont(font_path)
+    matplotlib.rcParams["font.family"] = "Noto Sans TC"
+else:
+    matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
+matplotlib.rcParams["axes.unicode_minus"] = False
+
+###############################################################
+# Streamlit 頁面設定
+###############################################################
 
 st.set_page_config(
-    page_title="正2 智能濾網回測",
-    page_icon="🧠",
+    page_title="LRS + 布林通道動態策略",
+    page_icon="📈",
     layout="wide",
 )
 
 # ------------------------------------------------------
-# 🔒 驗證守門員 (保持不變)
+# 🔒 驗證守門員
 # ------------------------------------------------------
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 try:
     import auth 
     if not auth.check_password():
@@ -33,47 +47,78 @@ try:
 except ImportError:
     pass 
 
-# ... (Sidebar 保持不變) ...
+# ------------------------------------------------------
+with st.sidebar:
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>🧠 槓桿 ETF 智能濾網 (斜率 + 布林)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 布林動態調節策略</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-<b>解決「盤整被洗、崩盤要跑」的矛盾：</b><br>
-此策略引入 <b>SMA 斜率</b> 來判斷當下是「多頭回檔」還是「空頭破底」。<br>
-1️⃣ <b>SMA 向上 (多頭)</b>：跌破布林下軌視為「回檔買點」，<b>堅持續抱</b> (不賣)。<br>
-2️⃣ <b>SMA 下彎 (空頭)</b>：跌破布林下軌視為「崩盤開始」，<b>清倉停損</b>。<br>
+<b>策略邏輯 (優先級由高至低)：</b><br>
+1️⃣ <b>停損</b>：跌破 200SMA (含緩衝區) ⮕ <span style='color:#FF5252'><b>清空持倉 (0%)</b></span>。<br>
+2️⃣ <b>進場</b>：漲破 200SMA ⮕ <span style='color:#4CAF50'><b>All In (100%)</b></span>。<br>
+3️⃣ <b>高出</b>：收盤 > 布林上軌 (2σ) ⮕ <span style='color:#FFA726'><b>賣出特定比例</b></span> (需間隔 N 天)。<br>
+4️⃣ <b>低進</b>：收盤 < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進特定比例</b></span> (需間隔 N 天)。<br>
 """,
     unsafe_allow_html=True,
 )
 
-# ... (ETF 清單與 load_csv 函式保持不變) ...
-# ... (請保留原本的 load_csv, get_full_range_from_csv, calc_metrics 等工具函式) ...
+###############################################################
+# ETF 名稱清單
+###############################################################
+
+BASE_ETFS = {
+    "0050 元大台灣50": "0050.TW",
+    "006208 富邦台50": "006208.TW",
+}
+
 LEV_ETFS = {
     "00631L 元大台灣50正2": "00631L.TW",
     "00663L 國泰台灣加權正2": "00663L.TW",
     "00675L 富邦台灣加權正2": "00675L.TW",
     "00685L 群益台灣加權正2": "00685L.TW",
 }
+
 DATA_DIR = Path("data")
+
+###############################################################
+# 讀取 CSV
+###############################################################
 
 def load_csv(symbol: str) -> pd.DataFrame:
     path = DATA_DIR / f"{symbol}.csv"
     if not path.exists():
         return pd.DataFrame()
+
     df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
     df = df.sort_index()
     df["Price"] = df["Close"]
     return df[["Price"]]
 
-def get_full_range_from_csv(symbol: str):
-    df = load_csv(symbol)
-    if df.empty:
+
+def get_full_range_from_csv(base_symbol: str, lev_symbol: str):
+    df1 = load_csv(base_symbol)
+    df2 = load_csv(lev_symbol)
+
+    if df1.empty or df2.empty:
         return dt.date(2012, 1, 1), dt.date.today()
-    return df.index.min().date(), df.index.max().date()
+
+    start = max(df1.index.min().date(), df2.index.min().date())
+    end = min(df1.index.max().date(), df2.index.max().date())
+    return start, end
+
+###############################################################
+# 工具函式
+###############################################################
 
 def calc_metrics(series: pd.Series):
     daily = series.dropna()
@@ -106,217 +151,404 @@ def fmt_int(v):
 def nz(x, default=0.0):
     return float(np.nan_to_num(x, nan=default))
 
-# ------------------------------------------------------
+###############################################################
 # UI 輸入
-# ------------------------------------------------------
+###############################################################
 
-col_sel, col_info = st.columns([1, 2])
-with col_sel:
-    lev_label = st.selectbox("選擇交易標的", list(LEV_ETFS.keys()))
+col1, col2 = st.columns(2)
+with col1:
+    base_label = st.selectbox("原型 ETF（訊號來源）", list(BASE_ETFS.keys()))
+    base_symbol = BASE_ETFS[base_label]
+with col2:
+    lev_label = st.selectbox("槓桿 ETF（實際進出場標的）", list(LEV_ETFS.keys()))
     lev_symbol = LEV_ETFS[lev_label]
 
-s_min, s_max = get_full_range_from_csv(lev_symbol)
-with col_info:
-    st.info(f"📌 資料區間：{s_min} ~ {s_max}")
+s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
+st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
+# 基本參數
 col3, col4, col5, col6 = st.columns(4)
 with col3:
     start = st.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5 * 365)), min_value=s_min, max_value=s_max)
 with col4:
     end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
 with col5:
-    capital = st.number_input("投入本金", 1000, 5_000_000, 100_000, step=10_000)
+    capital = st.number_input("投入本金（元）", 1000, 5_000_000, 100_000, step=10_000)
 with col6:
-    sma_window = st.number_input("SMA 週期", 10, 240, 200, 10)
+    sma_window = st.number_input("均線週期 (SMA)", min_value=10, max_value=240, value=200, step=10)
 
+# --- 策略進階設定 ---
 st.write("---")
-st.write("### ⚙️ 智能濾網設定")
+st.write("### ⚙️ 策略參數設定")
 
-col_bb, col_slope = st.columns(2)
+col_bb1, col_bb2 = st.columns(2)
 
-with col_bb:
-    st.markdown("#### 1. 布林通道 (停損/支撐參考)")
-    bb_std = st.number_input("布林通道標準差 (Std)", 1.0, 4.0, 2.0, 0.1)
+with col_bb1:
+    st.markdown("#### 🌊 布林通道與緩衝")
+    bb_std_dev = st.number_input("布林通道倍數 (σ)", min_value=1.0, max_value=4.0, value=2.0, step=0.1, help="設定通道寬度，通常為 2.0")
+    sma_buffer_pct = st.number_input("200SMA 停損緩衝 (%)", min_value=0.0, max_value=10.0, value=1.0, step=0.5, help="跌破 SMA 多少% 才清空，避免盤整洗刷")
+    
+with col_bb2:
+    st.markdown("#### ⚖️ 加減碼規則")
+    action_pct = st.number_input("單次加/減碼比例 (%)", min_value=5, max_value=50, value=10, step=5, help="觸及通道時，每次調整多少倉位")
+    action_interval = st.number_input("加減碼間隔天數 (日)", min_value=1, max_value=30, value=3, help="防止連續觸及通道導致過度頻繁交易")
 
-with col_slope:
-    st.markdown("#### 2. SMA 斜率 (趨勢過濾)")
-    slope_days = st.number_input("斜率計算天數", 1, 20, 5, help="比較今天與 N 天前的 SMA 值來決定斜率正負。")
-    use_slope_filter = st.toggle("啟用「斜率保護」", value=True, help="開啟後：若 SMA 斜率向上，即使跌破下軌也不賣出 (視為回檔)。")
-
-with st.expander("📉 DCA 加碼設定"):
-    col_dca1, col_dca2 = st.columns(2)
-    with col_dca1:
-        enable_dca = st.toggle("啟用 DCA", value=False)
-    with col_dca2:
-        dca_interval = st.number_input("間隔天數", 1, 60, 3)
-        dca_pct = st.number_input("加碼比例 %", 1, 100, 10)
-
-# ------------------------------------------------------
-# 主程式
-# ------------------------------------------------------
+###############################################################
+# 主程式開始
+###############################################################
 
 if st.button("開始回測 🚀"):
-    start_early = start - dt.timedelta(days=sma_window * 2) 
 
-    df_raw = load_csv(lev_symbol)
-    if df_raw.empty:
-        st.error("Data not found.")
+    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60) 
+
+    with st.spinner("讀取 CSV 中…"):
+        df_base_raw = load_csv(base_symbol)
+        df_lev_raw = load_csv(lev_symbol)
+
+    if df_base_raw.empty or df_lev_raw.empty:
+        st.error("⚠️ CSV 資料讀取失敗，請確認 data/*.csv 是否存在")
         st.stop()
-        
-    df = df_raw.loc[start_early:end].copy()
-    df["Price"] = df["Price"]
+
+    df_base_raw = df_base_raw.loc[start_early:end]
+    df_lev_raw = df_lev_raw.loc[start_early:end]
+
+    df = pd.DataFrame(index=df_base_raw.index)
+    df["Price_base"] = df_base_raw["Price"]
+    df = df.join(df_lev_raw["Price"].rename("Price_lev"), how="inner")
+    df = df.sort_index()
+
+    # 1. 計算技術指標
+    df["MA_Signal"] = df["Price_base"].rolling(sma_window).mean()
+    df["Std_Dev"] = df["Price_base"].rolling(sma_window).std()
     
-    # 1. 計算 SMA & 斜率
-    df["MA"] = df["Price"].rolling(sma_window).mean()
-    # 斜率：比較 (今天MA - N天前MA)
-    df["MA_Slope_Val"] = df["MA"].diff(slope_days)
-    df["Is_Trend_Up"] = df["MA_Slope_Val"] > 0
+    # 布林通道
+    df["BB_Upper"] = df["MA_Signal"] + (bb_std_dev * df["Std_Dev"])
+    df["BB_Lower"] = df["MA_Signal"] - (bb_std_dev * df["Std_Dev"])
     
-    # 2. 計算布林通道
-    df["Std"] = df["Price"].rolling(sma_window).std()
-    df["BB_Upper"] = df["MA"] + (bb_std * df["Std"])
-    df["BB_Lower"] = df["MA"] - (bb_std * df["Std"])
-    
-    df = df.dropna()
+    # 停損緩衝線
+    df["Stop_Line"] = df["MA_Signal"] * (1 - sma_buffer_pct / 100.0)
+
+    df = df.dropna(subset=["MA_Signal", "BB_Upper"])
+
     df = df.loc[start:end]
-    
     if df.empty:
-        st.error("區間無資料")
+        st.error("⚠️ 有效回測區間不足")
         st.stop()
-        
-    df["Return"] = df["Price"].pct_change().fillna(0)
 
-    # 策略邏輯
-    executed_signals = [0] * len(df)
-    positions = [0.0] * len(df)
-    current_pos = 1.0 # 預設滿倉開始 (方便觀察中途變化)
-    can_buy = True
-    dca_counter = 0
+    df["Return_base"] = df["Price_base"].pct_change().fillna(0)
+    df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
+
+    # ###############################################################
+    # 核心交易邏輯
+    # ###############################################################
+
+    executed_signals = [0] * len(df)  # 記錄訊號 (1=All in, -1=Clear, 2=Buy_BB, -2=Sell_BB)
+    positions = [0.0] * len(df)       # 記錄持倉比例
     
+    # 初始狀態
+    current_pos = 0.0 # 預設空手，等待訊號
+    days_since_action = 999 # 用來計算間隔天數
+
+    # 如果第一天價格就在均線上，給予初始倉位 (視為已進場)
+    if df["Price_base"].iloc[0] > df["MA_Signal"].iloc[0]:
+        current_pos = 1.0
+
     positions[0] = current_pos
 
     for i in range(1, len(df)):
-        p = df["Price"].iloc[i]
-        ma = df["MA"].iloc[i]
-        bb_lower = df["BB_Lower"].iloc[i]
-        is_trend_up = df["Is_Trend_Up"].iloc[i]
+        price = df["Price_base"].iloc[i]
+        prev_price = df["Price_base"].iloc[i-1]
         
-        # 狀態
-        is_above_ma = p > ma
-        is_below_bb = p < bb_lower
+        sma = df["MA_Signal"].iloc[i]
+        prev_sma = df["MA_Signal"].iloc[i-1]
         
-        daily_signal = 0
-        
-        # 1. 買進條件：站上 MA
-        if is_above_ma:
-            if current_pos < 1.0: # 如果之前是空手或減碼
-                if can_buy:
-                    current_pos = 1.0
-                    daily_signal = 1
-            else:
-                # 已經滿倉，保持 1.0
-                pass
-            dca_counter = 0
-        
-        # 2. 賣出檢核：跌破布林下軌
-        elif is_below_bb:
-            can_buy = True # 只要跌破過，下次站上就可以買
-            
-            # 關鍵邏輯：要不要賣？看斜率！
-            should_sell = True
-            
-            if use_slope_filter and is_trend_up:
-                # 如果開啟濾網，且趨勢向上 -> 這是回檔，不賣！
-                should_sell = False
-            
-            if should_sell:
-                # 真的要賣 (空頭破底)
-                if current_pos > 0:
-                    current_pos = 0.0
-                    daily_signal = -1
-                    dca_counter = 0
-            else:
-                # 這是假跌破 (回檔)，續抱 (甚至可以 DCA)
-                # 這裡簡單處理：維持原倉位，但如果原本就不是滿倉(例如之前被洗出去)，可以觸發 DCA
-                if enable_dca and current_pos < 1.0:
-                    dca_counter += 1
-                    if dca_counter >= dca_interval:
-                        current_pos += (dca_pct / 100.0)
-                        if current_pos > 1.0: current_pos = 1.0
-                        daily_signal = 2
-                        dca_counter = 0
-                pass 
+        upper = df["BB_Upper"].iloc[i]
+        lower = df["BB_Lower"].iloc[i]
+        stop_line = df["Stop_Line"].iloc[i]
 
-        # 3. 灰色地帶 (SMA ~ BB Lower 之間)
-        else:
-             # 維持現狀
-            if current_pos >= 1.0:
-                pass
+        signal_code = 0
+        days_since_action += 1
+
+        # --- 規則 2 & 5: 停損 (優先級最高) ---
+        # 跌破 200SMA 緩衝區 -> 清空
+        if price < stop_line:
+            if current_pos > 0:
+                current_pos = 0.0
+                signal_code = -1 # Clear
+                days_since_action = 0 # 重置計數
             else:
-                # 續抱空手 或 繼續 DCA
-                if enable_dca:
-                    dca_counter += 1
-                    if dca_counter >= dca_interval:
-                        current_pos += (dca_pct / 100.0)
-                        if current_pos > 1.0: current_pos = 1.0
-                        daily_signal = 2
-                        dca_counter = 0
-                        
-        executed_signals[i] = daily_signal
-        positions[i] = round(current_pos, 4)
+                current_pos = 0.0 # 保持空手
+
+        # --- 規則 4: 漲破 200SMA All in ---
+        # 剛站上 SMA (這裡用標準SMA，不看緩衝，確保訊號靈敏)
+        elif price > sma and prev_price <= prev_sma:
+            current_pos = 1.0
+            signal_code = 1 # All In
+            days_since_action = 0
+
+        # --- 規則 1 & 3: 布林通道調節 (僅在持倉狀態下運作) ---
+        elif current_pos > 0:
+            
+            # 規則 1: 價格 > 2σ (超漲) -> 賣出特定比例
+            if price > upper:
+                if days_since_action >= action_interval:
+                    current_pos -= (action_pct / 100.0)
+                    if current_pos < 0.0: current_pos = 0.0
+                    signal_code = -2 # Sell on Strength
+                    days_since_action = 0
+            
+            # 規則 3: 價格 < -2σ (超跌) -> 買進特定比例
+            # 注意：這裡隱含前提是 Price > Stop_Line (因為如果 < Stop_Line 會先被規則 2 清空)
+            elif price < lower:
+                if days_since_action >= action_interval:
+                    current_pos += (action_pct / 100.0)
+                    if current_pos > 1.0: current_pos = 1.0
+                    signal_code = 2 # Buy on Weakness
+                    days_since_action = 0
         
+        positions[i] = round(current_pos, 4)
+        executed_signals[i] = signal_code
+
     df["Signal"] = executed_signals
     df["Position"] = positions
-    
-    # 計算淨值
-    equity = [1.0]
-    for i in range(1, len(df)):
-        ret = df["Return"].iloc[i]
-        pos = df["Position"].iloc[i-1]
-        equity.append(equity[-1] * (1 + ret * pos))
-    
-    df["Equity_LRS"] = equity
-    df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
-    df["Equity_BH"] = (1 + df["Return"]).cumprod()
-    
-    # 準備繪圖資料
-    buys = df[df["Signal"] == 1]
-    sells = df[df["Signal"] == -1]
-    
-    # --- 繪圖 ---
-    st.markdown("### 📈 策略執行圖 (斜率濾網生效中)")
-    fig = go.Figure()
-    
-    # 價格 & MA
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name=lev_label, line=dict(color='#00CC96', width=2)))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window} SMA", line=dict(color='#FFA15A', width=1.5)))
-    
-    # 布林通道 (灰色區域)
-    fig.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], line=dict(width=0), showlegend=False, hoverinfo='skip'))
-    fig.add_trace(go.Scatter(x=df.index, y=df["BB_Lower"], name="布林通道", fill='tonexty', 
-                             fillcolor='rgba(128,128,128,0.15)', line=dict(color='rgba(128,128,128,0.5)', dash='dot')))
-    
-    # 買賣點
-    fig.add_trace(go.Scatter(x=buys.index, y=buys["Price"], mode='markers', name='買進/回補', marker=dict(symbol='triangle-up', size=12, color='#00C853')))
-    fig.add_trace(go.Scatter(x=sells.index, y=sells["Price"], mode='markers', name='停損/清倉', marker=dict(symbol='triangle-down', size=12, color='#D50000')))
 
-    fig.update_layout(height=500, template="plotly_white", hovermode="x unified", legend=dict(orientation="h", y=1.02))
-    st.plotly_chart(fig, use_container_width=True)
+    # ###############################################################
+    # 資金曲線計算
+    # ###############################################################
+
+    equity_lrs = [1.0]
     
+    for i in range(1, len(df)):
+        pos_weight = df["Position"].iloc[i-1]
+        lev_ret = df["Return_lev"].iloc[i]
+        new_equity = equity_lrs[-1] * (1 + (lev_ret * pos_weight))
+        equity_lrs.append(new_equity)
+
+    df["Equity_LRS"] = equity_lrs
+    df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
+
+    df["Equity_BH_Base"] = (1 + df["Return_base"]).cumprod()
+    df["Equity_BH_Lev"] = (1 + df["Return_lev"]).cumprod()
+
+    df["Pct_Base"] = df["Equity_BH_Base"] - 1
+    df["Pct_Lev"] = df["Equity_BH_Lev"] - 1
+    df["Pct_LRS"] = df["Equity_LRS"] - 1
+
+    # 篩選訊號點位
+    sig_all_in = df[df["Signal"] == 1]
+    sig_clear  = df[df["Signal"] == -1]
+    sig_buy_bb = df[df["Signal"] == 2]
+    sig_sell_bb = df[df["Signal"] == -2]
+
+    # ###############################################################
+    # 指標計算
+    # ###############################################################
+
+    years_len = (df.index[-1] - df.index[0]).days / 365
+
+    def calc_core(eq, rets):
+        final_eq = eq.iloc[-1]
+        final_ret = final_eq - 1
+        cagr = (1 + final_ret)**(1/years_len) - 1 if years_len > 0 else np.nan
+        mdd = 1 - (eq / eq.cummax()).min()
+        vol, sharpe, sortino = calc_metrics(rets)
+        calmar = cagr / mdd if mdd > 0 else np.nan
+        return final_eq, final_ret, cagr, mdd, vol, sharpe, sortino, calmar
+
+    eq_lrs_final, final_ret_lrs, cagr_lrs, mdd_lrs, vol_lrs, sharpe_lrs, sortino_lrs, calmar_lrs = calc_core(
+        df["Equity_LRS"], df["Return_LRS"]
+    )
+    eq_lev_final, final_ret_lev, cagr_lev, mdd_lev, vol_lev, sharpe_lev, sortino_lev, calmar_lev = calc_core(
+        df["Equity_BH_Lev"], df["Return_lev"]
+    )
+    eq_base_final, final_ret_base, cagr_base, mdd_base, vol_base, sharpe_base, sortino_base, calmar_base = calc_core(
+        df["Equity_BH_Base"], df["Return_base"]
+    )
+
+    capital_lrs_final = eq_lrs_final * capital
+    capital_lev_final = eq_lev_final * capital
+    capital_base_final = eq_base_final * capital
+    
+    # 交易次數 (包含所有動作)
+    trade_count_lrs = int((df["Signal"] != 0).sum())
+
+    # ###############################################################
+    # 圖表 + KPI + 表格
+    # ###############################################################
+
+    st.markdown("<h3>📌 策略訊號與布林通道 (原型ETF)</h3>", unsafe_allow_html=True)
+    
+
+[Image of Bollinger Bands trading strategy]
+
+    fig_price = go.Figure()
+
+    # 1. 原型價格
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["Price_base"], name=f"{base_label}", 
+        mode="lines", line=dict(width=2, color="#636EFA"),
+    ))
+
+    # 2. SMA
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["MA_Signal"], name=f"{sma_window} SMA", 
+        mode="lines", line=dict(width=1.5, color="#FFA15A"),
+    ))
+
+    # 3. 停損線 (Buffer)
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["Stop_Line"], name=f"停損線 (SMA-{sma_buffer_pct}%)", 
+        mode="lines", line=dict(width=1, color="#D50000", dash="dot"),
+    ))
+
+    # 4. 布林通道 (上/下)
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo='skip'))
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["BB_Lower"], name=f"布林通道 (±{bb_std_dev}σ)", 
+        mode="lines", line=dict(width=0), fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
+    ))
+
+    # 5. 訊號標記
+    # All In
+    if not sig_all_in.empty:
+        fig_price.add_trace(go.Scatter(
+            x=sig_all_in.index, y=sig_all_in["Price_base"], mode="markers", name="All In (站上均線)", 
+            marker=dict(color="#00C853", size=12, symbol="star", line=dict(width=1, color="white"))
+        ))
+    # Clear
+    if not sig_clear.empty:
+        fig_price.add_trace(go.Scatter(
+            x=sig_clear.index, y=sig_clear["Price_base"], mode="markers", name="清空 (跌破緩衝)", 
+            marker=dict(color="#D50000", size=12, symbol="x", line=dict(width=1, color="white"))
+        ))
+    # Buy on BB Lower
+    if not sig_buy_bb.empty:
+        fig_price.add_trace(go.Scatter(
+            x=sig_buy_bb.index, y=sig_buy_bb["Price_base"], mode="markers", name=f"加碼 ({action_pct}%)", 
+            marker=dict(color="#66BB6A", size=8, symbol="triangle-up")
+        ))
+    # Sell on BB Upper
+    if not sig_sell_bb.empty:
+        fig_price.add_trace(go.Scatter(
+            x=sig_sell_bb.index, y=sig_sell_bb["Price_base"], mode="markers", name=f"減碼 ({action_pct}%)", 
+            marker=dict(color="#FFA726", size=8, symbol="triangle-down")
+        ))
+
+    fig_price.update_layout(
+        template="plotly_white", height=500, hovermode="x unified",
+        yaxis=dict(title=f"價格", showgrid=True),
+        legend=dict(orientation="h", y=1.02, x=1, xanchor="right"),
+        margin=dict(l=10, r=10, t=30, b=10)
+    )
+    st.plotly_chart(fig_price, use_container_width=True)
+
+    # --- 資金曲線 ---
+    st.markdown("<h3>📊 資金曲線比較</h3>", unsafe_allow_html=True)
+    fig_equity = go.Figure()
+    fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name="原型BH"))
+    fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name="槓桿BH"))
+    fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="LRS+BB動態", line=dict(width=2.5)))
+    fig_equity.update_layout(template="plotly_white", height=450, yaxis=dict(tickformat=".0%"))
+    st.plotly_chart(fig_equity, use_container_width=True)
+
     # --- KPI 表格 ---
-    # 簡單計算 KPI
-    final_eq = df["Equity_LRS"].iloc[-1]
-    bh_eq = df["Equity_BH"].iloc[-1]
+    asset_gap_lrs_vs_lev = ((capital_lrs_final / capital_lev_final) - 1) * 100
+    cagr_gap_lrs_vs_lev = (cagr_lrs - cagr_lev) * 100
+    vol_gap_lrs_vs_lev = (vol_lrs - vol_lev) * 100
+    mdd_gap_lrs_vs_lev = (mdd_lrs - mdd_lev) * 100
+
+    st.markdown("""<style>.kpi-card {background-color: var(--secondary-background-color); border-radius: 16px; padding: 24px 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.04); border: 1px solid rgba(128,128,128,0.1); display:flex; flex-direction:column; justify-content:space-between; height:100%;} .kpi-value {font-size:2.2rem; font-weight:900; margin-bottom:16px;} .delta-positive{background-color:rgba(33,195,84,0.12); color:#21c354; padding:6px 12px; border-radius:20px; font-weight:700; width:fit-content;} .delta-negative{background-color:rgba(255,60,60,0.12); color:#ff3c3c; padding:6px 12px; border-radius:20px; font-weight:700; width:fit-content;} .delta-neutral{background-color:rgba(128,128,128,0.1); color:gray; padding:6px 12px; border-radius:20px; width:fit-content;}</style>""", unsafe_allow_html=True)
+
+    def kpi_html(lbl, val, gap):
+        cls = "delta-positive" if gap > 0 else "delta-negative" if gap < 0 else "delta-neutral"
+        sign = "+" if gap > 0 else ""
+        return f"""<div class="kpi-card"><div style="opacity:0.7; font-weight:500; margin-bottom:8px;">{lbl}</div><div class="kpi-value">{val}</div><div class="{cls}">{sign}{gap:.2f}% (vs 槓桿)</div></div>"""
+
+    rk = st.columns(4)
+    with rk[0]: st.markdown(kpi_html("期末資產", fmt_money(capital_lrs_final), asset_gap_lrs_vs_lev), unsafe_allow_html=True)
+    with rk[1]: st.markdown(kpi_html("CAGR", fmt_pct(cagr_lrs), cagr_gap_lrs_vs_lev), unsafe_allow_html=True)
+    with rk[2]: st.markdown(kpi_html("波動率", fmt_pct(vol_lrs), vol_gap_lrs_vs_lev), unsafe_allow_html=True)
+    with rk[3]: st.markdown(kpi_html("最大回撤", fmt_pct(mdd_lrs), mdd_gap_lrs_vs_lev), unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 最終表格
+    metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
     
-    years = (df.index[-1] - df.index[0]).days / 365
-    cagr_lrs = (final_eq)**(1/years) - 1
-    cagr_bh = (bh_eq)**(1/years) - 1
+    data_dict = {
+        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>LRS+BB動態</span>": {
+            "期末資產": capital_lrs_final,
+            "總報酬率": final_ret_lrs,
+            "CAGR (年化)": cagr_lrs,
+            "Calmar Ratio": calmar_lrs,
+            "最大回撤 (MDD)": mdd_lrs,
+            "年化波動": vol_lrs,
+            "Sharpe Ratio": sharpe_lrs,
+            "Sortino Ratio": sortino_lrs,
+            "交易次數": trade_count_lrs,
+        },
+        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
+            "期末資產": capital_lev_final,
+            "總報酬率": final_ret_lev,
+            "CAGR (年化)": cagr_lev,
+            "Calmar Ratio": calmar_lev,
+            "最大回撤 (MDD)": mdd_lev,
+            "年化波動": vol_lev,
+            "Sharpe Ratio": sharpe_lev,
+            "Sortino Ratio": sortino_lev,
+            "交易次數": -1, 
+        }
+    }
+
+    df_vertical = pd.DataFrame(data_dict).reindex(metrics_order)
     
-    mdd_lrs = 1 - (df["Equity_LRS"] / df["Equity_LRS"].cummax()).min()
-    mdd_bh = 1 - (df["Equity_BH"] / df["Equity_BH"].cummax()).min()
+    metrics_config = {
+        "期末資產":       {"fmt": fmt_money, "invert": False},
+        "總報酬率":       {"fmt": fmt_pct,   "invert": False},
+        "CAGR (年化)":    {"fmt": fmt_pct,   "invert": False},
+        "Calmar Ratio":   {"fmt": fmt_num,   "invert": False},
+        "最大回撤 (MDD)": {"fmt": fmt_pct,   "invert": True},
+        "年化波動":       {"fmt": fmt_pct,   "invert": True},
+        "Sharpe Ratio":   {"fmt": fmt_num,   "invert": False},
+        "Sortino Ratio":  {"fmt": fmt_num,   "invert": False},
+        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
+    }
     
-    col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
-    with col_kpi1: st.metric("期末資產 (策略)", fmt_money(final_eq * capital), delta=f"{((final_eq/bh_eq)-1)*100:.1f}% vs B&H")
-    with col_kpi2: st.metric("CAGR (年化)", fmt_pct(cagr_lrs))
-    with col_kpi3: st.metric("MDD (最大回撤)", fmt_pct(mdd_lrs), delta=f"優化 { (mdd_bh - mdd_lrs)*100:.1f}%", delta_color="inverse")
-    with col_kpi4: st.metric("交易次數", int(len(buys)+len(sells)))
+    # ... (HTML Table generation logic remains the same)
+    html_code = """
+    <style>
+        .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); font-family: 'Noto Sans TC', sans-serif; margin-bottom: 1rem; font-size: 0.95rem; }
+        .comparison-table th { background-color: var(--secondary-background-color); color: var(--text-color); padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128, 0.1); }
+        .comparison-table td.metric-name { background-color: transparent; color: var(--text-color); font-weight: 500; text-align: left; padding: 12px 16px; width: 25%; font-size: 0.9rem; border-bottom: 1px solid rgba(128,128,128, 0.1); opacity: 0.9; }
+        .comparison-table td.data-cell { text-align: center; padding: 12px; color: var(--text-color); border-bottom: 1px solid rgba(128,128,128, 0.1); }
+        .comparison-table td.lrs-col { background-color: rgba(128, 128, 128, 0.03); }
+        .trophy-icon { margin-left: 6px; font-size: 1.1em; text-shadow: 0 0 5px rgba(255, 215, 0, 0.4); }
+        .comparison-table tr:hover td { background-color: rgba(128,128,128, 0.05); }
+    </style>
+    <table class="comparison-table">
+        <thead><tr><th style="text-align:left; padding-left:16px; width:25%;">指標</th>
+    """
+    for col_name in df_vertical.columns: html_code += f"<th>{col_name}</th>"
+    html_code += "</tr></thead><tbody>"
+
+    for metric in df_vertical.index:
+        config = metrics_config.get(metric, {"fmt": fmt_num, "invert": False})
+        raw_row_values = df_vertical.loc[metric].values
+        valid_values = [x for x in raw_row_values if isinstance(x, (int, float)) and x != -1 and not pd.isna(x)]
+        target_val = None
+        if valid_values and metric != "交易次數": 
+            target_val = min(valid_values) if config["invert"] else max(valid_values)
+
+        html_code += f"<tr><td class='metric-name'>{metric}</td>"
+        for i, strategy in enumerate(df_vertical.columns):
+            val = df_vertical.at[metric, strategy]
+            display_text = config["fmt"](val) if isinstance(val, (int, float)) and val != -1 else "—"
+            is_winner = target_val is not None and isinstance(val, (int, float)) and val == target_val
+            if is_winner: display_text += " <span class='trophy-icon'>🏆</span>"
+            is_lrs = (i == 0)
+            lrs_class = "lrs-col" if is_lrs else ""
+            font_weight = "bold" if is_lrs else "normal"
+            html_code += f"<td class='data-cell {lrs_class}' style='font-weight:{font_weight};'>{display_text}</td>"
+        html_code += "</tr>"
+    html_code += "</tbody></table>"
+    st.write(html_code, unsafe_allow_html=True)
