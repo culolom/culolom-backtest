@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS + 布林通道調節策略 (Bollinger Dynamic Position)
+# app.py — 0050LRS + 布林通道調節 (優先買進版)
 ###############################################################
 
 import os
@@ -30,8 +30,8 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="LRS + 布林通道動態策略",
-    page_icon="📈",
+    page_title="LRS + 布林通道 (優先買進版)",
+    page_icon="📉",
     layout="wide",
 )
 
@@ -57,17 +57,17 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 布林動態調節策略</h1>",
+    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 布林優先買進策略</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-<b>策略邏輯 (優先級由高至低)：</b><br>
-1️⃣ <b>停損</b>：跌破 200SMA (含緩衝區) ⮕ <span style='color:#FF5252'><b>清空持倉 (0%)</b></span>。<br>
+<b>策略邏輯 (優先級調整)：</b><br>
+1️⃣ <b>抄底 (最高優先)</b>：收盤 < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進加碼</b></span> (無視均線)。<br>
 2️⃣ <b>進場</b>：漲破 200SMA ⮕ <span style='color:#4CAF50'><b>All In (100%)</b></span>。<br>
-3️⃣ <b>高出</b>：收盤 > 布林上軌 (2σ) ⮕ <span style='color:#FFA726'><b>賣出特定比例</b></span> (需間隔 N 天)。<br>
-4️⃣ <b>低進</b>：收盤 < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進特定比例</b></span> (需間隔 N 天)。<br>
+3️⃣ <b>獲利調節</b>：收盤 > 布林上軌 (2σ) ⮕ <span style='color:#FFA726'><b>賣出減碼</b></span>。<br>
+4️⃣ <b>停損</b>：收盤 < 200SMA 且 未跌破下軌 ⮕ <span style='color:#FF5252'><b>清空 (0%)</b></span>。<br>
 """,
     unsafe_allow_html=True,
 )
@@ -184,9 +184,10 @@ st.write("### ⚙️ 策略參數設定")
 col_bb1, col_bb2 = st.columns(2)
 
 with col_bb1:
-    st.markdown("#### 🌊 布林通道與緩衝")
+    st.markdown("#### 🌊 布林通道設定")
     bb_std_dev = st.number_input("布林通道倍數 (σ)", min_value=1.0, max_value=4.0, value=2.0, step=0.1, help="設定通道寬度，通常為 2.0")
-    sma_buffer_pct = st.number_input("200SMA 停損緩衝 (%)", min_value=0.0, max_value=10.0, value=1.0, step=0.5, help="跌破 SMA 多少% 才清空，避免盤整洗刷")
+    # 移除緩衝設定
+    st.caption("✅ 已移除停損緩衝功能，現在跌破下軌將強制買進。")
     
 with col_bb2:
     st.markdown("#### ⚖️ 加減碼規則")
@@ -224,9 +225,6 @@ if st.button("開始回測 🚀"):
     # 布林通道
     df["BB_Upper"] = df["MA_Signal"] + (bb_std_dev * df["Std_Dev"])
     df["BB_Lower"] = df["MA_Signal"] - (bb_std_dev * df["Std_Dev"])
-    
-    # 停損緩衝線
-    df["Stop_Line"] = df["MA_Signal"] * (1 - sma_buffer_pct / 100.0)
 
     df = df.dropna(subset=["MA_Signal", "BB_Upper"])
 
@@ -239,17 +237,17 @@ if st.button("開始回測 🚀"):
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
 
     # ###############################################################
-    # 核心交易邏輯
+    # 核心交易邏輯 (權重重構)
     # ###############################################################
 
-    executed_signals = [0] * len(df)  # 記錄訊號 (1=All in, -1=Clear, 2=Buy_BB, -2=Sell_BB)
+    executed_signals = [0] * len(df)  # 記錄訊號
     positions = [0.0] * len(df)       # 記錄持倉比例
     
     # 初始狀態
-    current_pos = 0.0 # 預設空手，等待訊號
-    days_since_action = 999 # 用來計算間隔天數
+    current_pos = 0.0 
+    days_since_action = 999 
 
-    # 如果第一天價格就在均線上，給予初始倉位 (視為已進場)
+    # 如果第一天價格就在均線上，給予初始倉位
     if df["Price_base"].iloc[0] > df["MA_Signal"].iloc[0]:
         current_pos = 1.0
 
@@ -264,47 +262,48 @@ if st.button("開始回測 🚀"):
         
         upper = df["BB_Upper"].iloc[i]
         lower = df["BB_Lower"].iloc[i]
-        stop_line = df["Stop_Line"].iloc[i]
 
         signal_code = 0
         days_since_action += 1
 
-        # --- 規則 2 & 5: 停損 (優先級最高) ---
-        # 跌破 200SMA 緩衝區 -> 清空
-        if price < stop_line:
-            if current_pos > 0:
-                current_pos = 0.0
-                signal_code = -1 # Clear
-                days_since_action = 0 # 重置計數
-            else:
-                current_pos = 0.0 # 保持空手
+        # ==========================================================
+        # 交易邏輯 (優先級調整：先檢查是否要抄底，再檢查是否要停損)
+        # ==========================================================
 
-        # --- 規則 4: 漲破 200SMA All in ---
-        # 剛站上 SMA (這裡用標準SMA，不看緩衝，確保訊號靈敏)
+        # 1. 【霸王條款】跌破布林下軌 -> 買進 (Buy on Dip)
+        # 不管現在是不是在均線下，只要超跌就買
+        if price < lower:
+            if days_since_action >= action_interval:
+                current_pos += (action_pct / 100.0)
+                if current_pos > 1.0: current_pos = 1.0
+                signal_code = 2 # Buy Signal
+                days_since_action = 0
+            # 若間隔未到，保持原倉位 (不會被下面的 Clear 清掉，因為用了 if-elif 結構)
+
+        # 2. 站上均線 -> All In (Trend Following)
         elif price > sma and prev_price <= prev_sma:
             current_pos = 1.0
             signal_code = 1 # All In
             days_since_action = 0
 
-        # --- 規則 1 & 3: 布林通道調節 (僅在持倉狀態下運作) ---
-        elif current_pos > 0:
-            
-            # 規則 1: 價格 > 2σ (超漲) -> 賣出特定比例
-            if price > upper:
-                if days_since_action >= action_interval:
-                    current_pos -= (action_pct / 100.0)
-                    if current_pos < 0.0: current_pos = 0.0
-                    signal_code = -2 # Sell on Strength
-                    days_since_action = 0
-            
-            # 規則 3: 價格 < -2σ (超跌) -> 買進特定比例
-            # 注意：這裡隱含前提是 Price > Stop_Line (因為如果 < Stop_Line 會先被規則 2 清空)
-            elif price < lower:
-                if days_since_action >= action_interval:
-                    current_pos += (action_pct / 100.0)
-                    if current_pos > 1.0: current_pos = 1.0
-                    signal_code = 2 # Buy on Weakness
-                    days_since_action = 0
+        # 3. 漲破布林上軌 -> 減碼 (Take Profit)
+        elif price > upper and current_pos > 0:
+            if days_since_action >= action_interval:
+                current_pos -= (action_pct / 100.0)
+                if current_pos < 0.0: current_pos = 0.0
+                signal_code = -2 # Sell Signal
+                days_since_action = 0
+
+        # 4. 跌破均線 (且沒跌破下軌) -> 清空 (Stop Loss)
+        # 這是 "灰色地帶"： Lower < Price < SMA
+        elif price < sma:
+            current_pos = 0.0
+            signal_code = -1 # Clear Signal
+            days_since_action = 0
+
+        # 5. 其他情況 (如 Price > SMA 但沒破上軌) -> 續抱
+        else:
+            pass
         
         positions[i] = round(current_pos, 4)
         executed_signals[i] = signal_code
@@ -369,7 +368,6 @@ if st.button("開始回測 🚀"):
     capital_lev_final = eq_lev_final * capital
     capital_base_final = eq_base_final * capital
     
-    # 交易次數 (包含所有動作)
     trade_count_lrs = int((df["Signal"] != 0).sum())
 
     # ###############################################################
@@ -377,8 +375,7 @@ if st.button("開始回測 🚀"):
     # ###############################################################
 
     st.markdown("<h3>📌 策略訊號與布林通道 (原型ETF)</h3>", unsafe_allow_html=True)
-    
-    fig_price = go.Figure()
+        fig_price = go.Figure()
 
     # 1. 原型價格
     fig_price.add_trace(go.Scatter(
@@ -392,12 +389,6 @@ if st.button("開始回測 🚀"):
         mode="lines", line=dict(width=1.5, color="#FFA15A"),
     ))
 
-    # 3. 停損線 (Buffer)
-    fig_price.add_trace(go.Scatter(
-        x=df.index, y=df["Stop_Line"], name=f"停損線 (SMA-{sma_buffer_pct}%)", 
-        mode="lines", line=dict(width=1, color="#D50000", dash="dot"),
-    ))
-
     # 4. 布林通道 (上/下)
     fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig_price.add_trace(go.Scatter(
@@ -406,28 +397,24 @@ if st.button("開始回測 🚀"):
     ))
 
     # 5. 訊號標記
-    # All In
     if not sig_all_in.empty:
         fig_price.add_trace(go.Scatter(
             x=sig_all_in.index, y=sig_all_in["Price_base"], mode="markers", name="All In (站上均線)", 
             marker=dict(color="#00C853", size=12, symbol="star", line=dict(width=1, color="white"))
         ))
-    # Clear
     if not sig_clear.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_clear.index, y=sig_clear["Price_base"], mode="markers", name="清空 (跌破緩衝)", 
-            marker=dict(color="#D50000", size=12, symbol="x", line=dict(width=1, color="white"))
+            x=sig_clear.index, y=sig_clear["Price_base"], mode="markers", name="清空 (跌破均線)", 
+            marker=dict(color="#D50000", size=10, symbol="x", line=dict(width=1, color="white"))
         ))
-    # Buy on BB Lower
     if not sig_buy_bb.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_buy_bb.index, y=sig_buy_bb["Price_base"], mode="markers", name=f"加碼 ({action_pct}%)", 
+            x=sig_buy_bb.index, y=sig_buy_bb["Price_base"], mode="markers", name=f"抄底加碼 ({action_pct}%)", 
             marker=dict(color="#66BB6A", size=8, symbol="triangle-up")
         ))
-    # Sell on BB Upper
     if not sig_sell_bb.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_sell_bb.index, y=sig_sell_bb["Price_base"], mode="markers", name=f"減碼 ({action_pct}%)", 
+            x=sig_sell_bb.index, y=sig_sell_bb["Price_base"], mode="markers", name=f"高檔減碼 ({action_pct}%)", 
             marker=dict(color="#FFA726", size=8, symbol="triangle-down")
         ))
 
@@ -511,7 +498,6 @@ if st.button("開始回測 🚀"):
         "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
     }
     
-    # ... (HTML Table generation logic remains the same)
     html_code = """
     <style>
         .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); font-family: 'Noto Sans TC', sans-serif; margin-bottom: 1rem; font-size: 0.95rem; }
