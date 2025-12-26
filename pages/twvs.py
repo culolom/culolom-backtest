@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS + 布林通道調節 (優先買進版)
+# app.py — 0050LRS + 布林通道調節 (邏輯修正版)
 ###############################################################
 
 import os
@@ -30,7 +30,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="LRS + 布林通道 (優先買進版)",
+    page_title="LRS + 布林通道 (修正版)",
     page_icon="📉",
     layout="wide",
 )
@@ -63,11 +63,11 @@ st.markdown(
 
 st.markdown(
     """
-<b>策略邏輯 (優先級調整)：</b><br>
-1️⃣ <b>抄底 (最高優先)</b>：收盤 < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進加碼</b></span> (無視均線)。<br>
+<b>策略邏輯 (已修正衝突)：</b><br>
+1️⃣ <b>抄底 (最高優先)</b>：收盤 < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進加碼</b></span>。<br>
 2️⃣ <b>進場</b>：漲破 200SMA ⮕ <span style='color:#4CAF50'><b>All In (100%)</b></span>。<br>
 3️⃣ <b>獲利調節</b>：收盤 > 布林上軌 (2σ) ⮕ <span style='color:#FFA726'><b>賣出減碼</b></span>。<br>
-4️⃣ <b>停損</b>：收盤 < 200SMA 且 未跌破下軌 ⮕ <span style='color:#FF5252'><b>清空 (0%)</b></span>。<br>
+4️⃣ <b>停損</b>：<b>剛跌破 200SMA 瞬間</b> ⮕ <span style='color:#FF5252'><b>清空 (0%)</b></span> (若已在線下則不再清空，保留抄底部位)。<br>
 """,
     unsafe_allow_html=True,
 )
@@ -186,8 +186,7 @@ col_bb1, col_bb2 = st.columns(2)
 with col_bb1:
     st.markdown("#### 🌊 布林通道設定")
     bb_std_dev = st.number_input("布林通道倍數 (σ)", min_value=1.0, max_value=4.0, value=2.0, step=0.1, help="設定通道寬度，通常為 2.0")
-    # 移除緩衝設定
-    st.caption("✅ 已移除停損緩衝功能，現在跌破下軌將強制買進。")
+    st.caption("✅ 修正邏輯：現在即使在均線下，只要碰到布林下軌也會執行買進。")
     
 with col_bb2:
     st.markdown("#### ⚖️ 加減碼規則")
@@ -267,18 +266,16 @@ if st.button("開始回測 🚀"):
         days_since_action += 1
 
         # ==========================================================
-        # 交易邏輯 (優先級調整：先檢查是否要抄底，再檢查是否要停損)
+        # 交易邏輯 (邏輯衝突修正)
         # ==========================================================
 
         # 1. 【霸王條款】跌破布林下軌 -> 買進 (Buy on Dip)
-        # 不管現在是不是在均線下，只要超跌就買
         if price < lower:
             if days_since_action >= action_interval:
                 current_pos += (action_pct / 100.0)
                 if current_pos > 1.0: current_pos = 1.0
                 signal_code = 2 # Buy Signal
                 days_since_action = 0
-            # 若間隔未到，保持原倉位 (不會被下面的 Clear 清掉，因為用了 if-elif 結構)
 
         # 2. 站上均線 -> All In (Trend Following)
         elif price > sma and prev_price <= prev_sma:
@@ -294,14 +291,16 @@ if st.button("開始回測 🚀"):
                 signal_code = -2 # Sell Signal
                 days_since_action = 0
 
-        # 4. 跌破均線 (且沒跌破下軌) -> 清空 (Stop Loss)
-        # 這是 "灰色地帶"： Lower < Price < SMA
-        elif price < sma:
-            current_pos = 0.0
-            signal_code = -1 # Clear Signal
-            days_since_action = 0
+        # 4. 剛跌破均線 -> 清空 (Stop Loss)
+        # 關鍵修改：從「只要小於SMA就清空」改成「剛跌破的瞬間才清空」
+        # 這樣就不會持續清空，允許後續的抄底單存活
+        elif price < sma and prev_price >= prev_sma:
+            if current_pos > 0: # 只有手上有貨才需要清空
+                current_pos = 0.0
+                signal_code = -1 # Clear Signal
+                days_since_action = 0
 
-        # 5. 其他情況 (如 Price > SMA 但沒破上軌) -> 續抱
+        # 5. 其他情況：續抱 (Holding)
         else:
             pass
         
@@ -405,7 +404,7 @@ if st.button("開始回測 🚀"):
         ))
     if not sig_clear.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_clear.index, y=sig_clear["Price_base"], mode="markers", name="清空 (跌破均線)", 
+            x=sig_clear.index, y=sig_clear["Price_base"], mode="markers", name="清空 (剛跌破)", 
             marker=dict(color="#D50000", size=10, symbol="x", line=dict(width=1, color="white"))
         ))
     if not sig_buy_bb.empty:
@@ -499,7 +498,6 @@ if st.button("開始回測 🚀"):
         "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
     }
     
-    # ... (HTML Table generation logic remains the same)
     html_code = """
     <style>
         .comparison-table { width: 100%; border-collapse: separate; border-spacing: 0; border-radius: 12px; border: 1px solid var(--secondary-background-color); font-family: 'Noto Sans TC', sans-serif; margin-bottom: 1rem; font-size: 0.95rem; }
