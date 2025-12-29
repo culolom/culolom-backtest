@@ -19,14 +19,26 @@ st.set_page_config(
     layout="wide",
 )
 
+# ------------------------------------------------------
 # 🔒 驗證守門員
+# ------------------------------------------------------
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 try:
-    import auth
+    import auth 
     if not auth.check_password():
-        st.stop()  
+        st.stop()  # 驗證沒過就停止執行
 except ImportError:
-    pass
+    pass 
+
+# ------------------------------------------------------
+with st.sidebar:
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.title("🚀 50正2年度乖離 K 線雷達")
 
