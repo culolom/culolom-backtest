@@ -82,6 +82,11 @@ except ImportError:
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+    st.divider()
     st.info("💡 指標原理：計算價格與 200SMA 的乖離率，並透過歷史標準差定義恐慌買點與過熱賣點。")
 
 st.title("🚀 50正2 乖離率位階雷達")
