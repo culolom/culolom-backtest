@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — CSV 版 0050LRS 回測（含 DCA 抄底功能）
+# app.py — 0050LRS + DCA (槓桿自帶均線訊號版)
 ###############################################################
 
 import os
@@ -34,25 +34,21 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="0050LRS 回測系統（DCA加強版）",
+    page_title="0050LRS 回測系統 (槓桿均線版)",
     page_icon="📈",
     layout="wide",
 )
 
-# ------------------------------------------------------
 # 🔒 驗證守門員
-# ------------------------------------------------------
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
     if not auth.check_password():
-        st.stop() 
+        st.stop()
 except ImportError:
-    pass # 本地測試如果沒有 auth 模組則跳過
+    pass 
 
-# ------------------------------------------------------
-# Sidebar
-# ------------------------------------------------------
+# --- Sidebar ---
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
@@ -61,30 +57,19 @@ with st.sidebar:
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
-st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿策略 (含 DCA 抄底)</h1>",
-    unsafe_allow_html=True,
-)
+st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿 (槓桿 SMA 訊號)</h1>", unsafe_allow_html=True)
 
-st.markdown(
-    """
-<b>本工具比較三種策略：</b><br>
-1️⃣ 原型 ETF Buy & Hold（0050 / 006208）<br>
-2️⃣ 槓桿 ETF Buy & Hold（00631L / 00663L / 00675L / 00685L）<br>
-3️⃣ 槓桿 ETF LRS（訊號來自原型 ETF 的 200 日 SMA，<b>可設定跌破時 DCA</b>）<br>
-""",
-    unsafe_allow_html=True,
-)
+st.info("""
+**邏輯更新：** 本版本直接使用 **槓桿 ETF (正2)** 的價格與 **槓桿 ETF 的 SMA 均線** 進行比較。
+- **買進/賣出訊號：** 當正2價格 突破/跌破 自身的 SMA。
+- **原型對照：** 0050 僅用於最後的績效表對比，不影響策略進出場。
+""")
 
 ###############################################################
-# ETF 名稱清單
+# ETF 名稱清單與工具函式
 ###############################################################
 
-BASE_ETFS = {
-    "0050 元大台灣50": "0050.TW",
-    "006208 富邦台50": "006208.TW",
-}
-
+BASE_ETFS = {"0050 元大台灣50": "0050.TW", "006208 富邦台50": "006208.TW"}
 LEV_ETFS = {
     "00631L 元大台灣50正2": "00631L.TW",
     "00663L 國泰台灣加權正2": "00663L.TW",
@@ -92,90 +77,36 @@ LEV_ETFS = {
     "00685L 群益台灣加權正2": "00685L.TW",
 }
 
-WINDOW = 200  # 固定 200 日 SMA
-
 DATA_DIR = Path("data")
-
-###############################################################
-# 讀取 CSV
-###############################################################
 
 def load_csv(symbol: str) -> pd.DataFrame:
     path = DATA_DIR / f"{symbol}.csv"
-    if not path.exists():
-        return pd.DataFrame()
-
-    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
-    df = df.sort_index()
+    if not path.exists(): return pd.DataFrame()
+    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
     df["Price"] = df["Close"]
     return df[["Price"]]
 
-
 def get_full_range_from_csv(base_symbol: str, lev_symbol: str):
-    df1 = load_csv(base_symbol)
-    df2 = load_csv(lev_symbol)
-
-    if df1.empty or df2.empty:
-        return dt.date(2012, 1, 1), dt.date.today()
-
-    start = max(df1.index.min().date(), df2.index.min().date())
-    end = min(df1.index.max().date(), df2.index.max().date())
-    return start, end
-
-###############################################################
-# 工具函式
-###############################################################
+    df1, df2 = load_csv(base_symbol), load_csv(lev_symbol)
+    if df1.empty or df2.empty: return dt.date(2012, 1, 1), dt.date.today()
+    return max(df1.index.min().date(), df2.index.min().date()), min(df1.index.max().date(), df2.index.max().date())
 
 def calc_metrics(series: pd.Series):
     daily = series.dropna()
-    if len(daily) <= 1:
-        return np.nan, np.nan, np.nan
-    avg = daily.mean()
-    std = daily.std()
-    downside = daily[daily < 0].std()
+    if len(daily) <= 1: return np.nan, np.nan, np.nan
+    avg, std, downside = daily.mean(), daily.std(), daily[daily < 0].std()
     vol = std * np.sqrt(252)
     sharpe = (avg / std) * np.sqrt(252) if std > 0 else np.nan
     sortino = (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
     return vol, sharpe, sortino
 
-
-def fmt_money(v):
-    try: return f"{v:,.0f} 元"
-    except: return "—"
-
-
-def fmt_pct(v, d=2):
-    try: return f"{v:.{d}%}"
-    except: return "—"
-
-
-def fmt_num(v, d=2):
-    try: return f"{v:.{d}f}"
-    except: return "—"
-
-
-def fmt_int(v):
-    try: return f"{int(v):,}"
-    except: return "—"
-
-
-def nz(x, default=0.0):
-    return float(np.nan_to_num(x, nan=default))
-
-
-def format_currency(v):
-    try: return f"{v:,.0f} 元"
-    except: return "—"
-
-
-def format_percent(v, d=2):
-    try: return f"{v*100:.{d}f}%"
-    except: return "—"
-
-
-def format_number(v, d=2):
-    try: return f"{v:.{d}f}"
-    except: return "—"
+def fmt_money(v): return f"{v:,.0f} 元"
+def fmt_pct(v, d=2): return f"{v:.{d}%}"
+def fmt_num(v, d=2): return f"{v:.{d}f}"
+def fmt_int(v): return f"{int(v):,}"
+def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
+def format_currency(v): return f"{v:,.0f} 元"
+def format_percent(v, d=2): return f"{v*100:.{d}f}%"
 
 ###############################################################
 # UI 輸入
@@ -183,782 +114,157 @@ def format_number(v, d=2):
 
 col1, col2 = st.columns(2)
 with col1:
-    base_label = st.selectbox("原型 ETF（訊號來源）", list(BASE_ETFS.keys()))
+    base_label = st.selectbox("原型 ETF (僅供績效對照)", list(BASE_ETFS.keys()))
     base_symbol = BASE_ETFS[base_label]
 with col2:
-    lev_label = st.selectbox("槓桿 ETF（實際進出場標的）", list(LEV_ETFS.keys()))
+    lev_label = st.selectbox("槓桿 ETF (訊號來源與操作標的)", list(LEV_ETFS.keys()))
     lev_symbol = LEV_ETFS[lev_label]
 
 s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
-col3, col4, col5 = st.columns(3)
-with col3:
-    start = st.date_input(
-        "開始日期",
-        value=max(s_min, s_max - dt.timedelta(days=5 * 365)),
-        min_value=s_min, max_value=s_max,
-    )
+col3, col4, col5, col6 = st.columns(4)
+with col3: start = st.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5 * 365)), min_value=s_min, max_value=s_max)
+with col4: end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
+with col5: capital = st.number_input("投入本金（元）", 1000, 5_000_000, 100_000, step=10_000)
+with col6: sma_window = st.number_input("均線週期 (SMA)", 10, 240, 200, 10)
 
-with col4:
-    end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
+st.write("### ⚙️ 策略進階設定")
+position_mode = st.radio("策略初始狀態", ["一開始就全倉槓桿 ETF", "空手起跑"], index=0)
 
-with col5:
-    capital = st.number_input(
-        "投入本金（元）", 1000, 5_000_000, 100_000, step=10_000,
-    )
-
-# -----------------------------------------------------
-# 新增功能: DCA 設定
-# -----------------------------------------------------
-with st.expander("🛠️ 進階策略設定：跌破均線時定期定額 (DCA)", expanded=False):
-    st.markdown("""
-    **功能說明：** 當價格跌破 200SMA 時，原本策略為 100% 空手。開啟此功能後，將使用剩餘現金進行定期定額買入，直到「現金用完」或「價格重新站上 200SMA (屆時剩餘現金 All-in)」。
-    """)
-    enable_dca = st.checkbox("開啟 DCA 抄底模式", value=False)
-    
-    c_dca1, c_dca2 = st.columns(2)
-    with c_dca1:
-        dca_pct = st.number_input("每次投入金額 (佔總本金 %)", 1.0, 100.0, 10.0, step=1.0, disabled=not enable_dca) / 100.0
-    with c_dca2:
-        dca_days = st.number_input("投入頻率 (每 N 個交易日)", 1, 250, 20, step=1, disabled=not enable_dca)
+with st.expander("📉 跌破均線後的 DCA (定期定額) 設定", expanded=True):
+    col_dca1, col_dca2, col_dca3 = st.columns([1, 2, 2])
+    with col_dca1: enable_dca = st.toggle("啟用 DCA", value=False)
+    with col_dca2: dca_interval = st.number_input("間隔天數 (日)", 1, 60, 3, disabled=not enable_dca)
+    with col_dca3: dca_pct = st.number_input("每次買進比例 (%)", 1, 100, 10, 5, disabled=not enable_dca)
 
 ###############################################################
-# 主程式開始
+# 核心回測運算
 ###############################################################
 
 if st.button("開始回測 🚀"):
-
-    start_early = start - dt.timedelta(days=365)
-
-    with st.spinner("讀取 CSV 中…"):
-        df_base_raw = load_csv(base_symbol)
-        df_lev_raw = load_csv(lev_symbol)
+    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60)
+    df_base_raw, df_lev_raw = load_csv(base_symbol), load_csv(lev_symbol)
 
     if df_base_raw.empty or df_lev_raw.empty:
-        st.error("⚠️ CSV 資料讀取失敗，請確認 data/*.csv 是否存在")
-        st.stop()
+        st.error("⚠️ CSV 資料讀取失敗"); st.stop()
 
-    df_base_raw = df_base_raw.loc[start_early:end]
-    df_lev_raw = df_lev_raw.loc[start_early:end]
-
-    df = pd.DataFrame(index=df_base_raw.index)
+    df = pd.DataFrame(index=df_base_raw.loc[start_early:end].index)
     df["Price_base"] = df_base_raw["Price"]
-    df = df.join(df_lev_raw["Price"].rename("Price_lev"), how="inner")
-    df = df.sort_index()
+    df = df.join(df_lev_raw["Price"].rename("Price_lev"), how="inner").sort_index()
 
-    df["MA_200"] = df["Price_base"].rolling(WINDOW).mean()
-    df = df.dropna(subset=["MA_200"])
-
-    df = df.loc[start:end]
-    if df.empty:
-        st.error("⚠️ 有效回測區間不足")
-        st.stop()
+    # --- 關鍵改動：MA 計算基礎改為 Price_lev ---
+    df["MA_Signal"] = df["Price_lev"].rolling(sma_window).mean()
+    df = df.dropna(subset=["MA_Signal"]).loc[start:end]
 
     df["Return_base"] = df["Price_base"].pct_change().fillna(0)
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
 
-    ###############################################################
-    # LRS 訊號產生
-    ###############################################################
-    # 1: 持有, -1: 空手/賣出
-    df["Signal"] = 0
-    # 這裡使用向量化寫法加速，但為了後面的逐日模擬，我們主要用來標記狀態
-    # 邏輯: 收盤價 > MA 為多頭(1)，反之為空頭(-1)
-    df.loc[df["Price_base"] > df["MA_200"], "Signal"] = 1
-    df.loc[df["Price_base"] <= df["MA_200"], "Signal"] = -1
-    
-    # 防止首日沒有訊號
-    if df["Signal"].iloc[0] == 0:
-        df["Signal"].iloc[0] = 1 if df["Price_base"].iloc[0] > df["MA_200"].iloc[0] else -1
+    # 策略邏輯
+    executed_signals, positions = [0] * len(df), [0.0] * len(df)
+    current_pos = 1.0 if "全倉" in position_mode else 0.0
+    can_buy_permission = True if "全倉" in position_mode else False
+    positions[0], dca_wait_counter = current_pos, 0
 
-    ###############################################################
-    # 核心回測引擎 (支援 DCA 邏輯)
-    ###############################################################
-    
-    # 狀態變數初始化
-    curr_cash = capital        # 初始現金
-    curr_shares = 0.0          # 初始股數 (假設一開始空手，或依據第一天訊號決定)
-    equity_curve = []          # 紀錄每日淨值
-    dca_counter = 0            # 計算跌破天數
-    
-    # 處理第一天的狀態
-    first_price = df["Price_lev"].iloc[0]
-    if df["Signal"].iloc[0] == 1:
-        # 第一天就是多頭，直接 All-in
-        curr_shares = curr_cash / first_price
-        curr_cash = 0.0
-    
-    equity_curve.append(curr_cash + curr_shares * first_price)
-
-    # 開始逐日模擬 (從第二天開始)
     for i in range(1, len(df)):
-        today_date = df.index[i]
-        price = df["Price_lev"].iloc[i]
-        signal = df["Signal"].iloc[i]
-        prev_signal = df["Signal"].iloc[i-1]
+        # 判斷全部改用槓桿價格 Price_lev
+        p, m, p0, m0 = df["Price_lev"].iloc[i], df["MA_Signal"].iloc[i], df["Price_lev"].iloc[i-1], df["MA_Signal"].iloc[i-1]
         
-        # 1. 處理訊號轉換
-        if signal == 1:
-            # --- 多頭市場 (Bull) ---
-            dca_counter = 0 # 重置 DCA 計數器
-            
-            # 若手上有現金 (剛從空頭轉多，或是 DCA 沒買完)，All-in
-            if curr_cash > 0:
-                shares_to_buy = curr_cash / price
-                curr_shares += shares_to_buy
-                curr_cash = 0.0
-                
-        elif signal == -1:
-            # --- 空頭市場 (Bear) ---
-            
-            # A. 剛跌破的那一瞬間 (Yesterday Bull -> Today Bear)
-            # 標準動作：清空部位 (Stop Loss)
-            if prev_signal == 1:
-                if curr_shares > 0:
-                    curr_cash = curr_shares * price
-                    curr_shares = 0.0
-                dca_counter = 0 # 開始計數
-            
-            # B. 持續在空頭市場中 (DCA 邏輯)
-            if enable_dca:
-                dca_counter += 1
-                # 檢查是否達到 DCA 頻率 (例如每 20 天)
-                if dca_counter % dca_days == 0:
-                    # 計算預定投入金額
-                    invest_amount = capital * dca_pct
-                    
-                    # 檢查現金夠不夠
-                    if curr_cash >= invest_amount:
-                        shares_bought = invest_amount / price
-                        curr_shares += shares_bought
-                        curr_cash -= invest_amount
-                    elif curr_cash > 0:
-                        # 現金不夠原本預定額度，但還有剩，全買 (或選擇不買，這裡設定為買光最後一點錢)
-                        shares_bought = curr_cash / price
-                        curr_shares += shares_bought
-                        curr_cash = 0.0
-        
-        # 2. 結算今日淨值 (Mark to Market)
-        total_equity = curr_cash + (curr_shares * price)
-        equity_curve.append(total_equity)
+        if p > m: # 價格在均線上
+            if can_buy_permission:
+                current_pos = 1.0
+                executed_signals[i] = 1 if p0 <= m0 else 0
+            else:
+                current_pos = 0.0
+            dca_wait_counter = 0
+        else: # 價格在均線下
+            can_buy_permission = True
+            if p0 > m0: # 死亡交叉
+                current_pos, executed_signals[i], dca_wait_counter = 0.0, -1, 0
+            else: # 均線下持續期間
+                if enable_dca and current_pos < 1.0:
+                    dca_wait_counter += 1
+                    if dca_wait_counter >= dca_interval:
+                        current_pos = min(1.0, current_pos + (dca_pct / 100.0))
+                        executed_signals[i], dca_wait_counter = 2, 0
+        positions[i] = round(current_pos, 4)
 
-    # 將回測結果寫入 DataFrame
-    df["Equity_LRS"] = equity_curve
-    # 轉成淨值倍數 (為了跟原本的代碼相容)
-    df["Equity_LRS"] = df["Equity_LRS"] / capital 
+    df["Signal"], df["Position"] = executed_signals, positions
+
+    # 資金曲線
+    equity_lrs = [1.0]
+    for i in range(1, len(df)):
+        lev_ret = (df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]) - 1
+        equity_lrs.append(equity_lrs[-1] * (1 + (lev_ret * df["Position"].iloc[i-1])))
+    
+    df["Equity_LRS"] = equity_lrs
     df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
-
-    # 計算對照組 (Buy & Hold)
     df["Equity_BH_Base"] = (1 + df["Return_base"]).cumprod()
     df["Equity_BH_Lev"] = (1 + df["Return_lev"]).cumprod()
-
-    df["Pct_Base"] = df["Equity_BH_Base"] - 1
-    df["Pct_Lev"] = df["Equity_BH_Lev"] - 1
-    df["Pct_LRS"] = df["Equity_LRS"] - 1
-
-    # 重新標記買賣點 (為了繪圖)
-    # 這裡的邏輯需要微調：因為 DCA 會造成很多小買點
-    # 為了圖表乾淨，我們只標記 "主要轉折點" (全倉買進/全倉賣出)
-    # 但如果想看 DCA 點位，可以另外處理。目前維持原樣，只標記轉折。
-    buys = df[(df["Signal"] == 1) & (df["Signal"].shift(1) == -1)]
-    sells = df[(df["Signal"] == -1) & (df["Signal"].shift(1) == 1)]
-
-    ###############################################################
-    # 指標計算
-    ###############################################################
-
-    years_len = (df.index[-1] - df.index[0]).days / 365
-
-    def calc_core(eq, rets):
-        final_eq = eq.iloc[-1]
-        final_ret = final_eq - 1
-        cagr = (1 + final_ret)**(1/years_len) - 1 if years_len > 0 else np.nan
-        mdd = 1 - (eq / eq.cummax()).min()
-        vol, sharpe, sortino = calc_metrics(rets)
-        calmar = cagr / mdd if mdd > 0 else np.nan
-        return final_eq, final_ret, cagr, mdd, vol, sharpe, sortino, calmar
-
-    eq_lrs_final, final_ret_lrs, cagr_lrs, mdd_lrs, vol_lrs, sharpe_lrs, sortino_lrs, calmar_lrs = calc_core(
-        df["Equity_LRS"], df["Return_LRS"]
-    )
-    eq_lev_final, final_ret_lev, cagr_lev, mdd_lev, vol_lev, sharpe_lev, sortino_lev, calmar_lev = calc_core(
-        df["Equity_BH_Lev"], df["Return_lev"]
-    )
-    eq_base_final, final_ret_base, cagr_base, mdd_base, vol_base, sharpe_base, sortino_base, calmar_base = calc_core(
-        df["Equity_BH_Base"], df["Return_base"]
-    )
-
-    capital_lrs_final = eq_lrs_final * capital
-    capital_lev_final = eq_lev_final * capital
-    capital_base_final = eq_base_final * capital
-    
-    # 交易次數計算 (主要轉折)
-    trade_count_lrs = int(len(buys) + len(sells))
 
     ###############################################################
     # 圖表呈現
     ###############################################################
 
-    # --- 原型 & MA & 槓桿價格 (雙軸圖表) ---
-    st.markdown("<h3>📌 策略訊號與執行價格 (雙軸對照)</h3>", unsafe_allow_html=True)
-
-    fig_price = go.Figure()
-
-    # 1. [左軸] 原型 ETF (訊號來源)
-    fig_price.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["Price_base"], 
-        name=f"{base_label} (左軸)", 
-        mode="lines",
-        line=dict(width=2, color="#636EFA"),
-        hovertemplate=f"<b>{base_label}</b><br>日期: %{{x|%Y-%m-%d}}<br>價格: %{{y:,.2f}} 元<extra></extra>"
-    ))
-
-    # 2. [左軸] 200MA
-    fig_price.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["MA_200"], 
-        name="200 日 SMA", 
-        mode="lines",
-        line=dict(width=1.5, color="#FFA15A"),
-        hovertemplate="<b>200SMA</b><br>價格: %{y:,.2f} 元<extra></extra>"
-    ))
-
-    # 3. [右軸] 槓桿 ETF (實際標的) - 使用虛線區隔
-    fig_price.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["Price_lev"], 
-        name=f"{lev_label} (右軸)", 
-        mode="lines",
-        line=dict(width=1, color="#00CC96", dash='dot'), # 虛線
-        opacity=0.6, # 半透明，避免搶戲
-        yaxis="y2",  # 指定到右邊的 Y 軸
-        hovertemplate=f"<b>{lev_label}</b><br>日期: %{{x|%Y-%m-%d}}<br>價格: %{{y:,.2f}} 元<extra></extra>"
-    ))
-
-    # 4. [標記] 買進點 (顯示雙價格) - 這裡顯示的是 "All-in" 訊號
-    if not buys.empty:
-        buy_hover_text = [
-            f"<b>▲ 買進訊號 (Buy/All-in)</b><br>"
-            f"日期: {d.strftime('%Y-%m-%d')}<br>"
-            f"------------------<br>"
-            f"訊號 ({base_label}): {p_base:,.2f} 元<br>"
-            f"成交 ({lev_label}): <b>{p_lev:,.2f} 元</b>"
-            for d, p_base, p_lev in zip(buys.index, buys["Price_base"], buys["Price_lev"])
-        ]
-
-        fig_price.add_trace(go.Scatter(
-            x=buys.index, 
-            y=buys["Price_base"], # 標記還是畫在左軸(訊號線)上，視覺上才準
-            mode="markers",
-            name="轉多買進 (All-in)", 
-            marker=dict(color="#00C853", size=12, symbol="triangle-up", line=dict(width=1, color="white")),
-            hoverinfo="text", # 使用自定義 text
-            hovertext=buy_hover_text
-        ))
-
-    # 5. [標記] 賣出點 (顯示雙價格)
-    if not sells.empty:
-        sell_hover_text = [
-            f"<b>▼ 賣出訊號 (Sell/DCA Start)</b><br>"
-            f"日期: {d.strftime('%Y-%m-%d')}<br>"
-            f"------------------<br>"
-            f"訊號 ({base_label}): {p_base:,.2f} 元<br>"
-            f"成交 ({lev_label}): <b>{p_lev:,.2f} 元</b>"
-            for d, p_base, p_lev in zip(sells.index, sells["Price_base"], sells["Price_lev"])
-        ]
-
-        fig_price.add_trace(go.Scatter(
-            x=sells.index, 
-            y=sells["Price_base"], 
-            mode="markers",
-            name="轉空賣出 (開始 DCA)", 
-            marker=dict(color="#D50000", size=12, symbol="triangle-down", line=dict(width=1, color="white")),
-            hoverinfo="text",
-            hovertext=sell_hover_text
-        ))
-
-    # 6. Layout 設定 (雙軸)
-    fig_price.update_layout(
-        template="plotly_white", 
-        height=450,
-        hovermode="x unified", # 統一顯示 x 軸資訊
-        yaxis=dict(
-            title=f"{base_label} 價格",
-            showgrid=True,
-            zeroline=False
-        ),
-        yaxis2=dict(
-            title=f"{lev_label} 價格",
-            overlaying="y", # 疊加在第一個 y 軸上
-            side="right",   # 放在右邊
-            showgrid=False, # 右軸不顯示網格，避免線條太亂
-            zeroline=False
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        margin=dict(l=10, r=10, t=30, b=10)
-    )
+    st.markdown(f"<h3>📌 策略訊號：{lev_label} vs 其 {sma_window}SMA</h3>", unsafe_allow_html=True)
+    fig_p = go.Figure()
+    fig_p.add_trace(go.Scatter(x=df.index, y=df["Price_lev"], name=f"{lev_label}", line=dict(color="#00CC96")))
+    fig_p.add_trace(go.Scatter(x=df.index, y=df["MA_Signal"], name=f"{sma_window}SMA", line=dict(color="#FFA15A", dash="dash")))
     
-    st.plotly_chart(fig_price, use_container_width=True)
-
-    ###############################################################
-    # Tabs
-    ###############################################################
-
-    st.markdown("<h3>📊 三策略資金曲線與風險解析</h3>", unsafe_allow_html=True)
-    tab_equity, tab_dd, tab_radar, tab_hist = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈"])
-
-    # --- 資金曲線 ---
-    with tab_equity:
-        fig_equity = go.Figure()
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name="原型BH"))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name="槓桿BH"))
-        
-        lrs_name = "LRS (含 DCA)" if enable_dca else "LRS (標準)"
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name=lrs_name))
-
-        fig_equity.update_layout(template="plotly_white", height=420, yaxis=dict(tickformat=".0%"))
-        st.plotly_chart(fig_equity, use_container_width=True)
-
-    # --- 回撤 ---
-    with tab_dd:
-        dd_base = (df["Equity_BH_Base"] / df["Equity_BH_Base"].cummax() - 1) * 100
-        dd_lev = (df["Equity_BH_Lev"] / df["Equity_BH_Lev"].cummax() - 1) * 100
-        dd_lrs = (df["Equity_LRS"] / df["Equity_LRS"].cummax() - 1) * 100
-
-        fig_dd = go.Figure()
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_base, name="原型BH"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lev, name="槓桿BH"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lrs, name=lrs_name, fill="tozeroy"))
-
-        fig_dd.update_layout(template="plotly_white", height=420)
-        st.plotly_chart(fig_dd, use_container_width=True)
-
-    # --- 雷達 ---
-    with tab_radar:
-        # 1. 準備數據
-        radar_categories = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反轉)"]
-
-        # 建立數據 List
-        radar_lrs  = [nz(cagr_lrs),  nz(sharpe_lrs),  nz(sortino_lrs),  nz(-mdd_lrs),  nz(-vol_lrs)]
-        radar_lev  = [nz(cagr_lev),  nz(sharpe_lev),  nz(sortino_lev),  nz(-mdd_lev),  nz(-vol_lev)]
-        radar_base = [nz(cagr_base), nz(sharpe_base), nz(sortino_base), nz(-mdd_base), nz(-vol_base)]
-
-        fig_radar = go.Figure()
-
-        # LRS (主角 - 紫色系)
-        fig_radar.add_trace(go.Scatterpolar(
-            r=radar_lrs, 
-            theta=radar_categories, 
-            fill='toself', 
-            name=lrs_name,
-            line=dict(color='#636EFA', width=3),
-            fillcolor='rgba(99, 110, 250, 0.2)'
-        ))
-
-        # 槓桿 BH (對照組1 - 紅色系)
-        fig_radar.add_trace(go.Scatterpolar(
-            r=radar_lev, 
-            theta=radar_categories, 
-            fill='toself', 
-            name=f'{lev_label} BH',
-            line=dict(color='#EF553B', width=2, dash='solid'),
-            fillcolor='rgba(239, 85, 59, 0.15)'
-        ))
-
-        # 原型 BH (對照組2 - 綠色系)
-        fig_radar.add_trace(go.Scatterpolar(
-            r=radar_base, 
-            theta=radar_categories, 
-            fill='toself', 
-            name=f'{base_label} BH',
-            line=dict(color='#00CC96', width=2, dash='dash'),
-            fillcolor='rgba(0, 204, 150, 0.1)'
-        ))
-
-        # 2. 視覺設定
-        fig_radar.update_layout(
-            height=480,
-            paper_bgcolor='rgba(0,0,0,0)', 
-            plot_bgcolor='rgba(0,0,0,0)',  
-            polar=dict(
-                bgcolor='rgba(0,0,0,0)',   
-                radialaxis=dict(
-                    visible=True,
-                    range=[None, None], 
-                    showticklabels=True,
-                    ticks='', 
-                    gridcolor='rgba(128, 128, 128, 0.2)', 
-                    linecolor='rgba(128, 128, 128, 0.3)'  
-                ),
-                angularaxis=dict(
-                    gridcolor='rgba(128, 128, 128, 0.2)',
-                    linecolor='rgba(128, 128, 128, 0.3)'
-                )
-            ),
-            legend=dict(
-                orientation="h",  
-                yanchor="bottom",
-                y=-0.15,          
-                xanchor="center",
-                x=0.5
-            ),
-            font=dict(
-                family="Noto Sans TC",
-                size=12,
-            ),
-            margin=dict(l=40, r=40, t=40, b=40)
-        )
-
-        st.plotly_chart(fig_radar, use_container_width=True)
-
-    # --- 日報酬分佈 ---
-    with tab_hist:
-        fig_hist = go.Figure()
-        fig_hist.add_trace(go.Histogram(x=df["Return_base"] * 100, name="原型BH", opacity=0.6))
-        fig_hist.add_trace(go.Histogram(x=df["Return_lev"] * 100, name="槓桿BH", opacity=0.6))
-        fig_hist.add_trace(go.Histogram(x=df["Return_LRS"] * 100, name=lrs_name, opacity=0.7))
-        fig_hist.update_layout(barmode="overlay", template="plotly_white", height=480)
-
-        st.plotly_chart(fig_hist, use_container_width=True)
-
-    ###############################################################
-    # KPI Summary (高級儀表板風格 + 正綠負紅邏輯)
-    ###############################################################
-
-    # 1. 計算 Gap (與槓桿BH相比)
-    asset_gap_lrs_vs_lev = ((capital_lrs_final / capital_lev_final) - 1) * 100
-    cagr_gap_lrs_vs_lev = (cagr_lrs - cagr_lev) * 100
-    vol_gap_lrs_vs_lev = (vol_lrs - vol_lev) * 100
-    mdd_gap_lrs_vs_lev = (mdd_lrs - mdd_lev) * 100
-
-    # 2. 定義高級 CSS 樣式
-    st.markdown("""
-    <style>
-        .kpi-card {
-            background-color: var(--secondary-background-color);
-            border-radius: 16px;
-            padding: 24px 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
-            border: 1px solid rgba(128, 128, 128, 0.1);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: 100%;
-            transition: all 0.3s ease;
-        }
-        .kpi-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
-            border-color: rgba(128, 128, 128, 0.2);
-        }
-        .kpi-label {
-            font-size: 0.9rem;
-            color: var(--text-color);
-            opacity: 0.7;
-            font-weight: 500;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .kpi-value {
-            font-size: 2rem;
-            font-weight: 800;
-            color: var(--text-color);
-            margin-bottom: 16px;
-            font-family: 'Noto Sans TC', sans-serif;
-            line-height: 1.2;
-        }
-        .delta-chip {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 700;
-            width: fit-content;
-        }
-        .delta-positive {
-            background-color: rgba(33, 195, 84, 0.12);
-            color: #21c354;
-        }
-        .delta-negative {
-            background-color: rgba(255, 60, 60, 0.12);
-            color: #ff3c3c;
-        }
-        .delta-neutral {
-            background-color: rgba(128, 128, 128, 0.1);
-            color: var(--text-color);
-            opacity: 0.6;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 3. 輔助函式 (邏輯：正數綠色，負數紅色)
-    def kpi_card_html(label, value, gap_val):
-        
-        # 判定顏色與箭頭
-        if gap_val > 0.001:
-            delta_class = "delta-positive"
-            icon = "▲"
-            sign_str = "+"
-        elif gap_val < -0.001:
-            delta_class = "delta-negative"
-            icon = "▼"
-            sign_str = "" # 負數自帶負號
-        else:
-            delta_class = "delta-neutral"
-            icon = "➖"
-            sign_str = ""
-
-        # 組合顯示文字
-        delta_text = f"{icon} {sign_str}{gap_val:.2f}% (vs 槓桿)"
-
-        return f"""
-        <div class="kpi-card">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
-            <div class="delta-chip {delta_class}">
-                {delta_text}
-            </div>
-        </div>
-        """
-
-    # 4. 建立佈局並渲染
-    row_kpi = st.columns(4)
-
-    with row_kpi[0]:
-        st.markdown(kpi_card_html(
-            "期末資產 (LRS)", 
-            format_currency(capital_lrs_final), 
-            asset_gap_lrs_vs_lev
-        ), unsafe_allow_html=True)
-
-    with row_kpi[1]:
-        st.markdown(kpi_card_html(
-            "CAGR (年化)", 
-            format_percent(cagr_lrs), 
-            cagr_gap_lrs_vs_lev
-        ), unsafe_allow_html=True)
-
-    with row_kpi[2]:
-        st.markdown(kpi_card_html(
-            "年化波動 (LRS)", 
-            format_percent(vol_lrs), 
-            vol_gap_lrs_vs_lev
-        ), unsafe_allow_html=True)
-
-    with row_kpi[3]:
-        st.markdown(kpi_card_html(
-            "最大回撤 (MDD)", 
-            format_percent(mdd_lrs), 
-            mdd_gap_lrs_vs_lev
-        ), unsafe_allow_html=True)
+    # 標記訊號
+    buys = df[df["Signal"] == 1]
+    sells = df[df["Signal"] == -1]
+    dca_pts = df[df["Signal"] == 2]
     
-    st.markdown("<div style='margin-bottom: 30px'></div>", unsafe_allow_html=True)
+    fig_p.add_trace(go.Scatter(x=buys.index, y=buys["Price_lev"], mode="markers", name="全倉買進", marker=dict(symbol="triangle-up", size=12, color="#00C853")))
+    fig_p.add_trace(go.Scatter(x=sells.index, y=sells["Price_lev"], mode="markers", name="清倉賣出", marker=dict(symbol="triangle-down", size=12, color="#D50000")))
+    fig_p.add_trace(go.Scatter(x=dca_pts.index, y=dca_pts["Price_lev"], mode="markers", name="DCA 點", marker=dict(symbol="circle", size=6, color="#2E7D32")))
+    
+    fig_p.update_layout(template="plotly_white", height=450, hovermode="x unified")
+    st.plotly_chart(fig_p, use_container_width=True)
 
-    ###############################################################
-    # 完整比較表格
-    ###############################################################
+    # Tabs (各類分析圖)
+    t1, t2, t3, t4 = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈"])
+    with t1:
+        fig_eq = go.Figure()
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_LRS"]-1, name="LRS+DCA (策略)"))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Lev"]-1, name="槓桿 BH (對照)"))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Base"]-1, name="原型 BH (對照)"))
+        fig_eq.update_layout(template="plotly_white", yaxis_tickformat=".0%")
+        st.plotly_chart(fig_eq, use_container_width=True)
+    
+    with t2:
+        for col, name in zip(["Equity_LRS", "Equity_BH_Lev", "Equity_BH_Base"], ["策略", "槓桿BH", "原型BH"]):
+            dd = (df[col] / df[col].cummax() - 1) * 100
+            st.plotly_chart(go.Figure(go.Scatter(x=df.index, y=dd, name=name, fill="tozeroy")).update_layout(height=300, title=name), use_container_width=True)
 
-    # 1. 定義要顯示的指標順序
-    metrics_order = [
-        "期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio",
-        "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"
-    ]
+    # 指標計算
+    y_len = (df.index[-1] - df.index[0]).days / 365
+    def get_stats(eq, rets):
+        final = eq.iloc[-1]
+        cagr = (final)**(1/y_len)-1
+        mdd = 1 - (eq / eq.cummax()).min()
+        v, sh, so = calc_metrics(rets)
+        return final, cagr, mdd, v, sh, so
 
-    # 2. 準備原始數據
-    data_dict = {
-        f"<b>{lev_label}</b><br><span style='font-size:0.85em; opacity:0.7'>{lrs_name}</span>": {
-            "期末資產": capital_lrs_final,
-            "總報酬率": final_ret_lrs,
-            "CAGR (年化)": cagr_lrs,
-            "Calmar Ratio": calmar_lrs,
-            "最大回撤 (MDD)": mdd_lrs,
-            "年化波動": vol_lrs,
-            "Sharpe Ratio": sharpe_lrs,
-            "Sortino Ratio": sortino_lrs,
-            "交易次數": trade_count_lrs,
-        },
-        f"<b>{lev_label}</b><br><span style='font-size:0.85em; opacity:0.7'>Buy & Hold</span>": {
-            "期末資產": capital_lev_final,
-            "總報酬率": final_ret_lev,
-            "CAGR (年化)": cagr_lev,
-            "Calmar Ratio": calmar_lev,
-            "最大回撤 (MDD)": mdd_lev,
-            "年化波動": vol_lev,
-            "Sharpe Ratio": sharpe_lev,
-            "Sortino Ratio": sortino_lev,
-            "交易次數": -1, 
-        },
-        f"<b>{base_label}</b><br><span style='font-size:0.85em; opacity:0.7'>Buy & Hold</span>": {
-            "期末資產": capital_base_final,
-            "總報酬率": final_ret_base,
-            "CAGR (年化)": cagr_base,
-            "Calmar Ratio": calmar_base,
-            "最大回撤 (MDD)": mdd_base,
-            "年化波動": vol_base,
-            "Sharpe Ratio": sharpe_base,
-            "Sortino Ratio": sortino_base,
-            "交易次數": -1,
-        }
+    s_lrs = get_stats(df["Equity_LRS"], df["Return_LRS"])
+    s_lev = get_stats(df["Equity_BH_Lev"], df["Return_lev"])
+    s_base = get_stats(df["Equity_BH_Base"], df["Return_base"])
+
+    # KPI Cards
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("期末資產", format_currency(s_lrs[0]*capital), f"{((s_lrs[0]/s_lev[0])-1)*100:.2f}% vs 槓桿")
+    k2.metric("CAGR", format_percent(s_lrs[1]), f"{(s_lrs[1]-s_lev[1])*100:.2f}%")
+    k3.metric("最大回撤", format_percent(s_lrs[2]), f"{(s_lrs[2]-s_lev[2])*100:.2f}%", delta_color="inverse")
+    k4.metric("交易次數", int((df["Signal"] != 0).sum()))
+
+    # 比較表格 HTML
+    st.markdown("### 📊 績效詳細對照表")
+    metrics = ["期末資產", "CAGR (年化)", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio"]
+    data = {
+        "LRS+DCA (策略)": [s_lrs[0]*capital, s_lrs[1], s_lrs[2], s_lrs[3], s_lrs[4]],
+        f"{lev_label} BH": [s_lev[0]*capital, s_lev[1], s_lev[2], s_lev[3], s_lev[4]],
+        f"{base_label} BH": [s_base[0]*capital, s_base[1], s_base[2], s_base[3], s_base[4]]
     }
-
-    # 3. 建立 DataFrame 並排序
-    df_vertical = pd.DataFrame(data_dict).reindex(metrics_order)
-
-    # 4. 定義格式化與「好壞方向」
-    metrics_config = {
-        "期末資產":       {"fmt": fmt_money, "invert": False},
-        "總報酬率":       {"fmt": fmt_pct,   "invert": False},
-        "CAGR (年化)":    {"fmt": fmt_pct,   "invert": False},
-        "Calmar Ratio":   {"fmt": fmt_num,   "invert": False},
-        "最大回撤 (MDD)": {"fmt": fmt_pct,   "invert": True},  # 越小越贏
-        "年化波動":       {"fmt": fmt_pct,   "invert": True},  # 越小越贏
-        "Sharpe Ratio":   {"fmt": fmt_num,   "invert": False},
-        "Sortino Ratio":  {"fmt": fmt_num,   "invert": False},
-        "交易次數":       {"fmt": lambda x: fmt_int(x) if x >= 0 else "—", "invert": True} 
-    }
-
-    # 5. 生成 HTML
-    html_code = """
-    <style>
-        .comparison-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            border-radius: 12px;
-            border: 1px solid var(--secondary-background-color);
-            font-family: 'Noto Sans TC', sans-serif;
-            margin-bottom: 1rem;
-            font-size: 0.95rem;
-        }
-        .comparison-table th {
-            background-color: var(--secondary-background-color);
-            color: var(--text-color);
-            padding: 14px;
-            text-align: center;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(128,128,128, 0.1);
-        }
-        .comparison-table td.metric-name {
-            background-color: transparent;
-            color: var(--text-color);
-            font-weight: 500;
-            text-align: left;
-            padding: 12px 16px;
-            width: 25%;
-            font-size: 0.9rem;
-            border-bottom: 1px solid rgba(128,128,128, 0.1);
-            opacity: 0.9;
-        }
-        .comparison-table td.data-cell {
-            text-align: center;
-            padding: 12px;
-            color: var(--text-color);
-            border-bottom: 1px solid rgba(128,128,128, 0.1);
-        }
-        .comparison-table td.lrs-col {
-            background-color: rgba(128, 128, 128, 0.03); 
-        }
-        .trophy-icon {
-            margin-left: 6px;
-            font-size: 1.1em;
-            text-shadow: 0 0 5px rgba(255, 215, 0, 0.4);
-        }
-        .comparison-table tr:hover td {
-            background-color: rgba(128,128,128, 0.05);
-        }
-    </style>
-    <table class="comparison-table">
-        <thead>
-            <tr>
-                <th style="text-align:left; padding-left:16px; width:25%;">指標</th>
-    """
-    
-    # 寫入表頭
-    for col_name in df_vertical.columns:
-        html_code += f"<th>{col_name}</th>"
-    html_code += "</tr></thead><tbody>"
-
-    # 寫入內容
-    for metric in df_vertical.index:
-        config = metrics_config.get(metric, {"fmt": fmt_num, "invert": False})
-        
-        # 1. 找出該列的「最佳值」
-        raw_row_values = df_vertical.loc[metric].values
-        valid_values = [x for x in raw_row_values if isinstance(x, (int, float)) and x != -1 and not pd.isna(x)]
-        
-        target_val = None
-        if valid_values and metric != "交易次數":
-            if config["invert"]:
-                target_val = min(valid_values)
-            else:
-                target_val = max(valid_values)
-
-        html_code += f"<tr><td class='metric-name'>{metric}</td>"
-        
-        # 2. 逐欄填入
-        for i, strategy in enumerate(df_vertical.columns):
-            val = df_vertical.at[metric, strategy]
-            
-            display_text = config["fmt"](val)
-            
-            is_winner = False
-            if target_val is not None and isinstance(val, (int, float)) and val == target_val:
-                is_winner = True
-            
-            if is_winner:
-                display_text = f"{display_text} <span class='trophy-icon'>🏆</span>"
-            
-            is_lrs = (i == 0)
-            lrs_class = "lrs-col" if is_lrs else ""
-            font_weight = "bold" if is_lrs else "normal"
-            
-            html_code += f"<td class='data-cell {lrs_class}' style='font-weight:{font_weight};'>{display_text}</td>"
-        
-        html_code += "</tr>"
-
-    html_code += "</tbody></table>"
-    st.write(html_code, unsafe_allow_html=True)
-
-    # ==========================================
-    # ⬇⬇⬇ 資料下載區塊 ⬇⬇⬇
-    # ==========================================
-    st.markdown("---")
-    st.subheader("📥 資料下載")
-
-    col_dl1, col_dl2 = st.columns(2)
-
-    # 1. 下載每日詳細數據
-    # 使用 utf-8-sig 編碼，確保 Excel 開啟中文不會亂碼
-    csv_equity = df.to_csv().encode('utf-8-sig') 
-    
-    with col_dl1:
-        st.download_button(
-            label="📄 下載每日資金曲線數據 (CSV)",
-            data=csv_equity,
-            file_name=f'LRS_Daily_Equity_{start}_{end}.csv',
-            mime='text/csv',
-            help="包含每日價格、MA訊號、以及三種策略的每日淨值走勢"
-        )
-
-    # 2. 下載策略比較表格
-    csv_metrics = df_vertical.to_csv().encode('utf-8-sig')
-
-    with col_dl2:
-        st.download_button(
-            label="📊 下載策略比較表格 (CSV)",
-            data=csv_metrics,
-            file_name=f'LRS_Metrics_Summary_{start}_{end}.csv',
-            mime='text/csv',
-            help="包含 CAGR, MDD, Sharpe 等所有彙整指標"
-        )
+    comp_df = pd.DataFrame(data, index=metrics)
+    st.table(comp_df.style.format({col: "{:,.2f}" for col in comp_df.columns}))
