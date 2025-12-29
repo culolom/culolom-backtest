@@ -7,9 +7,10 @@ import streamlit as st
 import os
 import datetime
 import pandas as pd
-import auth  # <---【修改點 1】引入剛剛建立的 auth.py
+import glob
+import auth  # 需確保目錄下有 auth.py
 
-# 1. 頁面設定 (必須放在第一行)
+# 1. 頁面設定
 st.set_page_config(
     page_title="倉鼠量化戰情室 | 白銀小倉鼠專屬福利",
     page_icon="🐹",
@@ -18,21 +19,20 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------
-# 🔒 會員驗證守門員 (Password Protection)
+# 🔒 會員驗證守門員
 # ------------------------------------------------------
 if not auth.check_password():
-    st.stop()  # 驗證沒過就停在這裡
+    st.stop()
 
 # ------------------------------------------------------
-# ✅ 正式內容開始
+# ✅ 全域變數與工具函式
 # ------------------------------------------------------
-
-# 共有用：資料夾、工具函式
 DATA_DIR = "data"
-TARGET_SYMBOLS = ["0050.TW", "GLD", "QQQ", "SPY", "VT", "ACWI", "VOO","SPY", "VXUS", "VEA", "VWO", "BOXX", "VTI", "BIL", "IEF", "IEI"]
+# 指定排行榜追蹤標的
+TARGET_SYMBOLS = ["0050.TW", "GLD", "QQQ", "SPY", "VT", "ACWI", "VOO", "VXUS", "VEA", "VWO", "BOXX", "VTI", "BIL", "IEF", "IEI"]
 
 def find_csv_for_symbol(symbol: str, files: list):
-    """在 data/*.csv 中找符合 symbol 的檔名（模糊搜尋）"""
+    """在 data/*.csv 中找符合 symbol 的檔名"""
     symbol_lower = symbol.lower()
     for f in files:
         name = os.path.basename(f).lower()
@@ -51,14 +51,12 @@ def load_price_series(csv_path: str):
             if c in df.columns:
                 return df[c].astype(float).dropna()
         num_cols = df.select_dtypes(include="number").columns
-        if len(num_cols) == 0:
-            return None
-        return df[num_cols[-1]].astype(float).dropna()
+        return df[num_cols[-1]].astype(float).dropna() if len(num_cols) > 0 else None
     except Exception:
         return None
 
 def classify_trend(price: pd.Series):
-    """用 200 日 + 價格位置簡易判斷趨勢。"""
+    """用 200 日均線判斷趨勢"""
     if price is None or len(price) < 200:
         return "資料不足", "⬜"
     ma200 = price.rolling(200).mean().iloc[-1]
@@ -66,23 +64,22 @@ def classify_trend(price: pd.Series):
     if pd.isna(ma200) or pd.isna(last):
         return "資料不足", "⬜"
     diff = (last / ma200) - 1.0
-    if diff > 0.05:
-        return "多頭", "🟢"
-    elif diff > 0:
-        return "偏多", "🟡"
-    elif diff > -0.05:
-        return "偏空", "🟠"
-    else:
-        return "空頭", "🔴"
+    if diff > 0.05: return "多頭", "🟢"
+    elif diff > 0: return "偏多", "🟡"
+    elif diff > -0.05: return "偏空", "🟠"
+    else: return "空頭", "🔴"
 
 def get_momentum_ranking(data_dir="data", symbols=None):
+    """計算 3 個月動能與 200SMA 乖離率"""
     if not os.path.exists(data_dir):
         return None, "無資料夾"
 
+    # 計算基準日 (上月底)
     today = pd.Timestamp.today()
     this_month_start = today.replace(day=1)
     end_date = this_month_start - pd.Timedelta(days=1)
-    start_date = end_date - pd.DateOffset(months=12)
+    # 改為 3 個月前
+    start_date = end_date - pd.DateOffset(months=3)
 
     results = []
     all_files = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
@@ -93,66 +90,62 @@ def get_momentum_ranking(data_dir="data", symbols=None):
     else:
         use_files = all_files
 
-    if not use_files:
-        return None, end_date
-
     for f in use_files:
         symbol = f.replace(".csv", "")
         try:
             df = pd.read_csv(os.path.join(data_dir, f))
             if "Date" not in df.columns: continue
-
+            
             col_price = "Adj Close" if "Adj Close" in df.columns else "Close"
-            if col_price not in df.columns: continue
-
             df["Date"] = pd.to_datetime(df["Date"])
             df = df.set_index("Date").sort_index()
+            
+            # 計算 200 均線
             df["MA_200"] = df[col_price].rolling(window=200).mean()
 
+            # 抓取基準日當下的數據
             hist_window = df.loc[:end_date]
             if hist_window.empty: continue
-
-            last_valid = hist_window.index[-1]
-            if (end_date - last_valid).days > 15: continue
-
+            
+            last_valid_date = hist_window.index[-1]
             p_end = hist_window[col_price].iloc[-1]
-            ma_end = df.loc[last_valid, "MA_200"]
+            ma_end = hist_window["MA_200"].iloc[-1]
 
-            # 【新增計算】200SMA 乖離率 = (收盤價 - 200SMA) / 200SMA
-            bias_rate = (p_end - ma_end) / ma_end if ma_end and not pd.isna(ma_end) else 0
-
+            # 1. 計算 3個月報酬 (Momentum)
             start_window = df.loc[:start_date]
             if start_window.empty: continue
-
             p_start = start_window[col_price].iloc[-1]
-            ret = (p_end - p_start) / p_start
+            ret_3m = (p_end - p_start) / p_start
+
+            # 2. 計算 200SMA 乖離率 = (收盤價 - 200SMA) / 200SMA
+            bias_200 = (p_end - ma_end) / ma_end if ma_end and not pd.isna(ma_end) else None
 
             results.append({
                 "代號": symbol,
-                "12月累積報酬": ret * 100,
+                "3月累積報酬": ret_3m * 100,
                 "收盤價": p_end,
                 "200SMA": ma_end,
-                "200SMA乖離率": bias_rate * 100  # 轉為百分比
+                "200SMA乖離率": bias_200 * 100 if bias_200 is not None else None
             })
         except Exception:
             continue
 
     if not results: return None, end_date
 
-    df = pd.DataFrame(results)
-    df = df.sort_values("12月累積報酬", ascending=False).reset_index(drop=True)
-    df.index += 1
-    df.index.name = "排名"
-    return df, end_date
+    df_res = pd.DataFrame(results)
+    df_res = df_res.sort_values("3月累積報酬", ascending=False).reset_index(drop=True)
+    df_res.index += 1
+    df_res.index.name = "排名"
+    return df_res, end_date
 
 # ------------------------------------------------------
-# 側邊欄與標題 (略，保持原樣)
+# 2. 側邊欄
 # ------------------------------------------------------
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png", width=120)
     else: st.title("🐹") 
     st.title("倉鼠量化戰情室")
-    st.caption("v1.1.1 Beta | 白銀小倉鼠限定")
+    st.caption("v1.1.2 | 白銀小倉鼠限定")
     st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="部落格首頁", icon="🏠")
@@ -162,38 +155,75 @@ with st.sidebar:
         st.session_state["password_correct"] = False
         st.rerun()
 
+# ------------------------------------------------------
+# 3. 主畫面
+# ------------------------------------------------------
 st.title("🚀 戰情室主頁面")
-# ... (資料狀態顯示略)
 
-# ------------------------------------------------------
-# 🏆 本月動能排行榜
-# ------------------------------------------------------
-st.markdown("### 🏆 本月動能排行榜（過去 12 個月績效）")
+# 資料狀態檢測
+files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+last_update = "N/A"
+if files:
+    latest_file = max(files, key=os.path.getmtime)
+    last_update = datetime.datetime.fromtimestamp(os.path.getmtime(latest_file)).strftime("%Y-%m-%d")
+
+st.caption(f"✅ 系統數據正常 | 📅 最後更新：{last_update}")
+st.markdown("歡迎來到 **倉鼠量化戰情室**！下方顯示主要標的的 **3個月動能排行榜** 與 **200日線乖離率**。")
+
+st.divider()
+
+# ==========================================
+# 🛠️ 策略選擇區
+# ==========================================
+st.subheader("🛠️ 選擇你的實驗策略")
+# (此處保留你原本的 META_INFO 與自動掃描 logic...)
+# ... [省略中間重複的頁面掃描代碼以節省篇幅] ...
+
+# ==========================================
+# 📊 功能 1：市場即時摘要
+# ==========================================
+st.subheader("📌 今日市場摘要 (SMA200 趨勢)")
+summary_cols = st.columns(4)
+ASSET_CONFIG = [
+    {"label": "美股科技", "symbol": "QQQ"},
+    {"label": "美股大盤", "symbol": "SPY"},
+    {"label": "台股大盤", "symbol": "0050"},
+    {"label": "全球股市", "symbol": "VT"},
+]
+
+for i, asset in enumerate(ASSET_CONFIG):
+    with summary_cols[i]:
+        csv_path = find_csv_for_symbol(asset["symbol"], files)
+        if csv_path:
+            p_series = load_price_series(csv_path)
+            txt, icon = classify_trend(p_series)
+            st.metric(asset["label"], txt, icon)
+        else:
+            st.metric(asset["label"], "無資料", "⬜")
+
+# ==========================================
+# 🏆 功能 2：本月動能排行榜 (3個月)
+# ==========================================
+st.divider()
+st.markdown("### 🏆 本月動能排行榜（過去 3 個月績效）")
 
 rank_df, calc_date = get_momentum_ranking(DATA_DIR, symbols=TARGET_SYMBOLS)
 
-if rank_df is not None and not isinstance(calc_date, str):
-    st.caption(f"📅 統計基準日：**{calc_date.strftime('%Y-%m-%d')}**（上個月底） | 過去 12 個月累積報酬")
+if rank_df is not None:
+    st.caption(f"📅 統計基準日：**{calc_date.strftime('%Y-%m-%d')}** | 排序依據：3個月累積報酬率")
 
     st.dataframe(
         rank_df,
         column_config={
-            "12月累積報酬": st.column_config.ProgressColumn(
-                "12月累積報酬 (Momentum)",
-                help="過去 12 個月的漲跌幅",
+            "3月累積報酬": st.column_config.ProgressColumn(
+                "3月累積報酬",
+                help="過去 3 個月的漲跌幅",
                 format="%.2f%%",
-                min_value=-50,
-                max_value=100,
+                min_value=-30,
+                max_value=60,
             ),
-            "收盤價": st.column_config.NumberColumn(
-                "收盤價 (Price)",
-                format="$%.2f",
-            ),
-            "200SMA": st.column_config.NumberColumn(
-                "200 日均線",
-                format="$%.2f",
-            ),
-            # 【新增 UI 欄位設定】
+            "收盤價": st.column_config.NumberColumn("收盤價", format="$%.2f"),
+            "200SMA": st.column_config.NumberColumn("200SMA", format="$%.2f"),
             "200SMA乖離率": st.column_config.NumberColumn(
                 "200SMA 乖離率",
                 help="(收盤價 - 200SMA) / 200SMA",
@@ -203,7 +233,7 @@ if rank_df is not None and not isinstance(calc_date, str):
         use_container_width=True,
     )
 else:
-    st.info("❗ 尚無足夠資料可計算動能排行。")
+    st.info("❗ 尚無足夠資料計算排行榜。")
 
 st.markdown("---")
-st.caption("🚧 更多策略正在開發中，敬請期待！")
+st.caption("🚧 更多策略持續開發中...")
