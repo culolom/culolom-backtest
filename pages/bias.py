@@ -99,7 +99,12 @@ TARGET_MAP = {
     "00631L 元大台灣50正2": "00631L.TW.csv",
     "00663L 國泰台灣加權正2": "00663L.TW.csv",
     "00675L 富邦台灣加權正2": "00675L.TW.csv",
-    "00685L 群益台灣加權正2": "00685L.TW.csv"
+    "00685L 群益台灣加權正2": "00685L.TW.csv",
+    "TQQQ QQQ正3": "TQQQ.csv",
+    "BTC 比特幣": "BTC-USD.csv",
+    "ETH 乙太幣": "ETH-USD.csv",
+    "GLD 黃金ETF": "GLD.csv",
+    "00670L QQQ台股正2": "00670L.TW.csv"
 }
 
 available_options = [name for name, f in TARGET_MAP.items() if os.path.exists(os.path.join(data_dir, f))]
