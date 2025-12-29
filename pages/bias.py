@@ -151,20 +151,7 @@ try:
         )
         st.plotly_chart(fig_k, use_container_width=True)
 
-    with col_stat2:
-        st.subheader("📊 波動率摘要")
-        d_avg = df['Daily_Return'].mean()
-        d_std = df['Daily_Return'].std()
-        
-        m1, m2 = st.columns(2)
-        m1.metric("平均日漲幅", f"{d_avg:.2%}")
-        m2.metric("日波動率", f"{d_std:.2%}")
-        
-        st.write("歷年乖離統計：")
-        st.dataframe(
-            stats_k[['max_gap', 'min_gap', 'avg_gap']].iloc[::-1].style.format("{:.2%}"), 
-            height=250, use_container_width=True
-        )
+
 
     # ===============================================================
     # 5. 主圖表顯示
