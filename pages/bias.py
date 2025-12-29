@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 50正2定投抄底指標 (色塊區域版 + Auth)
+# app.py — 50正2定投抄底雷達 (歷年趨勢圖版)
 ###############################################################
 
 import streamlit as st
@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
 import os
 import sys
 
@@ -15,257 +14,238 @@ import sys
 # 1. 頁面設定 & 驗證守門員
 # ===============================================================
 st.set_page_config(
-    page_title="Hamr Lab | 50正2定投抄底指標",
+    page_title="Hamr Lab | 50正2定投抄底雷達",
     page_icon="📈",
     layout="wide",
 )
 
-# ------------------------------------------------------
-# 🔒 驗證守門員
-# ------------------------------------------------------
+# 🔒 驗證守門員 (若無 auth.py 則跳過)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 try:
     import auth
     if not auth.check_password():
-        st.stop()  # 驗證沒過就停止執行
+        st.stop()  
 except ImportError:
-    st.warning("⚠️ 找不到 auth 模組，跳過驗證 (僅限測試模式)")
+    st.warning("⚠️ 找不到 auth 模組，暫以測試模式執行")
 
-# ------------------------------------------------------
 # 側邊欄導覽
-# ------------------------------------------------------
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
-    
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
-    
-    st.divider()
-    st.info("💡 設計理念：致敬比特幣 ahr999 囤幣指標。")
-    st.markdown("""
-    **策略邏輯：**
-    - **🟢 定投區 (-1σ ~ -2σ)**: 綠色區塊。價格回落至合理區間，適合執行定期定額。
-    - **🔴 抄底區 (< -2σ)**: 紅色區塊。極度恐慌時刻，價格遭錯殺，考慮加大部位抄底。
-    """)
+    st.info("💡 策略邏輯：\n- 🟢 定投區 (-1σ ~ -2σ)\n- 🔴 抄底區 (< -2σ)")
+    st.caption("基準：收盤價與 200SMA 之乖離率")
 
-# 主標題
-st.title("🚀 50正2定投抄底指標 (Accumulation Index)")
+st.title("🚀 50正2定投抄底雷達")
 
 # ===============================================================
-# 區塊 1: 參數設定與檔案讀取
+# 2. 參數設定 (自動觸發)
 # ===============================================================
-with st.container(border=True):
-    TARGET_MAP = {
-        "00631L 元大台灣50正2": "00631L.TW.csv",
-        "00663L 國泰台灣加權正2": "00663L.TW.csv",
-        "00675L 富邦台灣加權正2": "00675L.TW.csv",
-        "00685L 群益台灣加權正2": "00685L.TW.csv"
-    }
-    
-    data_dir = "data"
-    available_options = []
-    
-    if os.path.exists(data_dir):
-        for display_name, filename in TARGET_MAP.items():
-            if os.path.exists(os.path.join(data_dir, filename)):
-                available_options.append(display_name)
-    else:
-        st.error(f"❌ 找不到 '{data_dir}' 資料夾，請確認目錄結構。")
+data_dir = "data"
+TARGET_MAP = {
+    "00631L 元大台灣50正2": "00631L.TW.csv",
+    "00663L 國泰台灣加權正2": "00663L.TW.csv",
+    "00675L 富邦台灣加權正2": "00675L.TW.csv",
+    "00685L 群益台灣加權正2": "00685L.TW.csv"
+}
 
-    c1, c2, c3 = st.columns([2, 1.5, 1.5])
-    
-    selected_file = None
-    ticker_name = "未知標的"
-
-    with c1:
-        if available_options:
-            selected_option = st.selectbox("選擇標的 (台股正2)", available_options, index=0)
-            selected_file = TARGET_MAP[selected_option]
-            ticker_name = selected_option 
-        else:
-            st.warning("⚠️ data 資料夾內找不到指定的正2 CSV 檔案")
-            
-    with c2:
-        start_date = st.date_input("開始日期", datetime.now() - timedelta(days=365*5))
-    with c3:
-        end_date = st.date_input("結束日期", datetime.now())
-
-    c4, c5 = st.columns([1, 2])
-    with c4:
-        sma_window = st.number_input("基準均線週期 (預設 200)", value=200)
-    with c5:
-        st.write("") 
-
-    submitted = st.button("🚀 開始分析區間", use_container_width=True, type="primary")
-
-# ===============================================================
-# 區塊 2: 繪圖與回測邏輯
-# ===============================================================
-if submitted and selected_file:
-    file_path = os.path.join(data_dir, selected_file)
-    
-    try:
-        # 讀取 CSV
-        df_raw = pd.read_csv(file_path)
-        
-        # --- 資料清洗 ---
-        if 'Date' in df_raw.columns:
-            df_raw['Date'] = pd.to_datetime(df_raw['Date'])
-            df_raw.set_index('Date', inplace=True)
-        else:
-            st.error("CSV 缺少 'Date' 欄位。")
-            st.stop()
-
-        if 'Close' not in df_raw.columns:
-            if 'Adj Close' in df_raw.columns:
-                df_raw['Price'] = df_raw['Adj Close']
-            else:
-                st.error("找不到 'Close' 欄位。")
-                st.stop()
-        else:
-            df_raw['Price'] = df_raw['Close']
-        
-        df_raw['Price'] = pd.to_numeric(df_raw['Price'], errors='coerce')
-        df_raw = df_raw.dropna(subset=['Price'])
-
-        # --- 先計算全歷史指標 ---
-        df_raw['SMA'] = df_raw['Price'].rolling(window=sma_window).mean()
-        df_raw['Gap'] = (df_raw['Price'] - df_raw['SMA']) / df_raw['SMA']
-        df_raw['Return_5D'] = (df_raw['Price'].shift(-5) - df_raw['Price']) / df_raw['Price']
-
-        # --- 再進行時間切分 ---
-        tz_start = pd.to_datetime(start_date)
-        tz_end = pd.to_datetime(end_date)
-        df = df_raw.sort_index().loc[tz_start:tz_end].copy()
-
-        df = df.dropna(subset=['SMA', 'Gap'])
-
-        if df.empty:
-            st.warning(f"⚠️ 選定區間 ({start_date} ~ {end_date}) 內無有效數據。")
-        else:
-            # --- 統計數據 ---
-            gap_mean_all = df['Gap'].mean()
-            gap_std_all = df['Gap'].std()
-            
-            # 定義：定投線 (-1σ), 抄底線 (-2σ)
-            sigma_neg_1 = gap_mean_all - (1 * gap_std_all)
-            sigma_neg_2 = gap_mean_all - (2 * gap_std_all)
-            
-            # 定義區域下限 (為了畫紅色區塊，取一個比歷史最低還低一點的值)
-            min_gap_display = min(df['Gap'].min(), sigma_neg_2) * 1.2
-
-            # --- 主圖表 ---
-            fig_main = make_subplots(specs=[[{"secondary_y": True}]])
-            
-            # 1. 乖離率 (左軸) - 藍色線
-            fig_main.add_trace(go.Scatter(
-                x=df.index, y=df['Gap'], name="指標數值 (左軸)", 
-                line=dict(color='#2980b9', width=1.5),
-                # 移除原本的藍色填充，避免與背景色塊混淆，或者保留淡淡的
-                # fill='tozeroy', fillcolor='rgba(41, 128, 185, 0.05)' 
-            ), secondary_y=False)
-
-            # 2. 價格 (右軸) - 橘色線
-            fig_main.add_trace(go.Scatter(
-                x=df.index, y=df['Price'], name="收盤價 (右軸)", 
-                line=dict(color='#ff7f0e', width=2.5) 
-            ), secondary_y=True)
-
-            # 3. [已移除] SMA 線 
-            # 依據需求，這裡不再繪製 SMA 線，但保留在變數中供計算使用
-
-            # --- 繪製背景色塊 (Zones) ---
-            
-            # 🟢 定投區 (Green Zone): -1σ 到 -2σ 之間
-            fig_main.add_hrect(
-                y0=sigma_neg_1, y1=sigma_neg_2,
-                fillcolor="#2ecc71", opacity=0.15,
-                layer="below", line_width=0,
-                secondary_y=False,
-                annotation_text="定投區", annotation_position="top left", annotation_font_color="#27ae60"
-            )
-
-            # 🔴 抄底區 (Red Zone): -2σ 以下
-            fig_main.add_hrect(
-                y0=sigma_neg_2, y1=min_gap_display, # 延伸到圖表底部
-                fillcolor="#e74c3c", opacity=0.15,
-                layer="below", line_width=0,
-                secondary_y=False,
-                annotation_text="抄底區", annotation_position="bottom left", annotation_font_color="#c0392b"
-            )
-
-            # 輔助線 (邊界線) - 讓區間邊界更清楚
-            fig_main.add_hline(y=sigma_neg_1, line_dash="dash", line_color="#2ecc71", line_width=1, secondary_y=False)
-            fig_main.add_hline(y=sigma_neg_2, line_dash="dash", line_color="#e74c3c", line_width=1, secondary_y=False)
-
-            fig_main.update_layout(
-                title=f"{ticker_name} - 定投抄底指標走勢圖",
-                height=600, hovermode="x unified", plot_bgcolor='white',
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            fig_main.update_yaxes(title_text="指標強度 %", tickformat=".0%", secondary_y=False, showgrid=True, gridcolor='whitesmoke')
-            fig_main.update_yaxes(title_text="價格", secondary_y=True, showgrid=False)
-            
-            st.plotly_chart(fig_main, use_container_width=True)
-
-            # --- 歷史分佈圖 ---
-            st.divider()
-            col_l, col_r = st.columns(2)
-
-            with col_l:
-                st.subheader("📊 指標落點分佈")
-                fig_hist = go.Figure(go.Histogram(x=df['Gap'], nbinsx=100, marker_color='#2980b9', opacity=0.6, name='分佈'))
-                # 分佈圖也加上色塊或線條對照
-                fig_hist.add_vline(x=sigma_neg_1, line_dash="dash", line_width=2, line_color="#2ecc71", annotation_text="定投線")
-                fig_hist.add_vline(x=sigma_neg_2, line_dash="dot", line_width=3, line_color="#e74c3c", annotation_text="抄底線")
-                fig_hist.update_layout(xaxis_tickformat=".0%", height=350, plot_bgcolor='white', bargap=0.1)
-                st.plotly_chart(fig_hist, use_container_width=True)
-
-            with col_r:
-                st.subheader("🎯 策略回測 (5日後表現)")
-                
-                dca_t = df[df['Gap'] <= sigma_neg_1].dropna(subset=['Return_5D'])
-                wr_dca = len(dca_t[dca_t['Return_5D'] > 0]) / len(dca_t) if not dca_t.empty else 0
-                
-                bot_t = df[df['Gap'] <= sigma_neg_2].dropna(subset=['Return_5D'])
-                wr_bot = len(bot_t[bot_t['Return_5D'] > 0]) / len(bot_t) if not bot_t.empty else 0
-
-                c_rc1, c_rc2 = st.columns(2)
-                c_rc1.metric("定投區 (綠區) 勝率", f"{wr_dca:.1%}")
-                c_rc2.metric("抄底區 (紅區) 勝率", f"{wr_bot:.1%}")
-                
-                st.write(f"💡 機會次數：落入綠區 {len(dca_t)} 天 / 落入紅區 {len(bot_t)} 天")
-                st.caption("註：勝率為訊號出現後持有 5 日為正報酬的機率。")
-
-            # --- 數據摘要 (精簡版) ---
-            st.divider()
-            st.subheader("📋 定投抄底價格參考表")
-
-            # 重新計算建議價格
-            current_sma = df['SMA'].iloc[-1]
-            price_at_dca = current_sma * (1 + sigma_neg_1)
-            price_at_bot = current_sma * (1 + sigma_neg_2)
-            
-            k1, k2, k3 = st.columns(3)
-            
-            with k1:
-                st.metric("目前價格", f"{df['Price'].iloc[-1]:.2f}")
-                
-            with k2:
-                st.metric("🟢 定投買入價 (進入綠區)", f"{price_at_dca:.2f}", delta="開始分批", delta_color="off")
-                
-            with k3:
-                st.metric("🔴 抄底買入價 (進入紅區)", f"{price_at_bot:.2f}", delta="重倉機會", delta_color="inverse")
-
-    except Exception as e:
-        st.error(f"分析過程中發生錯誤：{e}")
-
+# 檢查現有檔案
+available_options = []
+if os.path.exists(data_dir):
+    for display_name, filename in TARGET_MAP.items():
+        if os.path.exists(os.path.join(data_dir, filename)):
+            available_options.append(display_name)
 else:
-    if not available_options:
-         st.info("👆 請確認 data 資料夾內有 00631L, 00663L, 00675L 或 00685L 的 CSV 檔案。")
-    elif not submitted:
-         st.info("👆 請選擇標的並點擊「開始分析區間」。")
+    st.error(f"❌ 找不到 '{data_dir}' 資料夾")
+
+if not available_options:
+    st.warning("⚠️ 請確認 data 資料夾內有對應的 CSV 檔案。")
+    st.stop()
+
+with st.container(border=True):
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        selected_option = st.selectbox("🎯 選擇標的 (自動計算 2015 至今全歷史)", available_options)
+        selected_file = TARGET_MAP[selected_option]
+    with c2:
+        sma_window = st.number_input("基準均線週期 (SMA)", value=200)
+
+# ===============================================================
+# 3. 核心數據運算
+# ===============================================================
+file_path = os.path.join(data_dir, selected_file)
+
+try:
+    # 讀取資料
+    df = pd.read_csv(file_path)
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
+    
+    # 處理價格欄位
+    price_col = 'Adj Close' if 'Adj Close' in df.columns else 'Close'
+    df['Price'] = pd.to_numeric(df[price_col], errors='coerce')
+    df = df.dropna(subset=['Price']).sort_index()
+
+    # 指標計算
+    df['SMA'] = df['Price'].rolling(window=sma_window).mean()
+    df['Gap'] = (df['Price'] - df['SMA']) / df['SMA']
+    df['Daily_Return'] = df['Price'].pct_change()
+    df['Return_5D'] = (df['Price'].shift(-5) - df['Price']) / df['Price']
+    
+    # 移除 SMA 初期空值
+    df_clean = df.dropna(subset=['SMA', 'Gap']).copy()
+
+    # ===============================================================
+    # 4. 統計區塊：歷年趨勢圖 & 每日統計
+    # ===============================================================
+    col_stat1, col_stat2 = st.columns([7, 3]) # 調整比例讓圖表寬一點
+
+    with col_stat1:
+        st.subheader("📅 歷年乖離率趨勢圖")
+        
+        # 1. 準備資料 (改為升序排列，以便繪製折線圖)
+        yearly_df = df_clean.copy()
+        yearly_df['Year'] = yearly_df.index.year
+        stats_table = yearly_df.groupby('Year')['Gap'].agg([
+            ('最大乖離', 'max'),
+            ('最低乖離', 'min'),
+            ('平均乖離', 'mean'),
+            ('乖離標準差', 'std')
+        ]).sort_index(ascending=True) # 重要：改為升序
+
+        # 2. 建立 Plotly Figure
+        fig_yearly = go.Figure()
+
+        # 3. 添加四條線
+        # 最大乖離 (紅色系)
+        fig_yearly.add_trace(go.Scatter(
+            x=stats_table.index, y=stats_table['最大乖離'],
+            mode='lines+markers', name='最大乖離',
+            line=dict(color='#e74c3c', width=2),
+            marker=dict(size=6)
+        ))
+        # 平均乖離 (藍色系)
+        fig_yearly.add_trace(go.Scatter(
+            x=stats_table.index, y=stats_table['平均乖離'],
+            mode='lines+markers', name='平均乖離',
+            line=dict(color='#3498db', width=3),
+            marker=dict(size=8)
+        ))
+        # 乖離標準差 (橘/黃色系)
+        fig_yearly.add_trace(go.Scatter(
+            x=stats_table.index, y=stats_table['乖離標準差'],
+            mode='lines+markers', name='乖離標準差',
+            line=dict(color='#f39c12', width=2),
+            marker=dict(size=6)
+        ))
+        # 最低乖離 (深紅色，虛線)
+        fig_yearly.add_trace(go.Scatter(
+            x=stats_table.index, y=stats_table['最低乖離'],
+            mode='lines+markers', name='最低乖離',
+            line=dict(color='#c0392b', width=2, dash='dot'),
+            marker=dict(size=6)
+        ))
+
+        # 4. 設定 Layout
+        fig_yearly.update_layout(
+            height=350,
+            hovermode="x unified", # 游標懸停時顯示所有數據
+            template="plotly_white",
+            legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
+            xaxis=dict(
+                title="年份",
+                dtick=1 # 強制X軸每年都顯示標籤
+            ),
+            yaxis=dict(
+                title="乖離率 %",
+                tickformat=".1%" # 設定Y軸為百分比格式
+            ),
+            margin=dict(l=20, r=20, t=60, b=20)
+        )
+        
+        # 5. 顯示圖表 (取代原本的 st.dataframe)
+        st.plotly_chart(fig_yearly, use_container_width=True)
+
+    with col_stat2:
+        st.subheader("📊 每日漲跌幅概況")
+        # 這裡保持原本的每日統計
+        d_avg = df['Daily_Return'].mean()
+        d_std = df['Daily_Return'].std()
+        d_max = df['Daily_Return'].max()
+        d_min = df['Daily_Return'].min()
+
+        st.metric("平均日漲幅", f"{d_avg:.2%}")
+        st.metric("漲跌標準差 (波動)", f"{d_std:.2%}")
+        st.metric("歷史最大漲幅", f"{d_max:.2%}")
+        st.metric("歷史最大跌幅", f"{d_min:.2%}")
+
+    # ===============================================================
+    # 5. 主圖表顯示 (保持不變)
+    # ===============================================================
+    st.divider()
+    
+    # 計算信心區間邊界
+    gap_mean = df_clean['Gap'].mean()
+    gap_std = df_clean['Gap'].std()
+    sigma_neg_1 = gap_mean - (1 * gap_std)
+    sigma_neg_2 = gap_mean - (2 * gap_std)
+    min_gap_display = min(df_clean['Gap'].min(), sigma_neg_2) * 1.1
+
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # 乖離率 (左軸)
+    fig.add_trace(go.Scatter(
+        x=df_clean.index, y=df_clean['Gap'], name="指標乖離率", 
+        line=dict(color='#2980b9', width=1.5)
+    ), secondary_y=False)
+
+    # 價格 (右軸)
+    fig.add_trace(go.Scatter(
+        x=df_clean.index, y=df_clean['Price'], name="收盤價", 
+        line=dict(color='#ff7f0e', width=2),
+        opacity=0.5
+    ), secondary_y=True)
+
+    # 背景色塊
+    fig.add_hrect(y0=sigma_neg_1, y1=sigma_neg_2, fillcolor="#2ecc71", opacity=0.15, layer="below", secondary_y=False, annotation_text="定投區")
+    fig.add_hrect(y0=sigma_neg_2, y1=min_gap_display, fillcolor="#e74c3c", opacity=0.15, layer="below", secondary_y=False, annotation_text="抄底區")
+
+    fig.update_layout(
+        title=f"{selected_option} 歷史走勢圖 ({df_clean.index.min().date()} ~ {df_clean.index.max().date()})",
+        height=600, hovermode="x unified", template="plotly_white",
+        legend=dict(orientation="h", y=1.05, x=0.5, xanchor="center")
+    )
+    fig.update_yaxes(title_text="指標強度 %", tickformat=".0%", secondary_y=False)
+    fig.update_yaxes(title_text="價格", secondary_y=True)
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ===============================================================
+    # 6. 策略回測與底部價格參考 (保持不變)
+    # ===============================================================
+    st.divider()
+    c_back1, c_back2 = st.columns([1, 1])
+
+    with c_back1:
+        st.subheader("🎯 抄底勝率 (持有5日)")
+        dca_t = df_clean[df_clean['Gap'] <= sigma_neg_1].dropna(subset=['Return_5D'])
+        wr_dca = len(dca_t[dca_t['Return_5D'] > 0]) / len(dca_t) if not dca_t.empty else 0
+        bot_t = df_clean[df_clean['Gap'] <= sigma_neg_2].dropna(subset=['Return_5D'])
+        wr_bot = len(bot_t[bot_t['Return_5D'] > 0]) / len(bot_t) if not bot_t.empty else 0
+
+        st.write(f"🟢 定投區正報酬機率：**{wr_dca:.1%**}")
+        st.write(f"🔴 抄底區正報酬機率：**{wr_bot:.1%**}")
+        st.caption(f"全歷史統計：落入綠區 {len(dca_t)} 天 / 紅區 {len(bot_t)} 天")
+
+    with c_back2:
+        st.subheader("📋 今日價格參考點")
+        current_sma = df_clean['SMA'].iloc[-1]
+        p_dca = current_sma * (1 + sigma_neg_1)
+        p_bot = current_sma * (1 + sigma_neg_2)
+        
+        st.metric("當前收盤價", f"{df_clean['Price'].iloc[-1]:.2f}")
+        cc1, cc2 = st.columns(2)
+        cc1.metric("🟢 定投啟動價", f"{p_dca:.2f}")
+        cc2.metric("🔴 破盤抄底價", f"{p_bot:.2f}")
+
+except Exception as e:
+    st.error(f"❌ 分析發生錯誤：{e}")
