@@ -58,10 +58,16 @@ st.markdown("""
         font-weight: 800;
         margin: 0;
     }
+    .metric-sub {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #6B778C;
+        margin-left: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# 🔒 驗證模塊 (保留你原始的 auth 邏輯)
+# 🔒 驗證模塊
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
@@ -76,16 +82,12 @@ except ImportError:
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.divider()
     st.info("💡 指標原理：計算價格與 200SMA 的乖離率，並透過歷史標準差定義恐慌買點與過熱賣點。")
 
 st.title("🚀 50正2 乖離率位階雷達")
 
 # ===============================================================
-# 1. 參數設定與數據運算
+# 1. 數據讀取與運算
 # ===============================================================
 data_dir = "data"
 TARGET_MAP = {
@@ -98,7 +100,7 @@ TARGET_MAP = {
 available_options = [name for name, f in TARGET_MAP.items() if os.path.exists(os.path.join(data_dir, f))]
 
 if not available_options:
-    st.error("❌ 找不到數據檔案，請確認 data 目錄。")
+    st.error("❌ 找不到數據檔案。")
     st.stop()
 
 with st.container(border=True):
@@ -112,7 +114,6 @@ with st.container(border=True):
 file_path = os.path.join(data_dir, selected_file)
 
 try:
-    # 數據讀取
     df = pd.read_csv(file_path)
     df['Date'] = pd.to_datetime(df['Date'])
     df.set_index('Date', inplace=True)
@@ -120,118 +121,71 @@ try:
     df['Price'] = pd.to_numeric(df[price_col], errors='coerce')
     df = df.dropna(subset=['Price']).sort_index()
 
-    # 計算乖離率與標準差位階
     df['SMA'] = df['Price'].rolling(window=sma_window).mean()
     df['Gap'] = (df['Price'] - df['SMA']) / df['SMA']
     df_clean = df.dropna(subset=['SMA', 'Gap']).copy()
 
-    gap_mean = df_clean['Gap'].mean()
-    gap_std = df_clean['Gap'].std()
-    
-    s_pos2 = gap_mean + 2 * gap_std  # 套利線
-    s_pos1 = gap_mean + gap_std      # 警戒線
-    s_neg1 = gap_mean - gap_std      # 定投線
-    s_neg2 = gap_mean - 2 * gap_std  # 抄底線
+    gap_mean, gap_std = df_clean['Gap'].mean(), df_clean['Gap'].std()
+    s_pos2, s_pos1 = gap_mean + 2 * gap_std, gap_mean + gap_std
+    s_neg1, s_neg2 = gap_mean - gap_std, gap_mean - 2 * gap_std
 
     # ===============================================================
-    # 2. 全歷史乖離圖表 (Plotly)
+    # 2. 全歷史圖表
     # ===============================================================
     st.divider()
-    
     fig_main = make_subplots(specs=[[{"secondary_y": True}]])
-    
-    # 乖離率主線
-    fig_main.add_trace(go.Scatter(
-        x=df_clean.index, y=df_clean['Gap'], 
-        name="指標乖離率", 
-        line=dict(color=COLORS['main_gap'], width=2),
-        fill='tozeroy', 
-        fillcolor='rgba(0, 82, 204, 0.03)'
-    ), secondary_y=False)
-    
-    # 收盤價 (背景淡化線)
-    fig_main.add_trace(go.Scatter(
-        x=df_clean.index, y=df_clean['Price'], 
-        name="收盤價", 
-        line=dict(color=COLORS['price_line'], width=1), 
-        opacity=0.4
-    ), secondary_y=True)
+    fig_main.add_trace(go.Scatter(x=df_clean.index, y=df_clean['Gap'], name="指標乖離率", line=dict(color=COLORS['main_gap'], width=2), fill='tozeroy', fillcolor='rgba(0, 82, 204, 0.03)'), secondary_y=False)
+    fig_main.add_trace(go.Scatter(x=df_clean.index, y=df_clean['Price'], name="收盤價", line=dict(color=COLORS['price_line'], width=1), opacity=0.4), secondary_y=True)
 
-    # 繪製四條水平基準線
     def add_ref_line(fig, y_val, label, color):
-        fig.add_hline(
-            y=y_val, 
-            line=dict(color=color, width=1.2, dash="dash"),
-            annotation_text=f"<b>{label}</b>",
-            annotation_position="top right",
-            annotation_font=dict(color=color, size=11),
-            secondary_y=False
-        )
+        fig.add_hline(y=y_val, line=dict(color=color, width=1.2, dash="dash"), annotation_text=f"<b>{label}</b>", annotation_position="top right", annotation_font=dict(color=color, size=11), secondary_y=False)
 
-    add_ref_line(fig_main, s_pos2, "套利 +2σ", COLORS['pos2_arb'])
-    add_ref_line(fig_main, s_pos1, "警戒 +1σ", COLORS['pos1_warn'])
-    add_ref_line(fig_main, s_neg1, "定投 -1σ", COLORS['neg1_buy'])
-    add_ref_line(fig_main, s_neg2, "抄底 -2σ", COLORS['neg2_bottom'])
+    add_ref_line(fig_main, s_pos2, f"套利 +2σ ({s_pos2*100:.1f}%)", COLORS['pos2_arb'])
+    add_ref_line(fig_main, s_pos1, f"警戒 +1σ ({s_pos1*100:.1f}%)", COLORS['pos1_warn'])
+    add_ref_line(fig_main, s_neg1, f"定投 -1σ ({s_neg1*100:.1f}%)", COLORS['neg1_buy'])
+    add_ref_line(fig_main, s_neg2, f"抄底 -2σ ({s_neg2*100:.1f}%)", COLORS['neg2_bottom'])
 
-    fig_main.update_layout(
-        title=dict(text=f"<b>{selected_option} 歷史乖離率與操作位階</b>", font=dict(size=18)),
-        height=600,
-        hovermode="x unified",
-        template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=10, r=10, t=80, b=10)
-    )
-    
+    fig_main.update_layout(title=dict(text=f"<b>{selected_option} 歷史乖離率與操作位階</b>", font=dict(size=18)), height=600, hovermode="x unified", template="plotly_white", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     fig_main.update_yaxes(title_text="乖離率 (%)", tickformat=".1%", secondary_y=False, showgrid=True, gridcolor=COLORS['grid'])
-    fig_main.update_yaxes(title_text="價格", secondary_y=True, showgrid=False)
-    fig_main.update_xaxes(showgrid=False)
-
     st.plotly_chart(fig_main, use_container_width=True)
 
     # ===============================================================
-    # 3. 數據參考資訊卡片
+    # 3. 數據參考資訊卡片 (更新百分比標註)
     # ===============================================================
-    def create_card(title, value, icon, border_color):
+    def create_card(title, value, icon, border_color, sub_text=""):
+        sub_html = f'<span class="metric-sub">{sub_text}</span>' if sub_text else ""
         return f"""
         <div class="metric-card" style="border-left: 5px solid {border_color};">
             <div class="metric-title"><span>{icon}</span>&nbsp;{title}</div>
-            <p class="metric-value">{value}</p>
+            <p class="metric-value">{value}{sub_html}</p>
         </div>
         """
 
     with st.expander("📌 查看今日對應價格與當前位階參考", expanded=True):
-        curr_p = df_clean['Price'].iloc[-1]
-        curr_sma = df_clean['SMA'].iloc[-1]
-        curr_gap = df_clean['Gap'].iloc[-1] # 最新乖離率
+        curr_p, curr_sma, curr_gap = df_clean['Price'].iloc[-1], df_clean['SMA'].iloc[-1], df_clean['Gap'].iloc[-1]
         
         # 換算價格
-        p_pos2 = curr_sma * (1 + s_pos2)
-        p_pos1 = curr_sma * (1 + s_pos1)
-        p_neg1 = curr_sma * (1 + s_neg1)
-        p_neg2 = curr_sma * (1 + s_neg2)
+        p_pos2, p_pos1 = curr_sma * (1 + s_pos2), curr_sma * (1 + s_pos1)
+        p_neg1, p_neg2 = curr_sma * (1 + s_neg1), curr_sma * (1 + s_neg2)
 
-        # 第一排：現況追蹤 (3欄)
+        # 第一排：現況
         r1_c1, r1_c2, r1_c3 = st.columns(3)
-        with r1_c1:
-            st.markdown(create_card("今日收盤價", f"{curr_p:.2f}", "🏁", COLORS['main_gap']), unsafe_allow_html=True)
-        with r1_c2:
-            st.markdown(create_card("200日均線", f"{curr_sma:.2f}", "〰️", COLORS['price_line']), unsafe_allow_html=True)
-        with r1_c3:
-            # 高亮顯示當前乖離率
-            st.markdown(create_card("當前乖離率", f"{curr_gap*100:.2f}%", "📊", "#172B4D"), unsafe_allow_html=True)
+        with r1_c1: st.markdown(create_card("今日收盤價", f"{curr_p:.2f}", "🏁", COLORS['main_gap']), unsafe_allow_html=True)
+        with r1_c2: st.markdown(create_card("200日均線", f"{curr_sma:.2f}", "〰️", COLORS['price_line']), unsafe_allow_html=True)
+        with r1_c3: st.markdown(create_card("當前乖離率", f"{curr_gap*100:.2f}%", "📊", "#172B4D"), unsafe_allow_html=True)
 
-        st.write("") # 間距
+        st.write("") 
 
-        # 第二排：操作建議價格 (4欄)
+        # 第二排：操作建議價格 (加入百分比標註)
         r2_c1, r2_c2, r2_c3, r2_c4 = st.columns(4)
-        with r2_c1:
-            st.markdown(create_card("抄底價 (-2σ)", f"{p_neg2:.2f}", "💎", COLORS['neg2_bottom']), unsafe_allow_html=True)
-        with r2_c2:
-            st.markdown(create_card("定投價 (-1σ)", f"{p_neg1:.2f}", "💰", COLORS['neg1_buy']), unsafe_allow_html=True)
-        with r2_c3:
-            st.markdown(create_card("警戒價 (+1σ)", f"{p_pos1:.2f}", "⚡", COLORS['pos1_warn']), unsafe_allow_html=True)
-        with r2_c4:
-            st.markdown(create_card("套利價 (+2σ)", f"{p_pos2:.2f}", "🔥", COLORS['pos2_arb']), unsafe_allow_html=True)
+        with r2_c1: 
+            st.markdown(create_card("抄底價 (-2σ)", f"{p_neg2:.2f}", "💎", COLORS['neg2_bottom'], f"({s_neg2*100:.1f}%)"), unsafe_allow_html=True)
+        with r2_c2: 
+            st.markdown(create_card("定投價 (-1σ)", f"{p_neg1:.2f}", "💰", COLORS['neg1_buy'], f"({s_neg1*100:.1f}%)"), unsafe_allow_html=True)
+        with r2_c3: 
+            st.markdown(create_card("警戒價 (+1σ)", f"{p_pos1:.2f}", "⚡", COLORS['pos1_warn'], f"({s_pos1*100:.1f}%)"), unsafe_allow_html=True)
+        with r2_c4: 
+            st.markdown(create_card("套利價 (+2σ)", f"{p_pos2:.2f}", "🔥", COLORS['pos2_arb'], f"({s_pos2*100:.1f}%)"), unsafe_allow_html=True)
 
 except Exception as e:
     st.error(f"❌ 分析發生錯誤：{e}")
