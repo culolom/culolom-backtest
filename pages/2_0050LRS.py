@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS + 雙向乖離 (負加碼 DCA + 高位套利) 旗艦版
+# app.py — 0050LRS + 雙向乖離 (負加碼 DCA + 高位套利) 修正版
 ###############################################################
 
 import os
@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 ###############################################################
-# 1. 環境與字型設定
+# 1. 字型與驗證設定
 ###############################################################
 
 font_path = "./NotoSansTC-Bold.ttf"
@@ -36,19 +36,40 @@ try:
 except ImportError:
     pass 
 
-# --- Sidebar ---
-with st.sidebar:
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
-    st.divider()
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+###############################################################
+# 2. 核心計算函數 (Utility Functions) - 放在這裡避免 NameError
+###############################################################
 
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿 (雙向乖離版)</h1>", unsafe_allow_html=True)
+def calc_metrics(series: pd.Series):
+    """計算年化波動率、夏普比率與索提諾比率"""
+    daily = series.dropna()
+    if len(daily) <= 1: return np.nan, np.nan, np.nan
+    avg, std = daily.mean(), daily.std()
+    downside = daily[daily < 0].std()
+    vol = std * np.sqrt(252)
+    sharpe = (avg / std) * np.sqrt(252) if std > 0 else np.nan
+    sortino = (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
+    return vol, sharpe, sortino
+
+def get_stats(eq, rets, y):
+    """統整策略績效指標"""
+    f_eq = eq.iloc[-1]
+    f_ret = f_eq - 1
+    cagr = (1 + f_ret)**(1/y) - 1 if y > 0 else 0
+    mdd = 1 - (eq / eq.cummax()).min()
+    v, sh, so = calc_metrics(rets)
+    calmar = cagr / mdd if mdd > 0 else 0
+    return f_eq, f_ret, cagr, mdd, v, sh, so, calmar
+
+# 格式化工具
+def fmt_money(v): return f"{v:,.0f} 元"
+def fmt_pct(v, d=2): return f"{v:.{d}%}"
+def fmt_num(v, d=2): return f"{v:.{d}f}"
+def fmt_int(v): return f"{int(v):,}"
+def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
 
 ###############################################################
-# 2. 資料讀取工具
+# 3. 資料讀取工具
 ###############################################################
 
 BASE_ETFS = {"0050 元大台灣50": "0050.TW", "006208 富邦台50": "006208.TW"}
@@ -71,73 +92,69 @@ def get_full_range_from_csv(base_symbol: str, lev_symbol: str):
     if df1.empty or df2.empty: return dt.date(2012, 1, 1), dt.date.today()
     return max(df1.index.min().date(), df2.index.min().date()), min(df1.index.max().date(), df2.index.max().date())
 
-def calc_metrics(series: pd.Series):
-    daily = series.dropna()
-    if len(daily) <= 1: return np.nan, np.nan, np.nan
-    avg, std, downside = daily.mean(), daily.std(), daily[daily < 0].std()
-    return std * np.sqrt(252), (avg / std) * np.sqrt(252) if std > 0 else np.nan, (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
-
-def fmt_money(v): return f"{v:,.0f} 元"
-def fmt_pct(v, d=2): return f"{v:.{d}%}"
-def fmt_num(v, d=2): return f"{v:.{d}f}"
-def fmt_int(v): return f"{int(v):,}"
-def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
-
 ###############################################################
-# 3. UI 參數設定
+# 4. UI 介面配置
 ###############################################################
+
+with st.sidebar:
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="官網首頁", icon="🏠")
+
+st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿 (雙向乖離旗艦版)</h1>", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 with col1:
     base_label = st.selectbox("原型 ETF（訊號來源）", list(BASE_ETFS.keys()))
     base_symbol = BASE_ETFS[base_label]
 with col2:
-    lev_label = st.selectbox("槓桿 ETF（實際進出場標的）", list(LEV_ETFS.keys()))
+    lev_label = st.selectbox("槓桿 ETF（實際交易）", list(LEV_ETFS.keys()))
     lev_symbol = LEV_ETFS[lev_label]
 
 s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
 col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-with col_p1: start = st.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5 * 365)), min_value=s_min, max_value=s_max)
-with col_p2: end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
-with col_p3: capital = st.number_input("投入本金（元）", 1000, 5000000, 100000, step=10000)
+with col_p1: start = st.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5 * 365)))
+with col_p2: end = st.date_input("結束日期", value=s_max)
+with col_p3: capital = st.number_input("本金（元）", 1000, 5000000, 100000, step=10000)
 with col_p4: sma_window = st.number_input("均線週期 (SMA)", 10, 240, 200, step=10)
 
 st.write("---")
-st.write("### ⚙️ 倉位管理設定")
-position_mode = st.radio("策略初始狀態", ["一開始就全倉槓桿 ETF", "空手起跑"], index=0)
+st.write("### ⚙️ 策略參數")
+position_mode = st.radio("初始狀態", ["一開始就全倉槓桿 ETF", "空手起跑"], index=0)
 
 col_set1, col_set2 = st.columns(2)
 with col_set1:
     with st.expander("📉 均線下：負乖離 DCA 加碼", expanded=True):
-        enable_dca = st.toggle("啟用 DCA 加碼", value=True)
-        dca_bias_trigger = st.number_input("觸發加碼乖離率 (%)", max_value=0.0, min_value=-50.0, value=-15.0, step=0.5)
-        dca_pct = st.number_input("每次加碼比例 (%)", 1, 100, 20, step=5)
+        enable_dca = st.toggle("啟用 DCA", value=True)
+        dca_bias_trigger = st.number_input("加碼門檻 (%)", max_value=0.0, min_value=-50.0, value=-15.0)
+        dca_pct = st.number_input("每次買進比例 (%)", 1, 100, 20)
         dca_cooldown = st.slider("加碼冷卻天數", 1, 60, 10)
 
 with col_set2:
-    with st.expander("🚀 均線上：高位乖離套利減碼", expanded=True):
-        enable_arb = st.toggle("啟用套利減碼", value=False)
-        arb_bias_trigger = st.number_input("觸發減碼乖離率 (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
-        arb_reduce_pct = st.number_input("每次減碼比例 (%)", 1, 100, 20, step=5)
+    with st.expander("🚀 均線上：高位套利減碼", expanded=True):
+        enable_arb = st.toggle("啟用減碼", value=False)
+        arb_bias_trigger = st.number_input("減碼門檻 (%)", min_value=0.0, max_value=100.0, value=20.0)
+        arb_reduce_pct = st.number_input("每次賣出比例 (%)", 1, 100, 20)
         arb_cooldown = st.slider("減碼冷卻天數", 1, 60, 10)
 
 ###############################################################
-# 4. 核心回測運算
+# 5. 回測核心執行
 ###############################################################
 
 if st.button("開始回測 🚀"):
     start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60)
-    df_base_raw = load_csv(base_symbol).loc[start_early:end]
-    df_lev_raw = load_csv(lev_symbol).loc[start_early:end]
+    df_base = load_csv(base_symbol).loc[start_early:end]
+    df_lev = load_csv(lev_symbol).loc[start_early:end]
 
-    if df_base_raw.empty or df_lev_raw.empty:
-        st.error("⚠️ CSV 資料讀取失敗"); st.stop()
+    if df_base.empty or df_lev.empty:
+        st.error("資料不足"); st.stop()
 
-    df = pd.DataFrame(index=df_base_raw.index)
-    df["Price_base"] = df_base_raw["Price"]
-    df = df.join(df_lev_raw["Price"].rename("Price_lev"), how="inner").sort_index()
+    df = pd.DataFrame(index=df_base.index)
+    df["Price_base"] = df_base["Price"]
+    df = df.join(df_lev["Price"].rename("Price_lev"), how="inner").sort_index()
 
     df["MA_Signal"] = df["Price_base"].rolling(sma_window).mean()
     df["Bias"] = (df["Price_base"] - df["MA_Signal"]) / df["MA_Signal"]
@@ -146,9 +163,9 @@ if st.button("開始回測 🚀"):
     df["Return_base"] = df["Price_base"].pct_change().fillna(0)
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
 
-    # 策略迴圈
-    executed_signals, positions = [0] * len(df), [0.0] * len(df)
-    current_pos, can_buy_perm = (1.0, True) if "全倉" in position_mode else (0.0, False)
+    # 模擬持倉
+    sigs, pos = [0] * len(df), [0.0] * len(df)
+    curr_pos, can_buy = (1.0, True) if "全倉" in position_mode else (0.0, False)
     dca_cd, arb_cd = 0, 0
 
     for i in range(1, len(df)):
@@ -157,134 +174,80 @@ if st.button("開始回測 🚀"):
         
         if dca_cd > 0: dca_cd -= 1
         if arb_cd > 0: arb_cd -= 1
-        sig = 0
+        s = 0
 
         if p > m:
-            if p0 <= m0: # 黃金交叉
-                current_pos = 1.0 if can_buy_perm else 0.0
-                if can_buy_perm: sig = 1
-            else: # 均線上判斷套利
-                if enable_arb and current_pos > 0:
+            if p0 <= m0: # 金叉
+                curr_pos = 1.0 if can_buy else 0.0
+                if can_buy: s = 1
+            else: # 套利判斷
+                if enable_arb and curr_pos > 0:
                     if bias >= arb_bias_trigger and arb_cd == 0:
-                        current_pos = max(0.0, current_pos - (arb_reduce_pct / 100.0))
-                        sig, arb_cd = 3, arb_cooldown
+                        curr_pos = max(0.0, curr_pos - (arb_reduce_pct / 100.0))
+                        s, arb_cd = 3, arb_cooldown
             dca_cd = 0
-        else: # 均線下
-            can_buy_perm = True 
-            if p0 > m0: # 死亡交叉
-                current_pos, sig, arb_cd = 0.0, -1, 0
-            else: # 均線下判斷 DCA
-                if enable_dca and current_pos < 1.0:
+        else:
+            can_buy = True 
+            if p0 > m0: # 死叉
+                curr_pos, s, arb_cd = 0.0, -1, 0
+            else: # DCA 判斷
+                if enable_dca and curr_pos < 1.0:
                     if bias <= dca_bias_trigger and dca_cd == 0:
-                        current_pos = min(1.0, current_pos + (dca_pct / 100.0))
-                        sig, dca_cd = 2, dca_cooldown
+                        curr_pos = min(1.0, curr_pos + (dca_pct / 100.0))
+                        s, dca_cd = 2, dca_cooldown
         
-        positions[i], executed_signals[i] = round(current_pos, 4), sig
+        pos[i], sigs[i] = round(curr_pos, 4), s
 
-    df["Signal"], df["Position"] = executed_signals, positions
+    df["Signal"], df["Position"] = sigs, pos
 
-    # 績效計算
-    equity_lrs = [1.0]
+    # 計算資產
+    equity = [1.0]
     for i in range(1, len(df)):
-        lev_ret = (df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]) - 1
-        equity_lrs.append(equity_lrs[-1] * (1 + (lev_ret * df["Position"].iloc[i-1])))
+        r = (df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]) - 1
+        equity.append(equity[-1] * (1 + (r * df["Position"].iloc[i-1])))
     
-    df["Equity_LRS"] = equity_lrs
+    df["Equity_LRS"] = equity
     df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
     df["Equity_BH_Base"] = (1 + df["Return_base"]).cumprod()
     df["Equity_BH_Lev"] = (1 + df["Return_lev"]).cumprod()
     
     # ------------------------------------------------------
-    # 5. 視覺化：雙軸圖與 Tabs
+    # 6. 視覺化
     # ------------------------------------------------------
-    st.markdown("<h3>📌 策略訊號與執行價格 (雙軸對照)</h3>", unsafe_allow_html=True)
-    fig_p = go.Figure()
-    fig_p.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label}(左)", line=dict(color="#636EFA", width=2)))
-    fig_p.add_trace(go.Scatter(x=df.index, y=df["MA_Signal"], name=f"{sma_window}SMA", line=dict(color="#FFA15A", width=1.5)))
-    fig_p.add_trace(go.Scatter(x=df.index, y=df["Price_lev"], name=f"{lev_label}(右)", yaxis="y2", line=dict(dash='dot', color="#00CC96"), opacity=0.3))
+    st.markdown("### 📌 策略訊號圖")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name="原型(左)", line=dict(color="#636EFA")))
+    fig.add_trace(go.Scatter(x=df.index, y=df["MA_Signal"], name="SMA", line=dict(color="#FFA15A")))
     
     # 標記訊號
-    s_map = {1: ("全倉買進", "#00C853", "triangle-up", 12), -1: ("清倉賣出", "#D50000", "triangle-down", 12), 
-             2: ("DCA加碼", "#2E7D32", "circle", 8), 3: ("套利減碼", "#FF9800", "diamond", 10)}
-    for s_val, (name, color, symbol, size) in s_map.items():
-        pts = df[df["Signal"] == s_val]
+    colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("清倉", "#D50000", "triangle-down"), 
+              2: ("DCA", "#2E7D32", "circle"), 3: ("套利", "#FF9800", "diamond")}
+    for v, (label, color, sym) in colors.items():
+        pts = df[df["Signal"] == v]
         if not pts.empty:
-            fig_p.add_trace(go.Scatter(x=pts.index, y=pts["Price_base"], mode="markers", name=name, 
-                                       marker=dict(color=color, size=size, symbol=symbol),
-                                       hovertext=[f"乖離率: {b:.2%}<br>持倉: {p:.0%}" for b, p in zip(pts["Bias"], pts["Position"])]))
+            fig.add_trace(go.Scatter(x=pts.index, y=pts["Price_base"], mode="markers", name=label, marker=dict(color=color, size=10, symbol=sym)))
+    
+    fig.update_layout(template="plotly_white", height=500, hovermode="x unified")
+    st.plotly_chart(fig, use_container_width=True)
 
-    fig_p.update_layout(template="plotly_white", height=500, yaxis2=dict(overlaying="y", side="right"), hovermode="x unified")
-    st.plotly_chart(fig_p, use_container_width=True)
+    # KPI 區
+    years = (df.index[-1] - df.index[0]).days / 365
+    s_lrs = get_stats(df["Equity_LRS"], df["Return_LRS"], years)
+    s_lev = get_stats(df["Equity_BH_Lev"], df["Return_lev"], years)
+    s_base = get_stats(df["Equity_BH_Base"], df["Return_base"], years)
 
-    # 四大分析頁面
-    st.markdown("<h3>📊 資金曲線與風險解析</h3>", unsafe_allow_html=True)
-    tab1, tab2, tab3, tab4 = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈"])
-    with tab1:
-        fe = go.Figure()
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Base"]-1, name="原型BH"))
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Lev"]-1, name="槓桿BH"))
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_LRS"]-1, name="動態 LRS", line=dict(width=3, color="#00D494")))
-        fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%"), height=450)
-        st.plotly_chart(fe, use_container_width=True)
-    with tab2:
-        fd = go.Figure()
-        fd.add_trace(go.Scatter(x=df.index, y=(df["Equity_LRS"]/df["Equity_LRS"].cummax()-1)*100, name="LRS", fill='tozeroy', line=dict(color='red')))
-        fd.update_layout(template="plotly_white", height=450)
-        st.plotly_chart(fd, use_container_width=True)
-    with tab4:
-        fh = go.Figure()
-        fh.add_trace(go.Histogram(x=df["Return_LRS"]*100, name="LRS", opacity=0.75, marker_color="#00D494"))
-        fh.add_trace(go.Histogram(x=df["Return_lev"]*100, name="槓桿BH", opacity=0.4))
-        fh.update_layout(barmode="overlay", template="plotly_white", title="日報酬分佈 (%)", height=450)
-        st.plotly_chart(fh, use_container_width=True)
+    st.markdown("### 📊 關鍵績效指標")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("期末資產", fmt_money(s_lrs[0]*capital), f"{(s_lrs[0]/s_lev[0]-1):.2%} vs 槓桿")
+    c2.metric("CAGR", f"{s_lrs[2]:.2%}", f"{(s_lrs[2]-s_lev[2]):.2%}")
+    c3.metric("最大回撤", f"{s_lrs[3]:.2%}")
+    c4.metric("夏普比率", f"{s_lrs[5]:.2f}")
 
-    # ------------------------------------------------------
-    # 6. KPI 卡片與高級 HTML 表格
-    # ------------------------------------------------------
-    years_len = (df.index[-1] - df.index[0]).days / 365
-    stats_lrs = get_stats(df["Equity_LRS"], df["Return_LRS"], years_len)
-    stats_lev = get_stats(df["Equity_BH_Lev"], df["Return_lev"], years_len)
-    stats_base = get_stats(df["Equity_BH_Base"], df["Return_base"], years_len)
-
-    st.markdown("""<style>.kpi-card {background: var(--secondary-background-color); border-radius: 16px; padding: 24px; border: 1px solid rgba(128,128,128,0.1); text-align:center;} .kpi-val {font-size:2.2rem; font-weight:900; margin:10px 0;} .delta-p {color:#21c354; background:#21c3541a; padding:4px 12px; border-radius:12px; font-weight:700;}</style>""", unsafe_allow_html=True)
-    kc = st.columns(4)
-    with kc[0]: st.markdown(f'<div class="kpi-card">期末資產<div class="kpi-val">{fmt_money(stats_lrs[0]*capital)}</div><span class="delta-p">+{ (stats_lrs[0]/stats_lev[0]-1):.2%} (vs 槓桿)</span></div>', unsafe_allow_html=True)
-    with kc[1]: st.markdown(f'<div class="kpi-card">CAGR<div class="kpi-val">{stats_lrs[2]:.2%}</div><span class="delta-p">+{ (stats_lrs[2]-stats_lev[2]):.2%}</span></div>', unsafe_allow_html=True)
-    with kc[2]: st.markdown(f'<div class="kpi-card">年化波動<div class="kpi-val">{stats_lrs[4]:.2%}</div></div>', unsafe_allow_html=True)
-    with kc[3]: st.markdown(f'<div class="kpi-card">最大回撤<div class="kpi-val">{stats_lrs[3]:.2%}</div></div>', unsafe_allow_html=True)
-
-    # 冠軍獎盃表格
+    # 表格
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
     dt_table = {
-        f"{lev_label}<br>LRS+DCA": [stats_lrs[0]*capital, stats_lrs[1], stats_lrs[2], stats_lrs[7], stats_lrs[3], stats_lrs[4], stats_lrs[5], (df["Signal"]!=0).sum()],
-        f"{lev_label}<br>Buy & Hold": [stats_lev[0]*capital, stats_lev[1], stats_lev[2], stats_lev[7], stats_lev[3], stats_lev[4], stats_lev[5], 0],
-        f"{base_label}<br>Buy & Hold": [stats_base[0]*capital, stats_base[1], stats_base[2], stats_base[7], stats_base[3], stats_base[4], stats_base[5], 0]
+        "LRS+雙向乖離": [s_lrs[0]*capital, s_lrs[1], s_lrs[2], s_lrs[7], s_lrs[3], s_lrs[4], s_lrs[5], (df["Signal"]!=0).sum()],
+        "槓桿 BH": [s_lev[0]*capital, s_lev[1], s_lev[2], s_lev[7], s_lev[3], s_lev[4], s_lev[5], 0],
+        "原型 BH": [s_base[0]*capital, s_base[1], s_base[2], s_base[7], s_base[3], s_base[4], s_base[5], 0]
     }
-    df_v = pd.DataFrame(dt_table, index=metrics)
-    
-    html = '<style>.ctable {width:100%; border-collapse:separate; border-spacing:0; border-radius:12px; border:1px solid rgba(128,128,128,0.1); overflow:hidden;} .ctable th {background:#80808010; padding:15px; text-align:center;} .ctable td {padding:12px; text-align:center; border-bottom:1px solid rgba(128,128,128,0.05);} .mname {text-align:left !important; background:#80808005; font-weight:500;}</style>'
-    html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
-    for col in df_v.columns: html += f'<th>{col}</th>'
-    html += '</tr></thead><tbody>'
-
-    for m in metrics:
-        html += f'<tr><td class="mname">{m}</td>'
-        rv = df_v.loc[m].values
-        is_inv = m in ["最大回撤 (MDD)", "年化波動", "交易次數"]
-        best = min(rv) if is_inv else max(rv)
-        for v in rv:
-            is_win = (v == best and m != "交易次數")
-            if "資產" in m: txt = fmt_money(v)
-            elif any(x in m for x in ["率", "報酬", "波動", "MDD"]): txt = fmt_pct(v)
-            elif "次數" in m: txt = fmt_int(v)
-            else: txt = fmt_num(v)
-            html += f'<td {"style=\'font-weight:bold;\'" if is_win else ""}>{txt} {"🏆" if is_win else ""}</td>'
-        html += '</tr>'
-    st.write(html + '</tbody></table>', unsafe_allow_html=True)
-
-def get_stats(eq, rets, y):
-    f_eq, f_ret = eq.iloc[-1], eq.iloc[-1] - 1
-    cagr = (1 + f_ret)**(1/y) - 1 if y > 0 else 0
-    mdd = 1 - (eq / eq.cummax()).min()
-    v, sh, so = calc_metrics(rets)
-    return f_eq, f_ret, cagr, mdd, v, sh, so, cagr/mdd if mdd > 0 else 0
+    st.table(pd.DataFrame(dt_table, index=metrics))
