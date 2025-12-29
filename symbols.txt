@@ -40,3 +40,4 @@ BIL
 IEF
 BND
 IYR
+SLV
