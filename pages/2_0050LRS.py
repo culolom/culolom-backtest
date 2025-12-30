@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS 旗艦版 (修正 KeyError 與 組件補完)
+# app.py — 0050LRS 旗艦版 (修正套利 Bug + 全組件補完)
 ###############################################################
 
 import os
@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 ###############################################################
-# 1. 環境設定與字型
+# 1. 字型與驗證設定
 ###############################################################
 
 font_path = "./NotoSansTC-Bold.ttf"
@@ -63,7 +63,7 @@ def fmt_num(v, d=2): return f"{v:.{d}f}"
 def fmt_int(v): return f"{int(v):,}"
 
 ###############################################################
-# 3. UI 與 Sidebar
+# 3. Sidebar 與 UI 配置
 ###############################################################
 
 with st.sidebar:
@@ -74,7 +74,7 @@ with st.sidebar:
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿 (精確對齊旗艦版)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050LRS 動態槓桿 (Bug 修正旗艦版)</h1>", unsafe_allow_html=True)
 
 BASE_ETFS = {"0050 元大台灣50": "0050.TW", "006208 富邦台50": "006208.TW"}
 LEV_ETFS = {
@@ -114,13 +114,13 @@ with col_set1:
         dca_cooldown = st.slider("加碼冷卻天數", 1, 60, 10)
 with col_set2:
     with st.expander("🚀 均線上：高位乖離套利減碼設定", expanded=True):
-        enable_arb = st.toggle("啟用套利", value=False)
-        arb_bias_trigger = st.number_input("套利門檻乖離率 (%)", min_value=0.0, value=20.0)
-        arb_reduce_pct = st.number_input("每次減碼比例 (%)", 1, 100, 20)
+        enable_arb = st.toggle("啟用套利", value=True)
+        arb_bias_trigger = st.number_input("套利門檻乖離率 (%)", min_value=0.0, value=35.0)
+        arb_reduce_pct = st.number_input("每次減碼比例 (%)", 1, 100, 100)
         arb_cooldown = st.slider("套利冷卻天數", 1, 60, 10)
 
 ###############################################################
-# 4. 回測執行
+# 4. 回測核心執行
 ###############################################################
 
 if st.button("開始回測 🚀"):
@@ -135,7 +135,7 @@ if st.button("開始回測 🚀"):
     df["Bias"] = (df["Price_base"] - df["MA"]) / df["MA"]
     df = df.dropna(subset=["MA"]).loc[start:end]
     
-    # 策略運算
+    # 策略運算 (修正後的邏輯)
     sigs, pos = [0] * len(df), [0.0] * len(df)
     curr_pos, can_buy = (1.0, True) if "一開局" in position_mode else (0.0, False)
     pos[0], dca_cd, arb_cd = curr_pos, 0, 0
@@ -143,39 +143,49 @@ if st.button("開始回測 🚀"):
     for i in range(1, len(df)):
         p, m, bias = df["Price_base"].iloc[i], df["MA"].iloc[i], df["Bias"].iloc[i] * 100
         p0, m0 = df["Price_base"].iloc[i-1], df["MA"].iloc[i-1]
+        
         if dca_cd > 0: dca_cd -= 1
         if arb_cd > 0: arb_cd -= 1
         sig = 0
 
         if p > m:
+            # === 均線上 ===
             if can_buy:
-                target_pos = 1.0 
-                if enable_arb and bias >= arb_bias_trigger and arb_cd == 0:
-                    target_pos = max(0.0, curr_pos - (arb_reduce_pct / 100.0))
+                # 若是剛站上均線，校準為 100%
+                if p0 <= m0: 
+                    curr_pos = 1.0
+                    sig = 1
+                
+                # 檢查套利 (只有在 curr_pos > 0 時才需要套利)
+                if enable_arb and bias >= arb_bias_trigger and arb_cd == 0 and curr_pos > 0:
+                    curr_pos = max(0.0, curr_pos - (arb_reduce_pct / 100.0))
                     sig, arb_cd = 3, arb_cooldown
-                if p0 <= m0: sig = 1
-                curr_pos = target_pos
-            else: curr_pos = 0.0
+                # 注意：這裡不再有 "else: curr_pos = 1.0"，確保減碼後不會隔天回補
+            else:
+                curr_pos = 0.0
             dca_cd = 0
         else:
-            can_buy = True 
-            if p0 > m0: curr_pos, sig, arb_cd = 0.0, -1, 0
+            # === 均線下 ===
+            can_buy = True # 跌破均線解鎖下次買入權
+            if p0 > m0: # 死亡交叉
+                curr_pos, sig, arb_cd = 0.0, -1, 0
             elif enable_dca and curr_pos < 1.0:
                 if bias <= dca_bias_trigger and dca_cd == 0:
                     curr_pos = min(1.0, curr_pos + (dca_pct / 100.0))
                     sig, dca_cd = 2, dca_cooldown
+        
         pos[i], sigs[i] = round(curr_pos, 4), sig
 
     df["Signal"], df["Position"] = sigs, pos
 
-    # 重要：先計算 Equity 與 Return，再進入圖表區塊
+    # 計算淨值
     equity_lrs = [1.0]
     for i in range(1, len(df)):
         ret = (df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]) - 1
         equity_lrs.append(equity_lrs[-1] * (1 + (ret * df["Position"].iloc[i-1])))
     
     df["Equity_LRS"] = equity_lrs
-    df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0) # 關鍵：產出 Return_LRS
+    df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
     df["Equity_BH_Base"] = (df["Price_base"] / df["Price_base"].iloc[0])
     df["Equity_BH_Lev"] = (df["Price_lev"] / df["Price_lev"].iloc[0])
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
@@ -186,7 +196,7 @@ if st.button("開始回測 🚀"):
                  get_stats(df["Equity_BH_Base"], df["Price_base"].pct_change().fillna(0), y_len)
 
     # ------------------------------------------------------
-    # 5. 視覺化：KPI 與 雙軸圖
+    # 5. KPI 與 圖表
     # ------------------------------------------------------
     st.markdown("""<style>.kpi-card {background: var(--secondary-background-color); border-radius: 16px; padding: 24px; border: 1px solid rgba(128,128,128,0.1); text-align:center;} .kpi-val {font-size:2.2rem; font-weight:900; margin:10px 0;} .delta {color:#21c354; background:#21c3541a; padding:4px 12px; border-radius:12px; font-weight:700;}</style>""", unsafe_allow_html=True)
     kc = st.columns(4)
@@ -195,22 +205,21 @@ if st.button("開始回測 🚀"):
     kc[2].markdown(f'<div class="kpi-card">年化波動<div class="kpi-val">{sl[4]:.2%}</div></div>', unsafe_allow_html=True)
     kc[3].markdown(f'<div class="kpi-card">最大回撤<div class="kpi-val">{sl[3]:.2%}</div></div>', unsafe_allow_html=True)
 
-    st.markdown("### 📌 策略訊號與執行價格 (雙軸對照)")
+    st.markdown("### 📌 策略訊號對照 (雙軸)")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label}(左軸)", line=dict(color="#636EFA")))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window} 日 SMA", line=dict(color="#FFA15A")))
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price_lev"], name=f"{lev_label}(右軸)", yaxis="y2", line=dict(dash='dot', color="#00CC96"), opacity=0.3))
+    fig.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name="原型(左)", line=dict(color="#636EFA")))
+    fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name="SMA", line=dict(color="#FFA15A")))
+    fig.add_trace(go.Scatter(x=df.index, y=df["Price_lev"], name="槓桿(右)", yaxis="y2", line=dict(dash='dot', color="#00CC96"), opacity=0.3))
     
-    colors = {1: ("全倉買進", "#00C853", "triangle-up"), -1: ("清倉賣出", "#D50000", "triangle-down"), 
-              2: ("DCA 加碼", "#2E7D32", "circle"), 3: ("套利減碼", "#FF9800", "diamond")}
-    for v, (l, c, s) in colors.items():
+    colors = {1: ("全倉買進", "#00C853", "triangle-up", 12), -1: ("清倉賣出", "#D50000", "triangle-down", 12), 2: ("DCA 加碼", "#2E7D32", "circle", 8), 3: ("套利減碼", "#FF9800", "diamond", 10)}
+    for v, (l, c, s, sz) in colors.items():
         pts = df[df["Signal"] == v]
-        if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price_base"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s)))
+        if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price_base"], mode="markers", name=l, marker=dict(color=c, size=sz, symbol=s)))
     fig.update_layout(template="plotly_white", height=500, yaxis2=dict(overlaying="y", side="right"), hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
     # ------------------------------------------------------
-    # 6. 視覺化：四大分析 Tabs
+    # 6. 四大分頁分析
     # ------------------------------------------------------
     st.markdown("### 📊 資金曲線與風險解析")
     tab1, tab2, tab3, tab4 = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈"])
@@ -223,15 +232,15 @@ if st.button("開始回測 🚀"):
     with tab2:
         fd = go.Figure()
         fd.add_trace(go.Scatter(x=df.index, y=(df["Equity_LRS"]/df["Equity_LRS"].cummax()-1)*100, name="LRS", fill='tozeroy', line=dict(color='red')))
-        fd.update_layout(template="plotly_white", height=450, title="最大回撤比較 (%)"); st.plotly_chart(fd, use_container_width=True)
+        fd.update_layout(template="plotly_white", height=450, title="最大回撤 (%)"); st.plotly_chart(fd, use_container_width=True)
     with tab3:
         cat = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反)"]
         r_l = [nz(sl[2]), nz(sl[5]), nz(sl[6]), nz(-sl[3]), nz(-sl[4])]
-        fr = go.Figure(); fr.add_trace(go.Scatterpolar(r=r_l, theta=cat, fill='toself', name='LRS+DCA', marker_color="#00D494"))
+        fr = go.Figure(); fr.add_trace(go.Scatterpolar(r=r_l, theta=cat, fill='toself', name='LRS', marker_color="#00D494"))
         fr.update_layout(polar=dict(radialaxis=dict(visible=True)), height=450); st.plotly_chart(fr, use_container_width=True)
     with tab4:
         fh = go.Figure()
-        fh.add_trace(go.Histogram(x=df["Return_LRS"]*100, name="LRS+DCA", marker_color="#00D494", opacity=0.7))
+        fh.add_trace(go.Histogram(x=df["Return_LRS"]*100, name="LRS", marker_color="#00D494", opacity=0.7))
         fh.add_trace(go.Histogram(x=df["Return_lev"]*100, name="槓桿BH", opacity=0.4))
         fh.update_layout(barmode="overlay", template="plotly_white", height=450, title="日報酬分佈 (%)"); st.plotly_chart(fh, use_container_width=True)
 
@@ -260,7 +269,7 @@ if st.button("開始回測 🚀"):
             elif any(x in m for x in ["率", "報酬", "波動", "MDD"]): txt = fmt_pct(v)
             elif "次數" in m: txt = fmt_int(v)
             else: txt = fmt_num(v)
-            style = 'style="font-weight:bold;"' if i == 0 else ''
+            style = 'style="font-weight:bold; color:var(--primary-color);"' if i == 0 else ''
             html += f'<td {style}>{txt} {"🏆" if is_win else ""}</td>'
         html += '</tr>'
     st.write(html + '</tbody></table>', unsafe_allow_html=True)
