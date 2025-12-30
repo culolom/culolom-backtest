@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS 旗艦版 (修正套利 Bug + 全組件補完)
+# app.py — 0050雙向乖離動態槓桿 (Dual-Bias Dynamic Leverage)
 ###############################################################
 
 import os
@@ -25,7 +25,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-st.set_page_config(page_title="0050LRS 回測系統", page_icon="📈", layout="wide")
+st.set_page_config(page_title="0050雙向乖離動態槓桿", page_icon="📈", layout="wide")
 
 # 🔒 驗證守門員
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -273,3 +273,16 @@ if st.button("開始回測 🚀"):
             html += f'<td {style}>{txt} {"🏆" if is_win else ""}</td>'
         html += '</tr>'
     st.write(html + '</tbody></table>', unsafe_allow_html=True)
+    ###############################################################
+    # 8. Footer 免責聲明與版權宣告 (新加入)
+    ###############################################################
+    
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+    footer_html = """
+    <div style="text-align: center; color: gray; font-size: 0.85rem; line-height: 1.6;">
+        <p><b>策略原創開發：0050 雙向乖離動態槓桿系統 (Dual-Bias Dynamic Leverage System)</b></p>
+        <p>Copyright © 2025 <a href="https://hamr-lab.com" style="color: gray; text-decoration: none;">hamr-lab.com</a>. All rights reserved.</p>
+        <p style="font-style: italic;">免責聲明：本工具僅供策略回測研究參考，不構成任何形式之投資建議。投資必定有風險，過去之績效不保證未來表現，使用者應自行審慎評估風險並自負盈虧。</p>
+    </div>
+    """
+    st.markdown(footer_html, unsafe_allow_html=True)
