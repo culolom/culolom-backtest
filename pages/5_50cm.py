@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 雙向乖離動態槓桿 (圖表上下對照版)
+# app.py — 0050 雙向乖離動態槓桿 (中文名稱 + 上下圖表版)
 ###############################################################
 
 import os
@@ -14,8 +14,25 @@ from pathlib import Path
 import sys
 
 ###############################################################
-# 1. 環境與字型設定
+# 1. 環境設定與名稱映射
 ###############################################################
+
+# 設定標的名稱對照表 (可自行在下方字典增加新代號)
+TICKER_NAMES = {
+    "0050.TW": "0050 元大台灣50",
+    "006208.TW": "006208 富邦台50",
+    "00631L.TW": "00631L 元大台灣50正2",
+    "00635U.TW": "00635U 元大標普500",
+    "00646.TW": "00646 元大標普500",
+    "00647L.TW": "00647L 元大標普500正2",
+    "00662.TW": "00662 富邦 NASDAQ",
+    "00663L.TW": "00663L 國泰台灣加權正2",
+    "00670L.TW": "00670L 富邦 NASDAQ 正2",
+    "00675L.TW": "00675L 富邦台灣加權正2",
+    "00685L.TW": "00685L 群益台灣加權正2",
+    "00878.TW": "00878 國泰永續高股息",
+    "BTC-USD": "BTC-USD 比特幣"
+}
 
 font_path = "./NotoSansTC-Bold.ttf"
 if os.path.exists(font_path):
@@ -35,7 +52,7 @@ try:
 except: pass 
 
 ###############################################################
-# 2. 資料處理函數
+# 2. 核心計算函數
 ###############################################################
 
 DATA_DIR = Path("data")
@@ -88,18 +105,25 @@ with st.sidebar:
 
 st.markdown("<h1 style='margin-bottom:0.1em;'>📊 單一標的動態槓桿系統</h1>", unsafe_allow_html=True)
 
-# 標的選擇與區間顯示
-available_etfs = get_csv_list()
-if not available_etfs:
+# 標的選擇：使用 format_func 顯示中文名稱
+available_ids = get_csv_list()
+if not available_ids:
     st.error("❌ data 資料夾內找不到任何 CSV 檔案"); st.stop()
 
 st.markdown("##### 原型 ETF（訊號來源）")
-target_label = st.selectbox("", available_etfs, label_visibility="collapsed",
-                            index=available_etfs.index("00631L.TW") if "00631L.TW" in available_etfs else 0)
+target_id = st.selectbox(
+    "", 
+    available_ids, 
+    label_visibility="collapsed",
+    index=available_ids.index("00631L.TW") if "00631L.TW" in available_ids else 0,
+    format_func=lambda x: TICKER_NAMES.get(x, x) # 這裡會自動對照中文名稱
+)
 
-df_preview = load_csv(target_label)
+# 顯示中文全名
+ch_name = TICKER_NAMES.get(target_id, target_id)
+
+df_preview = load_csv(target_id)
 s_min, s_max = df_preview.index.min().date(), df_preview.index.max().date()
-# 還原截圖中的藍框顯示
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
 # 參數設定
@@ -132,7 +156,7 @@ with col_set2:
 
 if st.button("啟動回測引擎 🚀"):
     start_buf = start - dt.timedelta(days=int(sma_window * 2))
-    df = load_csv(target_label).loc[start_buf:end]
+    df = load_csv(target_id).loc[start_buf:end]
     
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
@@ -140,6 +164,7 @@ if st.button("啟動回測引擎 🚀"):
     df["Bias"] = (df["Price"] - df["MA"]) / df["MA"]
     df = df.dropna(subset=["MA"]).loc[start:end]
     
+    # 策略循環... (維持不變)
     sigs, pos = [0] * len(df), [0.0] * len(df)
     curr_pos, can_buy = (1.0, True) if "一開局" in position_mode else (0.0, False)
     pos[0], dca_cd, arb_cd = curr_pos, 0, 0
@@ -182,37 +207,27 @@ if st.button("啟動回測引擎 🚀"):
     sb = get_stats(df["Equity_BH"], df["Return_BH"], y_len)
 
     # ------------------------------------------------------
-    # 5. UI 還原：KPI 卡片
+    # 5. UI：KPI 卡片
     # ------------------------------------------------------
     st.markdown("""
         <style>
-        .kpi-container { display: flex; gap: 20px; margin-bottom: 25px; }
         .kpi-card { 
-            background: white; border-radius: 16px; padding: 24px; flex: 1;
+            background: white; border-radius: 16px; padding: 24px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; text-align: left;
         }
         .kpi-label { color: #8c8c8c; font-size: 1rem; margin-bottom: 12px; font-weight: 500; }
         .kpi-val { font-size: 2.3rem; font-weight: 900; color: #1a1a1a; margin-bottom: 15px; }
-        .delta-tag { 
-            display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700;
-        }
+        .delta-tag { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700; }
         .delta-pos { background: #e6f7ed; color: #21c354; }
         .delta-neg { background: #fff1f0; color: #ff4d4f; }
         </style>
     """, unsafe_allow_html=True)
 
     k_cols = st.columns(4)
-    
     def render_kpi(col, label, val, delta, is_better_if_higher=True):
         is_good = (delta >= 0) if is_better_if_higher else (delta <= 0)
         style = "delta-pos" if is_good else "delta-neg"
-        col.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-label">{label}</div>
-                <div class="kpi-val">{val}</div>
-                <div class="delta-tag {style}">{delta:+.2%} (vs 標的)</div>
-            </div>
-        """, unsafe_allow_html=True)
+        col.markdown(f'<div class="kpi-card"><div class="kpi-label">{label}</div><div class="kpi-val">{val}</div><div class="delta-tag {style}">{delta:+.2%} (vs 標的)</div></div>', unsafe_allow_html=True)
 
     render_kpi(k_cols[0], "期末資產", fmt_money(sl[0]*capital), (sl[0]/sb[0]-1))
     render_kpi(k_cols[1], "CAGR", fmt_pct(sl[2]), (sl[2]-sb[2]))
@@ -220,78 +235,54 @@ if st.button("啟動回測引擎 🚀"):
     render_kpi(k_cols[3], "最大回撤", fmt_pct(sl[3]), (sl[3]-sb[3]), is_better_if_higher=False)
 
     # ------------------------------------------------------
-    # 6. UI 還原：績效總表 (僅顯示 LRS vs Buy & Hold)
+    # 6. UI：績效總表 (僅顯示 LRS vs Buy & Hold)
     # ------------------------------------------------------
-    st.markdown("### 🏆 策略績效總表")
+    st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    
     data_map = {
-        f"<b>{target_label}</b><br><small>LRS+DCA</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()],
-        f"<b>{target_label}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0]
+        f"<b>{ch_name}</b><br><small>LRS+DCA</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()],
+        f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0]
     }
     
-    html = """
-    <style>
-    .ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; font-size: 1rem; border-radius: 12px; overflow: hidden; }
-    .ctable th { background: #ffffff; padding: 20px; text-align: center; border-bottom: 1px solid #f0f0f0; color: #595959; font-weight: 500; }
-    .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; color: #262626; }
-    .m-name { background: #ffffff; text-align: left !important; font-weight: 500; color: #262626; }
-    .win-cell { font-weight: 800; color: #1a1a1a; }
-    </style>
-    <table class="ctable">
-        <thead><tr><th>指標</th>"""
+    html = '<style>.ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; margin-top:10px; } .ctable th { background: #ffffff; padding: 20px; border-bottom: 1px solid #f0f0f0; color: #595959; } .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; } .m-name { text-align: left !important; font-weight: 500; }</style>'
+    html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
     for col in data_map.keys(): html += f"<th>{col}</th>"
     html += "</tr></thead><tbody>"
-
     for idx, m in enumerate(metrics):
         html += f"<tr><td class='m-name'>{m}</td>"
         row_vals = [data_map[k][idx] for k in data_map.keys()]
-        
-        is_winning = False
-        if idx in [0, 1, 2, 3, 6]: 
-            if row_vals[0] >= row_vals[1]: is_winning = True
-        elif idx in [4, 5]: 
-            if row_vals[0] <= row_vals[1]: is_winning = True
-
         for i, v in enumerate(row_vals):
             if "資產" in m: txt = fmt_money(v)
             elif any(x in m for x in ["率", "報酬", "MDD", "波動"]): txt = fmt_pct(v)
             elif "次數" in m: txt = fmt_int(v)
             else: txt = fmt_num(v)
-            
-            win_icon = " 🏆" if (i == 0 and is_winning) else ""
-            style = "class='win-cell'" if i == 0 else ""
-            html += f"<td {style}>{txt}{win_icon}</td>"
+            is_win = (i == 0 and ((idx in [0,1,2,3,6] and row_vals[0] >= row_vals[1]) or (idx in [4,5] and row_vals[0] <= row_vals[1])))
+            style = "font-weight:800; color:#1a1a1a;" if i == 0 else "color:#595959;"
+            html += f"<td style='{style}'>{txt}{' 🏆' if is_win else ''}</td>"
         html += "</tr>"
-    
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 圖表部分 (上下垂直對照，取消分頁)
+    # 7. 圖表：上下對照
     # ------------------------------------------------------
-    st.markdown("### 📈 策略走勢與信號解析")
+    st.markdown("### 📈 走勢與信號對照")
     
-    # 圖表一：累積報酬率走勢 (對照截圖 image_4bdb4c 與 image_4c3907)
-    st.markdown("#### 資金曲線比較")
+    # 資金曲線
     fe = go.Figure()
     fe.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=3, color="#00D494")))
     fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')))
-    fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%", title="累積報酬率"), height=450, hovermode="x unified")
+    fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%", title="累積報酬率"), height=450, hovermode="x unified", title="資金曲線比較")
     st.plotly_chart(fe, use_container_width=True)
 
-    st.write("<br>", unsafe_allow_html=True) # 增加間隔
-
-    # 圖表二：股價與執行信號 (對照截圖 image_4bdb2c)
-    st.markdown("#### 策略訊號與執行價格")
+    # 股價與信號
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name="股價", line=dict(color="#636EFA")))
+    fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#636EFA")))
     fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A")))
-    colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("賣出", "#D50000", "triangle-down"), 
-              2: ("加碼", "#2E7D32", "circle"), 3: ("減碼", "#FF9800", "diamond")}
+    colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("賣出", "#D50000", "triangle-down"), 2: ("加碼", "#2E7D32", "circle"), 3: ("減碼", "#FF9800", "diamond")}
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
         if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s)))
-    fig.update_layout(template="plotly_white", yaxis=dict(title="股價"), height=450, hovermode="x unified")
+    fig.update_layout(template="plotly_white", yaxis=dict(title="價格"), height=450, hovermode="x unified", title="策略訊號與執行價格")
     st.plotly_chart(fig, use_container_width=True)
 
     st.caption("免責聲明：本工具僅供策略研究參考，投資必有風險。")
