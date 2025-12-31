@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 雙向乖離動態槓桿 (UI 完美還原版)
+# app.py — 0050 雙向乖離動態槓桿 (圖表上下對照版)
 ###############################################################
 
 import os
@@ -99,6 +99,7 @@ target_label = st.selectbox("", available_etfs, label_visibility="collapsed",
 
 df_preview = load_csv(target_label)
 s_min, s_max = df_preview.index.min().date(), df_preview.index.max().date()
+# 還原截圖中的藍框顯示
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
 # 參數設定
@@ -203,7 +204,6 @@ if st.button("啟動回測引擎 🚀"):
     k_cols = st.columns(4)
     
     def render_kpi(col, label, val, delta, is_better_if_higher=True):
-        # 判斷顏色邏輯：對於波動率和MDD，delta < 0 (代表比標的低) 是好事
         is_good = (delta >= 0) if is_better_if_higher else (delta <= 0)
         style = "delta-pos" if is_good else "delta-neg"
         col.markdown(f"""
@@ -247,11 +247,10 @@ if st.button("啟動回測引擎 🚀"):
         html += f"<tr><td class='m-name'>{m}</td>"
         row_vals = [data_map[k][idx] for k in data_map.keys()]
         
-        # 決定誰是贏家
         is_winning = False
-        if idx in [0, 1, 2, 3, 6]: # 越高越好
+        if idx in [0, 1, 2, 3, 6]: 
             if row_vals[0] >= row_vals[1]: is_winning = True
-        elif idx in [4, 5]: # 越低越好
+        elif idx in [4, 5]: 
             if row_vals[0] <= row_vals[1]: is_winning = True
 
         for i, v in enumerate(row_vals):
@@ -268,28 +267,31 @@ if st.button("啟動回測引擎 🚀"):
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 圖表部分
+    # 7. 圖表部分 (上下垂直對照，取消分頁)
     # ------------------------------------------------------
-    st.markdown("### 📈 策略走勢與信號")
-    tab_g1, tab_g2 = st.tabs(["資金曲線比較", "信號軌跡對照"])
+    st.markdown("### 📈 策略走勢與信號解析")
     
-    with tab_g1:
-        fe = go.Figure()
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=3, color="#00D494")))
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')))
-        fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%"), height=500, hovermode="x unified")
-        st.plotly_chart(fe, use_container_width=True)
+    # 圖表一：累積報酬率走勢 (對照截圖 image_4bdb4c 與 image_4c3907)
+    st.markdown("#### 資金曲線比較")
+    fe = go.Figure()
+    fe.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=3, color="#00D494")))
+    fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')))
+    fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%", title="累積報酬率"), height=450, hovermode="x unified")
+    st.plotly_chart(fe, use_container_width=True)
 
-    with tab_g2:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name="股價", line=dict(color="#636EFA")))
-        fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A")))
-        colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("賣出", "#D50000", "triangle-down"), 
-                  2: ("加碼", "#2E7D32", "circle"), 3: ("減碼", "#FF9800", "diamond")}
-        for v, (l, c, s) in colors.items():
-            pts = df[df["Signal"] == v]
-            if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s)))
-        fig.update_layout(template="plotly_white", height=500, hovermode="x unified")
-        st.plotly_chart(fig, use_container_width=True)
+    st.write("<br>", unsafe_allow_html=True) # 增加間隔
+
+    # 圖表二：股價與執行信號 (對照截圖 image_4bdb2c)
+    st.markdown("#### 策略訊號與執行價格")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name="股價", line=dict(color="#636EFA")))
+    fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A")))
+    colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("賣出", "#D50000", "triangle-down"), 
+              2: ("加碼", "#2E7D32", "circle"), 3: ("減碼", "#FF9800", "diamond")}
+    for v, (l, c, s) in colors.items():
+        pts = df[df["Signal"] == v]
+        if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s)))
+    fig.update_layout(template="plotly_white", yaxis=dict(title="股價"), height=450, hovermode="x unified")
+    st.plotly_chart(fig, use_container_width=True)
 
     st.caption("免責聲明：本工具僅供策略研究參考，投資必有風險。")
