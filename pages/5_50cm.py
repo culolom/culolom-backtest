@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 雙向乖離動態槓桿 (完整還原 UI 版)
+# app.py — 0050 雙向乖離動態槓桿 (UI 完美還原版)
 ###############################################################
 
 import os
@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 ###############################################################
-# 1. 環境設定與字型
+# 1. 環境與字型設定
 ###############################################################
 
 font_path = "./NotoSansTC-Bold.ttf"
@@ -35,7 +35,7 @@ try:
 except: pass 
 
 ###############################################################
-# 2. 核心計算函數
+# 2. 資料處理函數
 ###############################################################
 
 DATA_DIR = Path("data")
@@ -70,14 +70,13 @@ def get_stats(eq, rets, y):
     calmar = cagr / mdd if mdd > 0 else 0
     return f_eq, f_ret, cagr, mdd, v, sh, so, calmar
 
-def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
 def fmt_money(v): return f"{v:,.0f} 元"
 def fmt_pct(v, d=2): return f"{v:.{d}%}"
 def fmt_num(v, d=2): return f"{v:.{d}f}"
 def fmt_int(v): return f"{int(v):,}"
 
 ###############################################################
-# 3. UI 介面佈局
+# 3. UI 介面
 ###############################################################
 
 with st.sidebar:
@@ -87,23 +86,22 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 單一標的動態槓桿系統</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.1em;'>📊 單一標的動態槓桿系統</h1>", unsafe_allow_html=True)
 
+# 標的選擇與區間顯示
 available_etfs = get_csv_list()
 if not available_etfs:
     st.error("❌ data 資料夾內找不到任何 CSV 檔案"); st.stop()
 
-# --- 標的與區間 ---
-target_label = st.selectbox("選擇交易標的 (訊號來源)", available_etfs, 
+st.markdown("##### 原型 ETF（訊號來源）")
+target_label = st.selectbox("", available_etfs, label_visibility="collapsed",
                             index=available_etfs.index("00631L.TW") if "00631L.TW" in available_etfs else 0)
 
 df_preview = load_csv(target_label)
 s_min, s_max = df_preview.index.min().date(), df_preview.index.max().date()
-
-# 📌 樣式還原：可回測區間藍框
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
-# --- 參數設定 ---
+# 參數設定
 col_p1, col_p2, col_p3, col_p4 = st.columns(4)
 start = col_p1.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5*365)))
 end = col_p2.date_input("結束日期", value=s_max)
@@ -128,15 +126,13 @@ with col_set2:
         arb_cooldown = st.slider("套利冷卻天數 (CD)", 1, 60, 10)
 
 ###############################################################
-# 4. 回測執行
+# 4. 回測執行邏輯
 ###############################################################
 
 if st.button("啟動回測引擎 🚀"):
     start_buf = start - dt.timedelta(days=int(sma_window * 2))
     df = load_csv(target_label).loc[start_buf:end]
-    # 額外讀取 0050 作為固定對照基準
-    df_ref = load_csv("0050.TW").loc[start:end] if "0050.TW" in available_etfs else pd.DataFrame()
-
+    
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
     df["MA"] = df["Price"].rolling(sma_window).mean()
@@ -183,12 +179,6 @@ if st.button("啟動回測引擎 🚀"):
     y_len = (df.index[-1] - df.index[0]).days / 365
     sl = get_stats(df["Equity_Strategy"], df["Return_Strategy"], y_len)
     sb = get_stats(df["Equity_BH"], df["Return_BH"], y_len)
-    
-    # 基準 0050 計算
-    if not df_ref.empty:
-        df_ref["Equity"] = df_ref["Price"] / df_ref["Price"].iloc[0]
-        s_ref = get_stats(df_ref["Equity"], df_ref["Price"].pct_change().fillna(0), y_len)
-    else: s_ref = sb # 若無 0050 則用標的自身替代
 
     # ------------------------------------------------------
     # 5. UI 還原：KPI 卡片
@@ -200,10 +190,10 @@ if st.button("啟動回測引擎 🚀"):
             background: white; border-radius: 16px; padding: 24px; flex: 1;
             box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; text-align: left;
         }
-        .kpi-label { color: #666; font-size: 0.95rem; margin-bottom: 8px; font-weight: 500; }
-        .kpi-val { font-size: 2.2rem; font-weight: 900; color: #1a1a1a; margin-bottom: 12px; }
+        .kpi-label { color: #8c8c8c; font-size: 1rem; margin-bottom: 12px; font-weight: 500; }
+        .kpi-val { font-size: 2.3rem; font-weight: 900; color: #1a1a1a; margin-bottom: 15px; }
         .delta-tag { 
-            display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 700;
+            display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700;
         }
         .delta-pos { background: #e6f7ed; color: #21c354; }
         .delta-neg { background: #fff1f0; color: #ff4d4f; }
@@ -213,7 +203,9 @@ if st.button("啟動回測引擎 🚀"):
     k_cols = st.columns(4)
     
     def render_kpi(col, label, val, delta, is_better_if_higher=True):
-        style = "delta-pos" if (delta >= 0 if is_better_if_higher else delta <= 0) else "delta-neg"
+        # 判斷顏色邏輯：對於波動率和MDD，delta < 0 (代表比標的低) 是好事
+        is_good = (delta >= 0) if is_better_if_higher else (delta <= 0)
+        style = "delta-pos" if is_good else "delta-neg"
         col.markdown(f"""
             <div class="kpi-card">
                 <div class="kpi-label">{label}</div>
@@ -228,25 +220,23 @@ if st.button("啟動回測引擎 🚀"):
     render_kpi(k_cols[3], "最大回撤", fmt_pct(sl[3]), (sl[3]-sb[3]), is_better_if_higher=False)
 
     # ------------------------------------------------------
-    # 6. UI 還原：績效總表 (HTML Table)
+    # 6. UI 還原：績效總表 (僅顯示 LRS vs Buy & Hold)
     # ------------------------------------------------------
     st.markdown("### 🏆 策略績效總表")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
     
-    # 準備表格數據
     data_map = {
         f"<b>{target_label}</b><br><small>LRS+DCA</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()],
-        f"<b>{target_label}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0],
-        f"<b>0050 元大台灣50</b><br><small>Buy & Hold</small>": [s_ref[0]*capital, s_ref[1], s_ref[2], s_ref[7], s_ref[3], s_ref[4], s_ref[5], 0]
+        f"<b>{target_label}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0]
     }
     
     html = """
     <style>
-    .ctable { width: 100%; border-collapse: collapse; border: 1px solid #eee; font-size: 0.95rem; border-radius: 8px; overflow: hidden; }
-    .ctable th { background: #f8f9fa; padding: 15px; text-align: center; border-bottom: 2px solid #eee; color: #444; }
-    .ctable td { padding: 12px; text-align: center; border-bottom: 1px solid #eee; }
-    .m-name { background: #fcfcfc; text-align: left !important; font-weight: 500; width: 150px; }
-    .win-cell { font-weight: bold; color: #1a1a1a; }
+    .ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; font-size: 1rem; border-radius: 12px; overflow: hidden; }
+    .ctable th { background: #ffffff; padding: 20px; text-align: center; border-bottom: 1px solid #f0f0f0; color: #595959; font-weight: 500; }
+    .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; color: #262626; }
+    .m-name { background: #ffffff; text-align: left !important; font-weight: 500; color: #262626; }
+    .win-cell { font-weight: 800; color: #1a1a1a; }
     </style>
     <table class="ctable">
         <thead><tr><th>指標</th>"""
@@ -257,12 +247,12 @@ if st.button("啟動回測引擎 🚀"):
         html += f"<tr><td class='m-name'>{m}</td>"
         row_vals = [data_map[k][idx] for k in data_map.keys()]
         
-        # 判斷誰是贏家 (i=0 是我們的策略)
+        # 決定誰是贏家
         is_winning = False
-        if idx < 4 or m == "Sharpe Ratio": # 越高越好
-            if row_vals[0] == max(row_vals): is_winning = True
+        if idx in [0, 1, 2, 3, 6]: # 越高越好
+            if row_vals[0] >= row_vals[1]: is_winning = True
         elif idx in [4, 5]: # 越低越好
-            if row_vals[0] == min(row_vals): is_winning = True
+            if row_vals[0] <= row_vals[1]: is_winning = True
 
         for i, v in enumerate(row_vals):
             if "資產" in m: txt = fmt_money(v)
@@ -277,12 +267,29 @@ if st.button("啟動回測引擎 🚀"):
     
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
-    # --- 圖表部分 ---
-    st.write("### 📈 走勢圖分析")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="本策略", line=dict(width=3, color="#00D494")))
-    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name=f"{target_label} B&H", line=dict(color="gray", dash='dash')))
-    fig.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%"), height=450)
-    st.plotly_chart(fig, use_container_width=True)
+    # ------------------------------------------------------
+    # 7. 圖表部分
+    # ------------------------------------------------------
+    st.markdown("### 📈 策略走勢與信號")
+    tab_g1, tab_g2 = st.tabs(["資金曲線比較", "信號軌跡對照"])
+    
+    with tab_g1:
+        fe = go.Figure()
+        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=3, color="#00D494")))
+        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')))
+        fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%"), height=500, hovermode="x unified")
+        st.plotly_chart(fe, use_container_width=True)
+
+    with tab_g2:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name="股價", line=dict(color="#636EFA")))
+        fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A")))
+        colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("賣出", "#D50000", "triangle-down"), 
+                  2: ("加碼", "#2E7D32", "circle"), 3: ("減碼", "#FF9800", "diamond")}
+        for v, (l, c, s) in colors.items():
+            pts = df[df["Signal"] == v]
+            if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s)))
+        fig.update_layout(template="plotly_white", height=500, hovermode="x unified")
+        st.plotly_chart(fig, use_container_width=True)
 
     st.caption("免責聲明：本工具僅供策略研究參考，投資必有風險。")
