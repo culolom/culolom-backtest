@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 雙向乖離動態槓桿 (中文名稱 + 上下圖表版)
+# app.py — 0050 雙向乖離動態槓桿 (三圖連動版)
 ###############################################################
 
 import os
@@ -10,6 +10,7 @@ import streamlit as st
 import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots # 新增：子圖功能
 from pathlib import Path
 import sys
 
@@ -17,7 +18,6 @@ import sys
 # 1. 環境設定與名稱映射
 ###############################################################
 
-# 設定標的名稱對照表 (可自行在下方字典增加新代號)
 TICKER_NAMES = {
     "0050.TW": "0050 元大台灣50",
     "006208.TW": "006208 富邦台50",
@@ -44,7 +44,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(page_title="0050 雙向乖離動態槓桿系統", page_icon="📈", layout="wide")
 
-# 🔒 驗證守門員
+# 🔒 驗證守門員 (可選)
 try:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     import auth 
@@ -105,7 +105,6 @@ with st.sidebar:
 
 st.markdown("<h1 style='margin-bottom:0.1em;'>📊 單一標的動態槓桿系統</h1>", unsafe_allow_html=True)
 
-# 標的選擇：使用 format_func 顯示中文名稱
 available_ids = get_csv_list()
 if not available_ids:
     st.error("❌ data 資料夾內找不到任何 CSV 檔案"); st.stop()
@@ -116,17 +115,14 @@ target_id = st.selectbox(
     available_ids, 
     label_visibility="collapsed",
     index=available_ids.index("00631L.TW") if "00631L.TW" in available_ids else 0,
-    format_func=lambda x: TICKER_NAMES.get(x, x) # 這裡會自動對照中文名稱
+    format_func=lambda x: TICKER_NAMES.get(x, x)
 )
 
-# 顯示中文全名
 ch_name = TICKER_NAMES.get(target_id, target_id)
-
 df_preview = load_csv(target_id)
 s_min, s_max = df_preview.index.min().date(), df_preview.index.max().date()
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
-# 參數設定
 col_p1, col_p2, col_p3, col_p4 = st.columns(4)
 start = col_p1.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5*365)))
 end = col_p2.date_input("結束日期", value=s_max)
@@ -164,7 +160,6 @@ if st.button("啟動回測引擎 🚀"):
     df["Bias"] = (df["Price"] - df["MA"]) / df["MA"]
     df = df.dropna(subset=["MA"]).loc[start:end]
     
-    # 策略循環... (維持不變)
     sigs, pos = [0] * len(df), [0.0] * len(df)
     curr_pos, can_buy = (1.0, True) if "一開局" in position_mode else (0.0, False)
     pos[0], dca_cd, arb_cd = curr_pos, 0, 0
@@ -235,7 +230,7 @@ if st.button("啟動回測引擎 🚀"):
     render_kpi(k_cols[3], "最大回撤", fmt_pct(sl[3]), (sl[3]-sb[3]), is_better_if_higher=False)
 
     # ------------------------------------------------------
-    # 6. UI：績效總表 (僅顯示 LRS vs Buy & Hold)
+    # 6. UI：績效總表
     # ------------------------------------------------------
     st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
@@ -263,87 +258,87 @@ if st.button("啟動回測引擎 🚀"):
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 圖表：上下對照
+    # 7. 整合圖表：三圖連動版 (時間軸連動)
     # ------------------------------------------------------
-    st.markdown("### 📈 走勢與信號對照")
+    st.markdown("### 📈 策略深度視覺化 (時間軸連動)")
+
+    fig_master = make_subplots(
+        rows=3, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.05,
+        subplot_titles=("資金曲線比較", "策略訊號與執行價格", "乖離率變動與觸發門檻"),
+        row_heights=[0.3, 0.4, 0.3]
+    )
+
+    # --- 第一列：資金曲線 ---
+    fig_master.add_trace(
+        go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=2.5, color="#00D494")),
+        row=1, col=1
+    )
+    fig_master.add_trace(
+        go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')),
+        row=1, col=1
+    )
+
+    # --- 第二列：股價與訊號 ---
+    fig_master.add_trace(
+        go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#636EFA", width=1.5)),
+        row=2, col=1
+    )
+    fig_master.add_trace(
+        go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A", width=1.5)),
+        row=2, col=1
+    )
     
-    # 資金曲線
-    fe = go.Figure()
-    fe.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=3, color="#00D494")))
-    fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')))
-    fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%", title="累積報酬率"), height=450, hovermode="x unified", title="資金曲線比較")
-    st.plotly_chart(fe, use_container_width=True)
-
-    # 股價與信號
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#636EFA")))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A")))
-    colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("賣出", "#D50000", "triangle-down"), 2: ("加碼", "#2E7D32", "circle"), 3: ("減碼", "#FF9800", "diamond")}
-    for v, (l, c, s) in colors.items():
-        pts = df[df["Signal"] == v]
-        if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s)))
-    fig.update_layout(template="plotly_white", yaxis=dict(title="價格"), height=450, hovermode="x unified", title="策略訊號與執行價格")
-    st.plotly_chart(fig, use_container_width=True)
-    # ------------------------------------------------------
-    # 8. 圖表：乖離率走勢 (Bias Chart)
-    # ------------------------------------------------------
-    st.markdown("### 📊 乖離率 (Bias) 震盪走勢")
+    colors = {
+        1: ("買進", "#00C853", "triangle-up"), 
+        -1: ("賣出", "#D50000", "triangle-down"), 
+        2: ("加碼", "#2E7D32", "circle"), 
+        3: ("減碼", "#FF9800", "diamond")
+    }
     
-    fb = go.Figure()
-
-    # 繪製乖離率主線
-    fb.add_trace(go.Scatter(
-        x=df.index, 
-        y=df["Bias"] * 100, 
-        name="乖離率 (%)", 
-        line=dict(color="#AB63FA", width=2),
-        fill='tozeroy', # 填滿至 0 軸，增加視覺感
-        fillcolor='rgba(171, 99, 250, 0.1)'
-    ))
-
-    # 加入 0% 基準線
-    fb.add_hline(y=0, line_dash="dash", line_color="#7f7f7f", opacity=0.5)
-
-    # 加入加碼觸發線 (DCA Trigger)
-    if enable_dca:
-        fb.add_hline(
-            y=dca_bias_trigger, 
-            line_dash="dot", 
-            line_color="#2E7D32", 
-            annotation_text=f"加碼門檻 {dca_bias_trigger}%",
-            annotation_position="bottom left"
-        )
-
-    # 加入減碼觸發線 (Arb Trigger)
-    if enable_arb:
-        fb.add_hline(
-            y=arb_bias_trigger, 
-            line_dash="dot", 
-            line_color="#D50000", 
-            annotation_text=f"套利門檻 {arb_bias_trigger}%",
-            annotation_position="top left"
-        )
-
-    # 在乖離率圖上同步標註訊號點 (讓使用者知道觸發當下的乖離位置)
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
         if not pts.empty:
-            fb.add_trace(go.Scatter(
-                x=pts.index, 
-                y=pts["Bias"] * 100, 
-                mode="markers", 
-                name=l, 
-                showlegend=False,
-                marker=dict(color=c, size=8, symbol=s)
-            ))
+            fig_master.add_trace(
+                go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s), showlegend=False),
+                row=2, col=1
+            )
 
-    fb.update_layout(
-        template="plotly_white", 
-        yaxis=dict(title="乖離率 (%)", ticksuffix="%"), 
-        height=400, 
-        hovermode="x unified",
-        title="乖離率變動與策略觸發門檻"
+    # --- 第三列：乖離率走勢 ---
+    fig_master.add_trace(
+        go.Scatter(x=df.index, y=df["Bias"] * 100, name="乖離率 (%)", line=dict(color="#AB63FA"), fill='tozeroy', fillcolor='rgba(171, 99, 250, 0.1)'),
+        row=3, col=1
     )
     
-    st.plotly_chart(fb, use_container_width=True)
+    # 輔助線
+    fig_master.add_hline(y=0, line_dash="dash", line_color="#7f7f7f", opacity=0.5, row=3, col=1)
+    if enable_dca:
+        fig_master.add_hline(y=dca_bias_trigger, line_dash="dot", line_color="#2E7D32", row=3, col=1, annotation_text="加碼區")
+    if enable_arb:
+        fig_master.add_hline(y=arb_bias_trigger, line_dash="dot", line_color="#D50000", row=3, col=1, annotation_text="減碼區")
+
+    # 同步標記交易點在乖離圖上
+    for v, (l, c, s) in colors.items():
+        pts = df[df["Signal"] == v]
+        if not pts.empty:
+            fig_master.add_trace(
+                go.Scatter(x=pts.index, y=pts["Bias"] * 100, mode="markers", showlegend=False, marker=dict(color=c, size=8, symbol=s)),
+                row=3, col=1
+            )
+
+    # 全域佈局
+    fig_master.update_layout(
+        height=950, 
+        template="plotly_white",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    fig_master.update_yaxes(title_text="累積報酬率", tickformat=".0%", row=1, col=1)
+    fig_master.update_yaxes(title_text="價格", row=2, col=1)
+    fig_master.update_yaxes(title_text="乖離率 (%)", ticksuffix="%", row=3, col=1)
+
+    st.plotly_chart(fig_master, use_container_width=True)
+
     st.caption("免責聲明：本工具僅供策略研究參考，投資必有風險。")
