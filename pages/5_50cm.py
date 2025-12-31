@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 雙向乖離動態槓桿 (三圖連動版)
+# app.py — 0050 雙向乖離動態槓桿 (三圖連動 + 布林通道版)
 ###############################################################
 
 import os
@@ -10,7 +10,7 @@ import streamlit as st
 import matplotlib
 import matplotlib.font_manager as fm
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots # 新增：子圖功能
+from plotly.subplots import make_subplots
 from pathlib import Path
 import sys
 
@@ -44,7 +44,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(page_title="0050 雙向乖離動態槓桿系統", page_icon="📈", layout="wide")
 
-# 🔒 驗證守門員 (可選)
+# 🔒 驗證守門員
 try:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     import auth 
@@ -156,8 +156,15 @@ if st.button("啟動回測引擎 🚀"):
     
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
+    # 計算均線與乖離率
     df["MA"] = df["Price"].rolling(sma_window).mean()
     df["Bias"] = (df["Price"] - df["MA"]) / df["MA"]
+    
+    # --- 新增：計算布林通道 (Bollinger Bands) ---
+    df["Std"] = df["Price"].rolling(sma_window).std()
+    df["Upper"] = df["MA"] + (df["Std"] * 2)
+    df["Lower"] = df["MA"] - (df["Std"] * 2)
+    
     df = df.dropna(subset=["MA"]).loc[start:end]
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
@@ -201,44 +208,22 @@ if st.button("啟動回測引擎 🚀"):
     sl = get_stats(df["Equity_Strategy"], df["Return_Strategy"], y_len)
     sb = get_stats(df["Equity_BH"], df["Return_BH"], y_len)
 
-    # ------------------------------------------------------
-    # 5. UI：KPI 卡片
-    # ------------------------------------------------------
-    st.markdown("""
-        <style>
-        .kpi-card { 
-            background: white; border-radius: 16px; padding: 24px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; text-align: left;
-        }
-        .kpi-label { color: #8c8c8c; font-size: 1rem; margin-bottom: 12px; font-weight: 500; }
-        .kpi-val { font-size: 2.3rem; font-weight: 900; color: #1a1a1a; margin-bottom: 15px; }
-        .delta-tag { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700; }
-        .delta-pos { background: #e6f7ed; color: #21c354; }
-        .delta-neg { background: #fff1f0; color: #ff4d4f; }
-        </style>
-    """, unsafe_allow_html=True)
-
+    # KPI 卡片渲染 (略過不變)
+    st.markdown("""<style>.kpi-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; text-align: left; } .kpi-label { color: #8c8c8c; font-size: 1rem; margin-bottom: 12px; font-weight: 500; } .kpi-val { font-size: 2.3rem; font-weight: 900; color: #1a1a1a; margin-bottom: 15px; } .delta-tag { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700; } .delta-pos { background: #e6f7ed; color: #21c354; } .delta-neg { background: #fff1f0; color: #ff4d4f; } </style> """, unsafe_allow_html=True)
     k_cols = st.columns(4)
     def render_kpi(col, label, val, delta, is_better_if_higher=True):
         is_good = (delta >= 0) if is_better_if_higher else (delta <= 0)
         style = "delta-pos" if is_good else "delta-neg"
         col.markdown(f'<div class="kpi-card"><div class="kpi-label">{label}</div><div class="kpi-val">{val}</div><div class="delta-tag {style}">{delta:+.2%} (vs 標的)</div></div>', unsafe_allow_html=True)
-
     render_kpi(k_cols[0], "期末資產", fmt_money(sl[0]*capital), (sl[0]/sb[0]-1))
     render_kpi(k_cols[1], "CAGR", fmt_pct(sl[2]), (sl[2]-sb[2]))
     render_kpi(k_cols[2], "波動率", fmt_pct(sl[4]), (sl[4]-sb[4]), is_better_if_higher=False)
     render_kpi(k_cols[3], "最大回撤", fmt_pct(sl[3]), (sl[3]-sb[3]), is_better_if_higher=False)
 
-    # ------------------------------------------------------
-    # 6. UI：績效總表
-    # ------------------------------------------------------
+    # 績效總表 (略過不變)
     st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    data_map = {
-        f"<b>{ch_name}</b><br><small>LRS+DCA</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()],
-        f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0]
-    }
-    
+    data_map = { f"<b>{ch_name}</b><br><small>LRS+DCA</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
     html = '<style>.ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; margin-top:10px; } .ctable th { background: #ffffff; padding: 20px; border-bottom: 1px solid #f0f0f0; color: #595959; } .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; } .m-name { text-align: left !important; font-weight: 500; }</style>'
     html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
     for col in data_map.keys(): html += f"<th>{col}</th>"
@@ -258,87 +243,59 @@ if st.button("啟動回測引擎 🚀"):
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 整合圖表：三圖連動版 (時間軸連動)
+    # 7. 整合圖表：三圖連動版 (含布林通道)
     # ------------------------------------------------------
-    st.markdown("### 📈 策略深度視覺化 (時間軸連動)")
+    st.markdown("### 📈 策略深度視覺化 (時間軸連動 + 布林通道)")
 
     fig_master = make_subplots(
         rows=3, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.05,
-        subplot_titles=("資金曲線比較", "策略訊號與執行價格", "乖離率變動與觸發門檻"),
+        subplot_titles=("資金曲線比較", "策略訊號與執行價格 (含布林通道)", "乖離率變動與觸發門檻"),
         row_heights=[0.3, 0.4, 0.3]
     )
 
     # --- 第一列：資金曲線 ---
-    fig_master.add_trace(
-        go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=2.5, color="#00D494")),
-        row=1, col=1
-    )
-    fig_master.add_trace(
-        go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')),
-        row=1, col=1
-    )
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="LRS+DCA", line=dict(width=2.5, color="#00D494")), row=1, col=1)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')), row=1, col=1)
 
-    # --- 第二列：股價與訊號 ---
+    # --- 第二列：股價與訊號 + 布林通道 ---
+    # 1. 布林上軌 (隱藏圖例，因為重點在區間)
     fig_master.add_trace(
-        go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#636EFA", width=1.5)),
+        go.Scatter(x=df.index, y=df["Upper"], name="布林上軌", line=dict(color="rgba(173, 181, 189, 0.2)", width=1), showlegend=False), 
         row=2, col=1
     )
+    # 2. 布林下軌 (與上軌之間填滿顏色)
     fig_master.add_trace(
-        go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A", width=1.5)),
+        go.Scatter(x=df.index, y=df["Lower"], name="布林通道區間", fill='tonexty', fillcolor='rgba(173, 181, 189, 0.1)', line=dict(color="rgba(173, 181, 189, 0.2)", width=1)), 
         row=2, col=1
     )
     
-    colors = {
-        1: ("買進", "#00C853", "triangle-up"), 
-        -1: ("賣出", "#D50000", "triangle-down"), 
-        2: ("加碼", "#2E7D32", "circle"), 
-        3: ("減碼", "#FF9800", "diamond")
-    }
+    # 3. 股價與均線
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#636EFA", width=1.5)), row=2, col=1)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A", width=1.5)), row=2, col=1)
     
+    # 4. 交易訊號點
+    colors = {1: ("買進", "#00C853", "triangle-up"), -1: ("賣出", "#D50000", "triangle-down"), 2: ("加碼", "#2E7D32", "circle"), 3: ("減碼", "#FF9800", "diamond")}
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
         if not pts.empty:
-            fig_master.add_trace(
-                go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s), showlegend=False),
-                row=2, col=1
-            )
+            fig_master.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s), showlegend=False), row=2, col=1)
 
     # --- 第三列：乖離率走勢 ---
-    fig_master.add_trace(
-        go.Scatter(x=df.index, y=df["Bias"] * 100, name="乖離率 (%)", line=dict(color="#AB63FA"), fill='tozeroy', fillcolor='rgba(171, 99, 250, 0.1)'),
-        row=3, col=1
-    )
-    
-    # 輔助線
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Bias"] * 100, name="乖離率 (%)", line=dict(color="#AB63FA"), fill='tozeroy', fillcolor='rgba(171, 99, 250, 0.1)'), row=3, col=1)
     fig_master.add_hline(y=0, line_dash="dash", line_color="#7f7f7f", opacity=0.5, row=3, col=1)
-    if enable_dca:
-        fig_master.add_hline(y=dca_bias_trigger, line_dash="dot", line_color="#2E7D32", row=3, col=1, annotation_text="加碼區")
-    if enable_arb:
-        fig_master.add_hline(y=arb_bias_trigger, line_dash="dot", line_color="#D50000", row=3, col=1, annotation_text="減碼區")
-
-    # 同步標記交易點在乖離圖上
+    if enable_dca: fig_master.add_hline(y=dca_bias_trigger, line_dash="dot", line_color="#2E7D32", row=3, col=1, annotation_text="加碼區")
+    if enable_arb: fig_master.add_hline(y=arb_bias_trigger, line_dash="dot", line_color="#D50000", row=3, col=1, annotation_text="減碼區")
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
-        if not pts.empty:
-            fig_master.add_trace(
-                go.Scatter(x=pts.index, y=pts["Bias"] * 100, mode="markers", showlegend=False, marker=dict(color=c, size=8, symbol=s)),
-                row=3, col=1
-            )
+        if not pts.empty: fig_master.add_trace(go.Scatter(x=pts.index, y=pts["Bias"] * 100, mode="markers", showlegend=False, marker=dict(color=c, size=8, symbol=s)), row=3, col=1)
 
     # 全域佈局
-    fig_master.update_layout(
-        height=950, 
-        template="plotly_white",
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-
+    fig_master.update_layout(height=1000, template="plotly_white", hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     fig_master.update_yaxes(title_text="累積報酬率", tickformat=".0%", row=1, col=1)
     fig_master.update_yaxes(title_text="價格", row=2, col=1)
     fig_master.update_yaxes(title_text="乖離率 (%)", ticksuffix="%", row=3, col=1)
 
     st.plotly_chart(fig_master, use_container_width=True)
-
     st.caption("免責聲明：本工具僅供策略研究參考，投資必有風險。")
