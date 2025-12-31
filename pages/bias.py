@@ -96,15 +96,15 @@ st.title("🚀 50正2 乖離率位階雷達")
 # ===============================================================
 data_dir = "data"
 TARGET_MAP = {
-    "00631L 元大台灣50正2": "00631L.TW.csv",
-    "00663L 國泰台灣加權正2": "00663L.TW.csv",
-    "00675L 富邦台灣加權正2": "00675L.TW.csv",
-    "00685L 群益台灣加權正2": "00685L.TW.csv",
-    "TQQQ QQQ正3": "TQQQ.csv",
+    "00662 富邦NASDAQ100": "00662.TW.csv",
+    "0050 元大台灣50": "0050.TW.csv",
+    "2330 台積電": "2330.TW.csv",
+    "006208 富邦台灣50": "006208.TW.csv",
+    "00646 元大S&p500": "00646.TW.csv",
     "BTC 比特幣": "BTC-USD.csv",
     "ETH 乙太幣": "ETH-USD.csv",
     "GLD 黃金ETF": "GLD.csv",
-    "00670L QQQ台股正2": "00670L.TW.csv"
+    "SLV 白銀ETF": "SLV.csv"
 }
 
 available_options = [name for name, f in TARGET_MAP.items() if os.path.exists(os.path.join(data_dir, f))]
