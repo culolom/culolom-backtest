@@ -284,5 +284,66 @@ if st.button("啟動回測引擎 🚀"):
         if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=10, symbol=s)))
     fig.update_layout(template="plotly_white", yaxis=dict(title="價格"), height=450, hovermode="x unified", title="策略訊號與執行價格")
     st.plotly_chart(fig, use_container_width=True)
+    # ------------------------------------------------------
+    # 8. 圖表：乖離率走勢 (Bias Chart)
+    # ------------------------------------------------------
+    st.markdown("### 📊 乖離率 (Bias) 震盪走勢")
+    
+    fb = go.Figure()
 
+    # 繪製乖離率主線
+    fb.add_trace(go.Scatter(
+        x=df.index, 
+        y=df["Bias"] * 100, 
+        name="乖離率 (%)", 
+        line=dict(color="#AB63FA", width=2),
+        fill='tozeroy', # 填滿至 0 軸，增加視覺感
+        fillcolor='rgba(171, 99, 250, 0.1)'
+    ))
+
+    # 加入 0% 基準線
+    fb.add_hline(y=0, line_dash="dash", line_color="#7f7f7f", opacity=0.5)
+
+    # 加入加碼觸發線 (DCA Trigger)
+    if enable_dca:
+        fb.add_hline(
+            y=dca_bias_trigger, 
+            line_dash="dot", 
+            line_color="#2E7D32", 
+            annotation_text=f"加碼門檻 {dca_bias_trigger}%",
+            annotation_position="bottom left"
+        )
+
+    # 加入減碼觸發線 (Arb Trigger)
+    if enable_arb:
+        fb.add_hline(
+            y=arb_bias_trigger, 
+            line_dash="dot", 
+            line_color="#D50000", 
+            annotation_text=f"套利門檻 {arb_bias_trigger}%",
+            annotation_position="top left"
+        )
+
+    # 在乖離率圖上同步標註訊號點 (讓使用者知道觸發當下的乖離位置)
+    for v, (l, c, s) in colors.items():
+        pts = df[df["Signal"] == v]
+        if not pts.empty:
+            fb.add_trace(go.Scatter(
+                x=pts.index, 
+                y=pts["Bias"] * 100, 
+                mode="markers", 
+                name=l, 
+                showlegend=False,
+                marker=dict(color=c, size=8, symbol=s)
+            ))
+
+    fb.update_layout(
+        template="plotly_white", 
+        yaxis=dict(title="乖離率 (%)", ticksuffix="%"), 
+        height=400, 
+        hovermode="x unified",
+        title="乖離率變動與策略觸發門檻"
+    )
+    
+    st.plotly_chart(fb, use_container_width=True)
     st.caption("免責聲明：本工具僅供策略研究參考，投資必有風險。")
