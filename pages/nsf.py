@@ -135,12 +135,90 @@ if st.button("開始回測 🚀"):
     m_nsf = get_metrics(df["Equity_NSF"])
     m_bh = get_metrics(df["Equity_BH"])
 
-    st.markdown("### 📊 策略績效對照表")
-    res_data = {
-        "分析指標": ["最終資產價值", "累計總報酬", "年化報酬率 (CAGR)", "最大回撤 (MDD)"],
-        "國安基金策略": [format_currency(capital * df["Equity_NSF"].iloc[-1]), format_percent(m_nsf[0]), format_percent(m_nsf[1]), format_percent(m_nsf[2])],
-        "0050 一直持有": [format_currency(capital * df["Equity_BH"].iloc[-1]), format_percent(m_bh[0]), format_percent(m_bh[1]), format_percent(m_bh[2])]
-    }
-    st.table(pd.DataFrame(res_data))
+    # ------------------------------------------------------
+    # 5. 進階指標計算 (準備給表格使用)
+    # ------------------------------------------------------
+    def get_full_stats(equity_series, return_series, capital):
+        final_equity = equity_series.iloc[-1]
+        total_ret = final_equity - 1
+        days = (equity_series.index[-1] - equity_series.index[0]).days
+        cagr = (final_equity)**(365/days) - 1 if final_equity > 0 else 0
+        mdd = (equity_series / equity_series.cummax() - 1).min()
+        
+        # 波動、夏普、Calmar
+        ann_vol = return_series.std() * np.sqrt(252)
+        sharpe = (return_series.mean() / return_series.std() * np.sqrt(252)) if return_series.std() != 0 else 0
+        calmar = (cagr / abs(mdd)) if mdd != 0 else 0
+        
+        return [final_equity * capital, total_ret, cagr, calmar, mdd, ann_vol, sharpe]
 
-    st.success("✅ 回測完成！從歷史數據看，國安基金通常能精準捕捉波段低點，大幅降低持有壓力 (MDD)。")
+    s_nsf = get_full_stats(df["Equity_NSF"], df["Strategy_Return"], capital)
+    s_bh = get_full_stats(df["Equity_BH"], df["Return"], capital)
+
+    # ------------------------------------------------------
+    # 6. 策略績效總表 (HTML 美化版)
+    # ------------------------------------------------------
+    st.markdown("### 🏆 策略績效總表")
+    
+    metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
+    
+    # 建立比較數據
+    dt_table = {
+        "<b>國安基金</b><br>跟單策略": s_nsf + [(df["Signal"] == 1).sum()],
+        f"<b>{target_symbol}</b><br>Buy & Hold": s_bh + [0]
+    }
+    df_v = pd.DataFrame(dt_table, index=metrics)
+    
+    # 格式化工具 (對應您的 fmt 函式)
+    def _fmt(m, v):
+        if "資產" in m: return f"{v:,.0f} 元"
+        if any(x in m for x in ["率", "報酬", "波動", "MDD"]): return f"{v:.2%}"
+        if "次數" in m: return f"{int(v):,}"
+        return f"{v:.2f}"
+
+    # CSS 樣式
+    html = """
+    <style>
+        .ctable {width:100%; border-collapse:separate; border-spacing:0; border-radius:12px; border:1px solid rgba(128,128,128,0.1); overflow:hidden; margin-bottom:20px;}
+        .ctable th {background:#f0f2f6; padding:15px; text-align:center; color:#31333F; font-weight:600;}
+        .ctable td {padding:12px; text-align:center; border-bottom:1px solid rgba(128,128,128,0.05); color:#31333F;}
+        .mname {text-align:left !important; background:#f0f2f6; font-weight:500; min-width:120px;}
+        .win-trophy { color: #FFD700; font-size: 0.9em; }
+    </style>
+    """
+    
+    html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
+    for col in df_v.columns: html += f'<th>{col}</th>'
+    html += '</tr></thead><tbody>'
+    
+    for m in metrics:
+        html += f'<tr><td class="mname">{m}</td>'
+        rv = df_v.loc[m].values
+        # 判定誰表現較好
+        if m in ["最大回撤 (MDD)", "年化波動", "交易次數"]:
+            best = min(rv)
+        else:
+            best = max(rv)
+            
+        for i, v in enumerate(rv):
+            is_win = (v == best and (m != "交易次數" or v != 0))
+            txt = _fmt(m, v)
+            # 第一行 (策略行) 加粗變色
+            style = 'style="font-weight:bold; color:#ff4b4b;"' if i == 0 else ''
+            html += f'<td {style}>{txt} {"<span class=win-trophy>🏆</span>" if is_win else ""}</td>'
+        html += '</tr>'
+    
+    st.write(html + '</tbody></table>', unsafe_allow_html=True)
+
+    # ------------------------------------------------------
+    # 7. Footer 免責聲明
+    # ------------------------------------------------------
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+    footer_html = f"""
+    <div style="text-align: center; color: gray; font-size: 0.85rem; line-height: 1.6;">
+        <p><b>策略開發：國安基金跟單觀測系統 (NSF Tracking System)</b></p>
+        <p>Copyright © 2026 <a href="https://hamr-lab.com" style="color: gray; text-decoration: none;">hamr-lab.com</a>. All rights reserved.</p>
+        <p style="font-style: italic;">免責聲明：本工具僅供策略回測研究參考，不構成任何形式之投資建議。投資必定有風險，過去之績效不保證未來表現。</p>
+    </div>
+    """
+    st.markdown(footer_html, unsafe_allow_html=True)
