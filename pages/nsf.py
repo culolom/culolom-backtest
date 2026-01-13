@@ -21,7 +21,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 🔒 認證機制 (保留原有機制)
+# 🔒 認證機制 (保留您原有的 auth.py 串接)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
@@ -37,13 +37,11 @@ with st.sidebar:
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 ###############################################################
 # 2. 歷史資料與參數定義
 ###############################################################
 
-# 國安基金歷史進退場日期 (更新至 2026/01/12)
 NSF_DATES = [
     ("2000-03-15", "2000-03-20"), ("2000-10-02", "2000-11-15"),
     ("2004-05-19", "2004-05-31"), ("2008-09-19", "2008-12-16"),
@@ -52,7 +50,6 @@ NSF_DATES = [
     ("2025-04-09", "2026-01-12"),
 ]
 
-# 槓桿標的選單 (對應您截圖的標的)
 LEV_OPTIONS = {
     "00631L 元大台灣50正2": "00631L.TW",
     "00663L 國泰台灣加權正2": "00663L.TW",
@@ -69,12 +66,11 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Close"]]
 
 ###############################################################
-# 3. UI 佈局 (完全復刻截圖排版)
+# 3. UI 佈局
 ###############################################################
 
 st.title("🏛️ 國安基金跟單：加碼正2策略回測")
 
-# 第一列：標題選擇 (原型 ETF vs 槓桿 ETF)
 col_s1, col_s2 = st.columns(2)
 with col_s1:
     base_label = st.selectbox("原型 ETF（訊號來源）", ["0050 元大台灣50", "006208 富邦台50"])
@@ -83,21 +79,17 @@ with col_s2:
     lev_label = st.selectbox("槓桿 ETF（實際進出場標的）", list(LEV_OPTIONS.keys()))
     lev_symbol = LEV_OPTIONS[lev_label]
 
-# 讀取資料以決定可回測範圍
 df_base_raw = load_csv(base_symbol)
 df_lev_raw = load_csv(lev_symbol)
 
 if df_base_raw.empty or df_lev_raw.empty:
     st.error("⚠️ 找不到 CSV 資料，請確保 data 資料夾內有對應檔案。"); st.stop()
 
-# 找出兩者重疊的最早與最晚日期
 common_start = max(df_base_raw.index.min(), df_lev_raw.index.min())
 common_end = min(df_base_raw.index.max(), df_lev_raw.index.max())
 
-# 藍色區間提示框
 st.info(f"📌 可回測區間：{common_start.date()} ~ {common_end.date()}")
 
-# 第二列：日期、金額、SMA 設定 (對應截圖)
 col_p1, col_p2, col_p3, col_p4 = st.columns(4)
 with col_p1:
     start_date = st.date_input("開始日期", value=date(2021, 1, 13), min_value=common_start.date(), max_value=common_end.date())
@@ -106,38 +98,29 @@ with col_p2:
 with col_p3:
     capital = st.number_input("投入本金（元）", value=100000, step=10000)
 with col_p4:
-    sma_period = st.number_input("均線週期 (SMA)", value=200, step=10) # 預留介面用
+    sma_period = st.number_input("均線週期 (SMA)", value=200, step=10)
 
 ###############################################################
-# 4. 核心回測運算與三方比較
+# 4. 回測運算
 ###############################################################
 
 if st.button("開始回測 🚀", use_container_width=True):
-    # 資料對齊與切片
     df = pd.merge(df_base_raw, df_lev_raw, left_index=True, right_index=True, suffixes=('_Base', '_Lev'))
     df = df.loc[str(start_date):str(end_date)].copy()
     
-    # 計算每日報酬率
     df["Ret_Base"] = df["Close_Base"].pct_change().fillna(0)
     df["Ret_Lev"] = df["Close_Lev"].pct_change().fillna(0)
     
-    # 標記護盤時間區間
     df["In_NSF"] = 0
     for s, e in NSF_DATES:
         df.loc[s:e, "In_NSF"] = 1
     
-    # --- 關鍵邏輯：三方績效計算 ---
-    # 1. 策略：護盤期間拿正2報酬，平時拿原型報酬
     df["Strategy_Return"] = np.where(df["In_NSF"] == 1, df["Ret_Lev"], df["Ret_Base"])
     df["Equity_Strategy"] = (1 + df["Strategy_Return"]).cumprod()
-    
-    # 2. 基準 A：正2 持有到底 (Buy & Hold)
     df["Equity_Lev_BH"] = (1 + df["Ret_Lev"]).cumprod()
-    
-    # 3. 基準 B：原型 持有到底 (Buy & Hold)
     df["Equity_Base_BH"] = (1 + df["Ret_Base"]).cumprod()
 
-    # --- 績效指標函式 ---
+    # --- 績效指標計算 ---
     def get_full_stats(equity_series, return_series):
         final_eq = equity_series.iloc[-1]
         total_ret = final_eq - 1
@@ -146,41 +129,26 @@ if st.button("開始回測 🚀", use_container_width=True):
         mdd = (equity_series / equity_series.cummax() - 1).min()
         vol = return_series.std() * np.sqrt(252)
         sharpe = (return_series.mean() / return_series.std() * np.sqrt(252)) if return_series.std() != 0 else 0
-        
-        # Sortino Ratio (僅計算下行波動)
-        downside_ret = return_series[return_series < 0]
-        sortino = (return_series.mean() * 252) / (downside_ret.std() * np.sqrt(252)) if not downside_ret.empty else 0
-        
-        # Calmar Ratio
+        down_ret = return_series[return_series < 0]
+        sortino = (return_series.mean() * 252) / (down_ret.std() * np.sqrt(252)) if not down_ret.empty else 0
         calmar = abs(cagr / mdd) if mdd != 0 else 0
-        
         return [final_eq * capital, total_ret, cagr, calmar, mdd, vol, sharpe, sortino]
 
-    stats_strat = get_full_stats(df["Equity_Strategy"], df["Strategy_Return"])
-    stats_lev_bh = get_full_stats(df["Equity_Lev_BH"], df["Ret_Lev"])
-    stats_base_bh = get_full_stats(df["Equity_Base_BH"], df["Ret_Base"])
+    s_strat = get_full_stats(df["Equity_Strategy"], df["Strategy_Return"])
+    s_lev = get_full_stats(df["Equity_Lev_BH"], df["Ret_Lev"])
+    s_base = get_full_stats(df["Equity_Base_BH"], df["Ret_Base"])
 
-    # --- 5. 顯示頂部指標卡片 (復刻截圖) ---
+    # --- 5. 頂部卡片 ---
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("期末資產", f"{stats_strat[0]:,.0f} 元", f"{((stats_strat[0]/stats_lev_bh[0])-1):+.2%} (vs 槓桿)")
-    k2.metric("CAGR", f"{stats_strat[2]:.2%}", f"{(stats_strat[2]-stats_lev_bh[2]):+.2%} (vs 槓桿)")
-    k3.metric("波動率", f"{stats_strat[5]:.2%}", f"{(stats_strat[5]-stats_lev_bh[5]):+.2%} (vs 槓桿)", delta_color="inverse")
-    k4.metric("最大回撤", f"{stats_strat[4]:.2%}", f"{(stats_strat[4]-stats_lev_bh[4]):+.2%} (vs 槓桿)", delta_color="inverse")
+    k1.metric("期末資產", f"{s_strat[0]:,.0f} 元", f"{((s_strat[0]/s_lev[0])-1):+.2%} (vs 槓桿)")
+    k2.metric("CAGR", f"{s_strat[2]:.2%}", f"{(s_strat[2]-s_lev[2]):+.2%} (vs 槓桿)")
+    k3.metric("波動率", f"{s_strat[5]:.2%}", f"{(s_strat[5]-s_lev[5]):+.2%} (vs 槓桿)", delta_color="inverse")
+    k4.metric("最大回撤", f"{s_strat[4]:.2%}", f"{(s_strat[4]-s_lev[4]):+.2%} (vs 槓桿)", delta_color="inverse")
 
-    # --- 6. 績效深度對照表 (HTML 渲染) ---
+    # --- 6. HTML 表格 (關鍵修正點) ---
     st.markdown("### 📊 策略績效深度對照")
+    metrics_names = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio"]
     
-    metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio"]
-    
-    # 建立表格數據
-    df_compare = pd.DataFrame({
-        "指標": metrics,
-        "策略 (國安加碼)": stats_strat,
-        f"{lev_symbol} B&H": stats_lev_bh,
-        f"{base_symbol} B&H": stats_base_bh
-    })
-
-    # 生成 HTML 表格 (復刻截圖樣式)
     html = f"""
     <style>
         .p-table {{ width:100%; border-collapse: collapse; font-family: sans-serif; font-size: 15px; margin-top: 10px; }}
@@ -194,52 +162,53 @@ if st.button("開始回測 🚀", use_container_width=True):
         <thead>
             <tr>
                 <th class="label-col">指標</th>
-                <th>{lev_symbol}<br><small>策略 (國安加碼)</small></th>
-                <th>{lev_symbol}<br><small>Buy & Hold</small></th>
-                <th>{base_symbol}<br><small>Buy & Hold</small></th>
+                <th>策略 (國安加碼)<br><small>{lev_symbol}</small></th>
+                <th>Buy & Hold<br><small>{lev_symbol}</small></th>
+                <th>Buy & Hold<br><small>{base_symbol}</small></th>
             </tr>
         </thead>
         <tbody>
     """
     
-    for i, name in enumerate(metrics):
-        v_s, v_l, v_b = stats_strat[i], stats_lev_bh[i], stats_base_bh[i]
+    for i, name in enumerate(metrics_names):
+        v_s, v_l, v_b = s_strat[i], s_lev[i], s_base[i]
         
-        # 格式化數值
-        if "資產" in name: f_s, f_l, f_b = f"{v_s:,.0f} 元", f"{v_l:,.0f} 元", f"{v_b:,.0f} 元"
-        elif any(x in name for x in ["率", "報酬", "MDD", "波動"]): f_s, f_l, f_b = f"{v_s:.2%}", f"{v_l:.2%}", f"{v_b:.2%}"
-        else: f_s, f_l, f_b = f"{v_s:.2f}", f"{v_l:.2f}", f"{v_b:.2f}"
-        
-        # 判定誰是贏家 (MDD 與 波動率 越小越好)
-        if name in ["最大回撤 (MDD)", "年化波動"]:
+        # 贏家判斷 (修正：MDD 越接近 0 (數值越大) 越好，波動率越小越好)
+        if name == "年化波動":
             best = min(v_s, v_l, v_b)
         else:
             best = max(v_s, v_l, v_b)
             
-        def get_cls(val): return 'class="winner"' if val == best else ''
-        def get_trophy(val): return '<span class="trophy">🏆</span>' if val == best else ''
+        def fmt(val, n):
+            if "資產" in n: return f"{val:,.0f} 元"
+            if any(x in n for x in ["率", "報酬", "MDD", "波動"]): return f"{val:.2%}"
+            return f"{val:.2f}"
+
+        def get_td(val, best_val):
+            cls = ' class="winner"' if val == best_val else ''
+            trophy = ' <span class="trophy">🏆</span>' if val == best_val else ''
+            return f'<td{cls}>{fmt(val, name)}{trophy}</td>'
 
         html += f"""
             <tr>
                 <td class="label-col">{name}</td>
-                <td {get_cls(v_s)}>{f_s} {get_trophy(v_s)}</td>
-                <td {get_cls(v_l)}>{f_l} {get_trophy(v_l)}</td>
-                <td {get_cls(v_b)}>{f_b} {get_trophy(v_b)}</td>
+                {get_td(v_s, best)}
+                {get_td(v_l, best)}
+                {get_td(v_b, best)}
             </tr>
         """
     
-    st.write(html + "</tbody></table>", unsafe_allow_html=True)
+    html += "</tbody></table>"
+    st.markdown(html, unsafe_allow_html=True)
 
-    # --- 7. 淨值走勢圖 ---
+    # --- 7. 圖表 ---
     st.markdown("### 📈 累積淨值比較")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]*capital, name="國安加碼策略", line=dict(color="#FF4B4B", width=3)))
+    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]*capital, name="策略 (加碼正2)", line=dict(color="#FF4B4B", width=3)))
     fig.add_trace(go.Scatter(x=df.index, y=df["Equity_Lev_BH"]*capital, name="正2 Buy & Hold", line=dict(color="#94A3B8", width=1.5, dash='dash')))
     fig.add_trace(go.Scatter(x=df.index, y=df["Equity_Base_BH"]*capital, name="原型 Buy & Hold", line=dict(color="#CBD5E0", width=1.5)))
-    
     fig.update_layout(template="plotly_white", hovermode="x unified", height=500, margin=dict(l=0,r=0,t=20,b=0))
     st.plotly_chart(fig, use_container_width=True)
 
-# --- 8. 頁尾免責聲明 ---
 st.markdown("---")
-st.caption(f"© 2026 倉鼠人生實驗室 | 數據最後更新日期：2026-01-12 | 策略結果僅供研究參考")
+st.caption(f"© 2026 倉鼠人生實驗室 | 數據最後更新：2026-01-12")
