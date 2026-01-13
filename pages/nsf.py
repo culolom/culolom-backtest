@@ -1,70 +1,62 @@
 ###############################################################
-# app_nsf.py — 國安基金「全時持有 + 護盤加碼正2」回測系統
+# app_nsf.py — 國安基金加碼系統 (自選日期與多標的版)
 ###############################################################
 
 import os
-import datetime as dt
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from pathlib import Path
 import sys
+from datetime import date
 
 ###############################################################
-# 1. Streamlit 頁面與安全設定
+# 1. 頁面與認證設定
 ###############################################################
 
 st.set_page_config(
-    page_title="國安基金槓桿加碼回測", 
+    page_title="國安基金槓桿回測系統", 
     page_icon="🏛️", 
     layout="wide"
 )
 
-# 🔒 認證機制 (如果 auth.py 存在則啟用)
+# 🔒 認證 (保留原有機制)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
     if not auth.check_password():
         st.stop()
 except ImportError:
-    st.warning("⚠️ 未偵測到 auth.py，目前處於公開存取模式。")
+    pass 
 
-# --- Sidebar 導覽列 ---
+# --- Sidebar 導覽 ---
 with st.sidebar:
-    st.header("⚙️ 系統選單")
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室首頁", icon="🏠")
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
-    
-    st.markdown("### 🛠️ 回測參數")
-    target_symbol = st.selectbox("基礎持有標的", ["0050.TW", "006208.TW"])
-    lev_symbol = "00631L.TW" # 正2 標的
-    capital = st.number_input("初始投入本金 (元)", 1000, 10_000_000, 1_000_000, step=100_000)
-    
-    # 加入交易成本設定
-    st.markdown("### 💸 交易成本設定")
-    fee_rate = st.slider("單邊交易成本 (%)", 0.0, 1.0, 0.15, step=0.01) / 100
-    
-    st.divider()
-    st.page_link("https://hamr-lab.com/", label="倉鼠人生官網", icon="🔗")
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
 ###############################################################
-# 2. 歷史資料定義
+# 2. 參數與資料讀取定義
 ###############################################################
 
-# 國安基金歷史進退場日期 (更新至 2026/01/12)
 NSF_DATES = [
-    ("2000-03-15", "2000-03-20"),
-    ("2000-10-02", "2000-11-15"),
-    ("2004-05-19", "2004-05-31"),
-    ("2008-09-19", "2008-12-16"),
-    ("2011-12-20", "2012-04-20"),
-    ("2015-08-25", "2016-04-12"),
-    ("2020-03-19", "2020-10-12"),
-    ("2022-07-13", "2023-04-13"),
+    ("2000-03-15", "2000-03-20"), ("2000-10-02", "2000-11-15"),
+    ("2004-05-19", "2004-05-31"), ("2008-09-19", "2008-12-16"),
+    ("2011-12-20", "2012-04-20"), ("2015-08-25", "2016-04-12"),
+    ("2020-03-19", "2020-10-12"), ("2022-07-13", "2023-04-13"),
     ("2025-04-09", "2026-01-12"),
 ]
+
+# 槓桿標的選單 (對應截圖內容)
+LEV_OPTIONS = {
+    "00631L 元大台灣50正2": "00631L.TW",
+    "00663L 國泰台灣加權正2": "00663L.TW",
+    "00675L 富邦台灣加權正2": "00675L.TW",
+    "00685L 群益台灣加權正2": "00685L.TW"
+}
 
 DATA_DIR = Path("data")
 
@@ -75,151 +67,103 @@ def load_csv(symbol: str) -> pd.DataFrame:
     return df[["Close"]]
 
 ###############################################################
-# 3. 核心運算與回測邏輯
+# 3. UI 配置 (參考截圖排版)
 ###############################################################
 
-st.title("🏛️ 國安基金：平時 0050，護盤加碼 正2 策略")
+st.title("🏛️ 國安基金跟單：加碼正2策略回測")
 
-st.info(f"""
-**策略邏輯：**
-1. **[平時]**：100% 持有 **{target_symbol}**。
-2. **[國安進場]**：國安基金公告護盤期間，全數換倉為 **{lev_symbol} (正2)**。
-3. **[國安退場]**：護盤結束後，換回 **{target_symbol}**。
-*回測已自動考慮單邊 {fee_rate:.2%} 的交易摩擦成本（含換倉手續費與稅）。*
-""")
+# 第一列：標的選擇
+c1, c2 = st.columns(2)
+with c1:
+    base_label = st.selectbox("原型 ETF（訊號來源）", ["0050 元大台灣50", "006208 富邦台50"])
+    base_symbol = "0050.TW" if "0050" in base_label else "006208.TW"
+with c2:
+    lev_label = st.selectbox("槓桿 ETF（實際進出場標的）", list(LEV_OPTIONS.keys()))
+    lev_symbol = LEV_OPTIONS[lev_label]
 
-if st.button("執行深度回測 🚀", use_container_width=True):
-    df_base = load_csv(target_symbol)
-    df_lev = load_csv(lev_symbol)
-    
-    if df_base.empty or df_lev.empty:
-        st.error(f"⚠️ 資料遺失：請確保 data/ 下有 {target_symbol} 與 {lev_symbol}。")
-        st.stop()
+# 預載資料以取得可回測日期範圍
+df_base_raw = load_csv(base_symbol)
+df_lev_raw = load_csv(lev_symbol)
 
-    # 對齊日期 (從兩者皆有的日期開始計算，主要是正2掛牌日)
-    df = pd.merge(df_base, df_lev, left_index=True, right_index=True, suffixes=('_Base', '_Lev'))
+if not df_base_raw.empty and not df_lev_raw.empty:
+    common_start = max(df_base_raw.index.min(), df_lev_raw.index.min())
+    common_end = min(df_base_raw.index.max(), df_lev_raw.index.max())
     
-    # 標記護盤時間區間
-    df["In_NSF"] = 0
-    for start, end in NSF_DATES:
-        df.loc[start:end, "In_NSF"] = 1
+    st.info(f"📌 可回測區間：{common_start.date()} ~ {common_end.date()}")
+
+    # 第二列：日期與金額
+    c3, c4, c5 = st.columns([1.5, 1.5, 1])
+    with c3:
+        start_date = st.date_input("開始日期", value=date(2021, 1, 13), min_value=common_start.date(), max_value=common_end.date())
+    with c4:
+        end_date = st.date_input("結束日期", value=common_end.date(), min_value=common_start.date(), max_value=common_end.date())
+    with c5:
+        capital = st.number_input("投入本金 (元)", value=100000, step=10000)
+else:
+    st.error("⚠️ 找不到 CSV 資料，請確認 data 資料夾檔案是否存在。")
+    st.stop()
+
+###############################################################
+# 4. 回測運算
+###############################################################
+
+if st.button("開始回測 🚀", use_container_width=True):
+    # 1. 合併並過濾日期
+    df = pd.merge(df_base_raw, df_lev_raw, left_index=True, right_index=True, suffixes=('_Base', '_Lev'))
+    df = df.loc[str(start_date):str(end_date)].copy()
     
-    # 計算標的報酬率
+    # 2. 計算報酬
     df["Ret_Base"] = df["Close_Base"].pct_change().fillna(0)
     df["Ret_Lev"] = df["Close_Lev"].pct_change().fillna(0)
     
-    # 判定換倉信號 (1: 切換至正2, -1: 切回0050)
-    df["Signal"] = df["In_NSF"].diff().fillna(0)
+    # 3. 標記國安基金區間
+    df["In_NSF"] = 0
+    for s, e in NSF_DATES:
+        df.loc[s:e, "In_NSF"] = 1
     
-    # 核心邏輯：計算策略日報酬 (np.where 進行動態分配)
+    # 4. 執行策略切換
     df["Strategy_Return"] = np.where(df["In_NSF"] == 1, df["Ret_Lev"], df["Ret_Base"])
     
-    # 扣除換倉成本 (當信號發生時)
-    df["Cost"] = np.where(df["Signal"] != 0, fee_rate, 0)
-    df["Net_Strategy_Return"] = (1 + df["Strategy_Return"]) * (1 - df["Cost"]) - 1
-
-    # 計算累積淨值
-    df["Equity_Strategy"] = (1 + df["Net_Strategy_Return"]).cumprod()
+    # 5. 累積淨值 (需從 1 開始)
+    df["Equity_Strategy"] = (1 + df["Strategy_Return"]).cumprod()
     df["Equity_BH"] = (1 + df["Ret_Base"]).cumprod()
+    df["Signal"] = df["In_NSF"].diff()
 
-    # --- 4. 圖表繪製 ---
+    # --- 圖表 ---
     fig = go.Figure()
-    # 策略曲線
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df["Equity_Strategy"] * capital,
-        name="護盤加碼策略 (正2)", line=dict(color="#FF4B4B", width=3)
-    ))
-    # 基準曲線
-    fig.add_trace(go.Scatter(
-        x=df.index, y=df["Equity_BH"] * capital,
-        name=f"{target_symbol} Buy & Hold", line=dict(color="#94A3B8", width=1.5, dash='dot')
-    ))
+    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]*capital, name="加碼正2策略", line=dict(color="#E53E3E", width=2.5)))
+    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]*capital, name="原型 Buy & Hold", line=dict(color="#CBD5E0", width=1.5)))
     
-    # 標記進退場點
-    sw_to_lev = df[df["Signal"] == 1]
-    sw_to_base = df[df["Signal"] == -1]
-    
-    fig.add_trace(go.Scatter(
-        x=sw_to_lev.index, y=df.loc[sw_to_lev.index, "Equity_Strategy"] * capital,
-        mode="markers", name="切換至正2", marker=dict(symbol="triangle-up", size=12, color="#059669")
-    ))
-    fig.add_trace(go.Scatter(
-        x=sw_to_base.index, y=df.loc[sw_to_base.index, "Equity_Strategy"] * capital,
-        mode="markers", name="切回 0050", marker=dict(symbol="triangle-down", size=12, color="#D97706")
-    ))
+    # 標記
+    buys = df[df["Signal"] == 1]; sells = df[df["Signal"] == -1]
+    fig.add_trace(go.Scatter(x=buys.index, y=df.loc[buys.index, "Equity_Strategy"]*capital, mode="markers", name="切換至正2", marker=dict(symbol="triangle-up", size=10, color="#2F855A")))
+    fig.add_trace(go.Scatter(x=sells.index, y=df.loc[sells.index, "Equity_Strategy"]*capital, mode="markers", name="切回原型", marker=dict(symbol="triangle-down", size=10, color="#C05621")))
 
-    fig.update_layout(
-        template="plotly_white", 
-        hovermode="x unified", 
-        height=550, 
-        yaxis_title="資產淨值 (元)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
+    fig.update_layout(template="plotly_white", hovermode="x unified", height=500)
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- 5. 績效統計表 ---
-    def calculate_stats(equity_series, return_series):
-        final_val = equity_series.iloc[-1]
-        total_ret = final_val - 1
-        days = (equity_series.index[-1] - equity_series.index[0]).days
-        cagr = (final_val)**(365/days) - 1 if final_val > 0 else 0
-        mdd = (equity_series / equity_series.cummax() - 1).min()
-        vol = return_series.std() * np.sqrt(252)
-        sharpe = (return_series.mean() / return_series.std() * np.sqrt(252)) if return_series.std() != 0 else 0
-        calmar = abs(cagr / mdd) if mdd != 0 else 0
-        return [final_val * capital, total_ret, cagr, mdd, vol, sharpe, calmar]
+    # --- 績效表 ---
+    def get_stats(eq, ret):
+        final = eq.iloc[-1]
+        total = final - 1
+        days = (eq.index[-1] - eq.index[0]).days
+        cagr = (final)**(365/days) - 1 if final > 0 else 0
+        mdd = (eq / eq.cummax() - 1).min()
+        return [final * capital, total, cagr, mdd]
 
-    stats_strat = calculate_stats(df["Equity_Strategy"], df["Net_Strategy_Return"])
-    stats_bh = calculate_stats(df["Equity_BH"], df["Ret_Base"])
+    s_strat = get_stats(df["Equity_Strategy"], df["Strategy_Return"])
+    s_bh = get_stats(df["Equity_BH"], df["Ret_Base"])
 
-    st.subheader("🏆 策略績效深度對照")
-    metrics = ["期末淨值", "總報酬率", "年化報酬 (CAGR)", "最大回撤 (MDD)", "年化波動率", "夏普比率 (Sharpe)", "卡瑪比率 (Calmar)"]
+    metrics = ["期末淨值", "總報酬率", "年化報酬 (CAGR)", "最大回撤 (MDD)"]
+    res_df = pd.DataFrame({"指標": metrics, "策略": s_strat, "基準": s_bh})
     
-    df_perf = pd.DataFrame({
-        "指標名稱": metrics,
-        "加碼正2策略": stats_strat,
-        f"{target_symbol} 持有": stats_bh
-    })
+    # 簡單格式化顯示
+    st.subheader("🏆 績效總表")
+    col_m1, col_m2, col_m3 = st.columns(3)
+    col_m1.metric("最終資產", f"{s_strat[0]:,.0f} 元", f"{(s_strat[0]-s_bh[0]):,.0f}")
+    col_m2.metric("策略總報酬", f"{s_strat[1]:.2%}")
+    col_m3.metric("最大回撤", f"{s_strat[3]:.2%}")
 
-    # 美化表格輸出
-    col1, col2, col3 = st.columns(3)
-    col1.metric("策略最終資產", f"${stats_strat[0]:,.0f}")
-    col2.metric("超越基準報酬", f"{(stats_strat[1]-stats_bh[1])*100:.2f}%")
-    col3.metric("總換倉次數", int((df["Signal"] != 0).sum()))
-
-    # HTML 渲染美化表格
-    html_table = """
-    <style>
-        .p-table { width:100%; border-collapse: collapse; font-family: sans-serif; }
-        .p-table th { background-color: #f8fafc; padding: 12px; text-align: left; border-bottom: 2px solid #e2e8f0; }
-        .p-table td { padding: 12px; border-bottom: 1px solid #f1f5f9; }
-        .win { color: #dc2626; font-weight: bold; }
-    </style>
-    <table class="p-table">
-        <thead><tr><th>績效指標</th><th>加碼正2策略</th><th>基準持有</th></tr></thead>
-        <tbody>
-    """
-    for i, m in enumerate(metrics):
-        v1, v2 = stats_strat[i], stats_bh[i]
-        # 格式化
-        if "淨值" in m: fmt1, fmt2 = f"{v1:,.0f}", f"{v2:,.0f}"
-        elif any(x in m for x in ["率", "報酬", "MDD"]): fmt1, fmt2 = f"{v1:.2%}", f"{v2:.2%}"
-        else: fmt1, fmt2 = f"{v1:.2f}", f"{v2:.2f}"
-        
-        # 判斷贏家
-        is_win = v1 > v2 if m not in ["最大回撤 (MDD)", "年化波動率"] else v1 > v2 # MDD 越接近0(大)越好
-        win_class = 'class="win"' if is_win else ''
-        
-        html_table += f"<tr><td>{m}</td><td {win_class}>{fmt1}</td><td>{fmt2}</td></tr>"
-    
-    html_table += "</tbody></table>"
-    st.write(html_table, unsafe_allow_html=True)
-
-# --- 6. 頁尾免責聲明 ---
+# --- Footer ---
 st.markdown("---")
-st.markdown(
-    f"""<div style="text-align:center; color:#64748b; font-size:0.8rem;">
-    © 2026 倉鼠人生實驗室 Hamr-Lab. 版權所有<br>
-    數據起迄：{NSF_DATES[0][0]} ~ 2026/01/12 | 策略僅供參考，投資盈虧請自負。
-    </div>""", unsafe_allow_html=True
-)
+st.caption("© 2026 倉鼠人生實驗室 Hamr-Lab.com | 國安基金加碼研究系統")
