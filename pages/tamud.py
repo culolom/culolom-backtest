@@ -1,74 +1,103 @@
 import os
 import datetime as dt
-import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from pathlib import Path
 
-# ... (驗證與字型設定同前) ...
+# ==========================================
+# 1. 基礎設定與資料讀取函數
+# ==========================================
+DATA_DIR = Path("data")
+
+ASSET_OPTIONS = {
+    "0050.TW (台灣50)": "0050.TW",
+    "00631L.TW (台指2X)": "00631L.TW",
+    "QQQ (納斯達克100)": "QQQ", 
+    "SPY (標普500)": "SPY", 
+    "NVDA (輝達)": "NVDA"
+}
+
+def load_csv(symbol: str) -> pd.DataFrame:
+    candidates = [f"{symbol}.csv", f"{symbol.upper()}.csv"]
+    path = next((DATA_DIR / c for c in candidates if (DATA_DIR / c).exists()), None)
+    if not path:
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
+        df["Price"] = df["Adj Close"] if "Adj Close" in df.columns else df["Close"]
+        return df[["Price"]]
+    except:
+        return pd.DataFrame()
 
 # ==========================================
-# 核心計算邏輯：偵測動能衰竭 (Divergence Detection)
+# 2. UI 介面佈局
 # ==========================================
-def process_momentum_data(df, lookback_months, smooth_days):
-    lookback_days = lookback_months * 21
-    # 1. 計算原始動能 (12M ROC)
-    df['Momentum'] = df['Price'].pct_change(lookback_days)
-    # 2. 計算平滑動能 (你的紅線)
-    df['Mom_Smooth'] = df['Momentum'].rolling(window=smooth_days).mean()
-    # 3. 計算動能斜率 (Slope / 加速度)
-    # 我們取 5 天的變化量來判斷方向，避免單日雜訊
-    df['Mom_Slope'] = df['Mom_Smooth'].diff(5)
-    
-    # 4. 定義「動能衰竭」區間
-    # 條件：動能 > 0 (還在漲) 且 動能斜率 < 0 (但速度變慢了)
-    df['Is_Exhaustion'] = (df['Mom_Smooth'] > 0) & (df['Mom_Slope'] < 0)
-    return df
+st.title("📈 動能衰竭研究室")
 
-# ... (UI 選單部分同前) ...
+with st.sidebar:
+    st.markdown("### ⚙️ 參數設定")
+    lookback_months = st.slider("動能計算週期 (月)", 1, 24, 12)
+    smooth_days = st.slider("動能平滑天數", 5, 60, 20)
 
-if not df_raw.empty:
+col_target, col_date = st.columns([1, 2])
+
+with col_target:
+    selected_label = st.selectbox("選擇研究標的", list(ASSET_OPTIONS.keys()))
+    sym = ASSET_OPTIONS[selected_label]
+
+# --- 關鍵修正：先定義 df_raw，確保後面檢查時它已經存在 ---
+df_raw = load_csv(sym)
+
+if df_raw.empty:
+    st.error(f"❌ 找不到 {sym}.csv 的資料，請確認 data 資料夾是否有該檔案。")
+    st.stop()
+
+# 取得日期區間
+s_min, s_max = df_raw.index.min().date(), df_raw.index.max().date()
+with col_date:
+    date_range = st.date_input("選擇觀察區間", 
+                               value=[max(s_min, s_max - dt.timedelta(days=365*3)), s_max], 
+                               min_value=s_min, max_value=s_max)
+
+# ==========================================
+# 3. 核心計算邏輯 (動能與衰竭偵測)
+# ==========================================
+if len(date_range) == 2:
+    start_date, end_date = date_range
     df = df_raw.loc[str(start_date):str(end_date)].copy()
-    df = process_momentum_data(df, lookback_months, smooth_days)
+    
+    # 計算 12M 動能 (ROC)
+    lookback_days = lookback_months * 21
+    df['Momentum'] = df['Price'].pct_change(lookback_days)
+    
+    # 計算平滑動能 (紅線)
+    df['Mom_Smooth'] = df['Momentum'].rolling(window=smooth_days).mean()
+    
+    # 計算斜率 (判斷是否衰竭)
+    df['Mom_Slope'] = df['Mom_Smooth'].diff(5)
+    df['Is_Exhaustion'] = (df['Mom_Smooth'] > 0) & (df['Mom_Slope'] < 0)
 
     # ==========================================
-    # 進階視覺化：自動標記衰竭區
+    # 4. 繪製圖表 (價格與動能對照)
     # ==========================================
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                        vertical_spacing=0.05, 
-                        subplot_titles=(f"{selected_label} 價格走勢 (淡橘色區塊為動能衰竭)", "12個月 動能強度 (ROC)"),
+                        vertical_spacing=0.08, 
+                        subplot_titles=(f"{selected_label} 價格走勢 (底色為動能衰竭區)", "動能強度 (ROC)"),
                         row_heights=[0.6, 0.4])
 
-    # 1. 價格線
-    fig.add_trace(go.Scatter(x=df.index, y=df['Price'], name="收盤價", line=dict(color="#1f77b4", width=2)), row=1, col=1)
+    # 價格線
+    fig.add_trace(go.Scatter(x=df.index, y=df['Price'], name="價格", line=dict(color="#1f77b4")), row=1, col=1)
 
-    # 2. 動能與平滑線
-    fig.add_trace(go.Scatter(x=df.index, y=df['Momentum'], name="原始動能", line=dict(color="rgba(150,150,150,0.3)", width=1)), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['Mom_Smooth'], name="平滑動能 (紅線)", line=dict(color="#e41a1c", width=3)), row=2, col=1)
+    # 動能線
+    fig.add_trace(go.Scatter(x=df.index, y=df['Mom_Smooth'], name="平滑動能", line=dict(color="#e41a1c", width=3)), row=2, col=1)
     fig.add_hline(y=0, line_dash="dash", line_color="black", row=2, col=1)
 
-    # ✨ 自動標記：當動能衰竭時，加上背景色
-    # 我們尋找 Is_Exhaustion 為 True 的區塊
-    exhaustion_periods = df[df['Is_Exhaustion'] == True].index
-    
-    # 為了效能，我們用簡單的遮罩方式在 Plotly 標記區間
+    # 標註衰竭區間 (橘色背景)
     for i in range(1, len(df)):
         if df['Is_Exhaustion'].iloc[i]:
-            # 在上圖加底色
-            fig.add_vrect(
-                x0=df.index[i-1], x1=df.index[i],
-                fillcolor="orange", opacity=0.1,
-                layer="below", line_width=0,
-                row=1, col=1
-            )
+            fig.add_vrect(x0=df.index[i-1], x1=df.index[i], fillcolor="orange", opacity=0.1, line_width=0, row=1, col=1)
 
-    fig.update_layout(height=800, template="plotly_white", hovermode="x unified")
+    fig.update_layout(height=700, template="plotly_white", hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
-
-    # ==========================================
-    # 數據診斷面板
-    # ==========================================
-    curr_status = "⚠️ 警示：動能衰竭中" if df['Is_Exhaustion'].iloc[-1] else "✅ 正常：動能續強或打底"
-    st.info(f"**當前診斷：{curr_status}**")
