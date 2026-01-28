@@ -435,7 +435,7 @@ if st.button("開始回測 🚀", type="primary"):
     # ###############################################################
     st.markdown("<h3>📊 策略績效深度對照</h3>", unsafe_allow_html=True)
 
-    # 定義顯示指標
+    # 1. 定義顯示指標 (避免長行被截斷，改為垂直排列)
     metrics_def = [
         ("期末資產", "money", False),
         ("總報酬率", "pct", False),
@@ -447,11 +447,99 @@ if st.button("開始回測 🚀", type="primary"):
         ("Sortino Ratio", "float", False),
     ]
 
+    # 2. 建立比較數據 (修正：將每個 Key 獨立一行，防止 SyntaxError)
     strategies_data = {
         "CLEC 433": {
-            "期末資產": eq_st, "總報酬率": ret_st, "CAGR (年化)": cagr_st,
-            "Calmar Ratio": cal_st, "最大回撤 (MDD)": mdd_st, "年化波動": vol_st,
-            "Sharpe Ratio": sharpe_st, "Sortino Ratio": sort_st
+            "期末資產": eq_st,
+            "總報酬率": ret_st,
+            "CAGR (年化)": cagr_st,
+            "Calmar Ratio": cal_st,
+            "最大回撤 (MDD)": mdd_st,
+            "年化波動": vol_st,
+            "Sharpe Ratio": sharpe_st,
+            "Sortino Ratio": sort_st
         },
         f"Buy & Hold ({lev_label})": {
-            "期末
+            "期末資產": eq_lev,
+            "總報酬率": ret_lev,
+            "CAGR (年化)": cagr_lev,
+            "Calmar Ratio": cal_lev,
+            "最大回撤 (MDD)": mdd_lev,
+            "年化波動": vol_lev,
+            "Sharpe Ratio": sharpe_lev,
+            "Sortino Ratio": sort_lev
+        },
+        f"Buy & Hold ({base_label})": {
+            "期末資產": eq_base,
+            "總報酬率": ret_base,
+            "CAGR (年化)": cagr_base,
+            "Calmar Ratio": cal_base,
+            "最大回撤 (MDD)": mdd_base,
+            "年化波動": vol_base,
+            "Sharpe Ratio": sharpe_base,
+            "Sortino Ratio": sort_base
+        }
+    }
+    
+    col_names = list(strategies_data.keys())
+
+    # 3. CSS 樣式
+    st.markdown("""
+    <style>
+        .perf-table { width: 100%; border-collapse: collapse; font-family: "Noto Sans TC", sans-serif; margin-bottom: 2rem; border: 1px solid #e9ecef; }
+        .perf-table th { background-color: #f8f9fa; color: #495057; font-weight: 700; padding: 14px 16px; text-align: center; border-bottom: 2px solid #e9ecef; font-size: 0.95rem; }
+        .perf-table th:first-child { text-align: left; width: 25%; }
+        .perf-table td { padding: 14px 16px; border-bottom: 1px solid #e9ecef; color: #212529; text-align: center; font-size: 0.95rem; vertical-align: middle; }
+        .perf-table td:first-child { text-align: left; font-weight: 500; color: #343a40; background-color: #fff; }
+        .winner-text { color: #d97706; font-weight: 800; }
+        .trophy-icon { font-size: 1.1em; margin-left: 6px; filter: drop-shadow(0px 0px 1px rgba(217, 119, 6, 0.3)); }
+        .perf-table tr:hover td { background-color: #f8f9fa; transition: background-color 0.2s; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 4. 建構 HTML 表格
+    html = '<table class="perf-table"><thead><tr><th>指標</th>'
+    for name in col_names:
+        html += f'<th>{name}</th>'
+    html += '</tr></thead><tbody>'
+    
+    for metric_name, fmt_type, invert_best in metrics_def:
+        html += f'<tr><td>{metric_name}</td>'
+        row_values = [strategies_data[strat].get(metric_name, 0) for strat in col_names]
+        
+        valid_vals = [v for v in row_values if not pd.isna(v)]
+        if not valid_vals:
+            best_val = None
+        else:
+            if invert_best:
+                best_val = min(valid_vals)
+            else:
+                best_val = max(valid_vals)
+                if metric_name in ["最大回撤 (MDD)", "年化波動"]:
+                     best_val = min(valid_vals)
+
+        for val in row_values:
+            if pd.isna(val):
+                display_str = "—"
+                is_winner = False
+            else:
+                if fmt_type == 'money': display_str = f"{val:,.0f} 元"
+                elif fmt_type == 'pct': display_str = f"{val:.2%}"
+                elif fmt_type == 'float': display_str = f"{val:.2f}"
+                else: display_str = str(val)
+                is_winner = (best_val is not None) and (abs(val - best_val) < 1e-9)
+
+            if is_winner:
+                html += f'<td><span class="winner-text">{display_str}</span> <span class="trophy-icon">🏆</span></td>'
+            else:
+                html += f'<td>{display_str}</td>'
+        html += '</tr>'
+    html += '</tbody></table>'
+    st.markdown(html, unsafe_allow_html=True)
+
+    # 下載按鈕
+    st.markdown("<br>", unsafe_allow_html=True)
+    csv = df[["Equity_Strategy", "Val_Base", "Val_Lev", "Val_Cash", "DD_Strategy", "DD_Lev"]].to_csv().encode('utf-8-sig')
+    st.download_button("📥 下載詳細回測數據 (含回撤)", csv, "CLEC433_Backtest.csv", "text/csv")
+
+    st.markdown("<hr><div style='text-align: center; color: gray; font-size: 0.8rem;'>免責聲明：過去績效不代表未來表現。</div>", unsafe_allow_html=True)
