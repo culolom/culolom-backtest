@@ -1,6 +1,6 @@
 ###############################################################
-# app.py — Asset Allocation 433 (CLEC Strategy)
-# 固定比例配置 + 年度再平衡
+# app.py — Asset Allocation 433 + Threshold Rebalance
+# 固定比例配置 + 年度再平衡 + 現金閥值強制再平衡
 ###############################################################
 
 import os
@@ -35,7 +35,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="資產配置回測 (433策略)",
+    page_title="資產配置回測 (433 + 閥值再平衡)",
     page_icon="⚖️",
     layout="wide",
 )
@@ -61,17 +61,8 @@ with st.sidebar:
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚖️ 資產配置再平衡策略 (433 / 442)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>⚖️ 433 資產配置 + 閥值再平衡</h1>",
     unsafe_allow_html=True,
-)
-
-st.info(
-    """
-    **策略邏輯：**
-    1. 設定 **原型 ETF**、**槓桿 ETF** 與 **現金** 的目標比例 (例如 40%:30%:30%)。
-    2. **Buy & Hold**：平時持有不動。
-    3. **年度再平衡 (Rebalance)**：每年第一個交易日，將資產比例還原至初始設定 (賣出漲多的，買進跌深的)。
-    """
 )
 
 ###############################################################
@@ -165,7 +156,7 @@ col3, col4, col5 = st.columns(3)
 with col3:
     start = st.date_input(
         "開始日期",
-        value=max(s_min, s_max - dt.timedelta(days=10 * 365)), # 預設拉長一點看長期效果
+        value=max(s_min, s_max - dt.timedelta(days=10 * 365)),
         min_value=s_min, max_value=s_max,
     )
 with col4:
@@ -175,7 +166,7 @@ with col5:
 
 # --- 資產配置設定 ---
 st.write("---")
-st.write("### ⚙️ 資產配置比例設定")
+st.write("### ⚙️ 資產配置與再平衡規則")
 
 col_w1, col_w2, col_w3 = st.columns(3)
 
@@ -189,11 +180,25 @@ with col_w2:
 w_cash_pct = 100 - w_base_pct - w_lev_pct
 
 with col_w3:
-    st.metric("現金 (Cash) %", f"{w_cash_pct}%")
+    st.metric("現金 (Cash) 目標 %", f"{w_cash_pct}%")
     if w_cash_pct < 0:
         st.error("⚠️ 比例總和超過 100%，請修正！")
 
-rebalance_freq = st.radio("再平衡頻率", ["每年 (Annually)"], index=0, horizontal=True)
+# --- 新增：進階再平衡設定 ---
+with st.expander("🛠️ 進階再平衡觸發 (除了每年固定之外)", expanded=True):
+    col_th1, col_th2 = st.columns([1, 2])
+    with col_th1:
+        enable_threshold = st.toggle("啟用「現金比例過高」強制再平衡", value=False)
+    with col_th2:
+        cash_upper_limit = st.number_input(
+            "當現金佔比超過多少 % 時觸發？", 
+            min_value=0.0, max_value=100.0, value=max(40.0, float(w_cash_pct + 10)), step=1.0,
+            disabled=not enable_threshold,
+            help="當股市大跌，股票市值縮水，現金比例會被動上升。此設定可視為「逢低加碼」的訊號。"
+        )
+
+    if enable_threshold and cash_upper_limit <= w_cash_pct:
+        st.warning(f"⚠️ 提醒：觸發閥值 ({cash_upper_limit}%) 應大於 目標現金比例 ({w_cash_pct}%)，否則會頻繁觸發。")
 
 
 ###############################################################
@@ -231,28 +236,24 @@ if st.button("開始回測 🚀"):
     df["Return_base"] = df["Price_base"].pct_change().fillna(0)
     df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
     
-    # 2. 回測邏輯：固定比例 + 再平衡
+    # 2. 回測邏輯：固定比例 + 時間再平衡 + 閥值再平衡
     
-    # 權重小數點化
     target_w_base = w_base_pct / 100.0
     target_w_lev = w_lev_pct / 100.0
     target_w_cash = w_cash_pct / 100.0
 
     # 紀錄序列
     equity_curve = []
-    
-    # 資產價值紀錄 (用於堆疊圖)
     val_base_list = []
     val_lev_list = []
     val_cash_list = []
+    cash_ratio_list = [] # 紀錄每日現金佔比
     
-    rebalance_dates = []
+    # 紀錄再平衡事件 (日期, 類型)
+    rebalance_events = [] # format: {'date': date, 'type': 'Annual' or 'Threshold', 'price': equity}
 
     # 初始進場
     current_cash = capital * target_w_cash
-    
-    # 計算初始股數 (無條件捨去取整，雖模擬 fractional shares 也可以，但整數較直觀)
-    # 這裡為了精確計算淨值，先使用浮點數股數模擬
     shares_base = (capital * target_w_base) / df["Price_base"].iloc[0]
     shares_lev = (capital * target_w_lev) / df["Price_lev"].iloc[0]
 
@@ -262,21 +263,29 @@ if st.button("開始回測 🚀"):
         p_base = row["Price_base"]
         p_lev = row["Price_lev"]
         
-        # 1. 計算當前總資產
+        # 1. 計算當前市值
         val_base = shares_base * p_base
         val_lev = shares_lev * p_lev
         total_equity = val_base + val_lev + current_cash
         
-        # 2. 判斷是否為「新的一年」(再平衡觸發點)
-        # 邏輯：當前年份 != 上一筆年份，代表跨年了，今天是該年第一天
-        is_rebalance_day = False
+        # 計算當前現金佔比 (Current Weights)
+        curr_cash_pct = (current_cash / total_equity) * 100.0
+        
+        # 2. 判斷觸發條件
+        trigger_type = None
+        
+        # A. 時間觸發 (每年)
         if date.year != last_year:
-            is_rebalance_day = True
             last_year = date.year
-            rebalance_dates.append(date)
+            trigger_type = "Annual" # 年度
+            
+        # B. 閥值觸發 (現金過高 = 股市跌深)
+        # 注意：若同一天同時滿足，優先級沒差，反正都要做
+        if enable_threshold and (curr_cash_pct > cash_upper_limit):
+            trigger_type = "Threshold" # 閥值強制
 
-        # 3. 執行再平衡 (如果是再平衡日)
-        if is_rebalance_day:
+        # 3. 執行再平衡
+        if trigger_type:
             # 重新計算目標金額
             new_val_base = total_equity * target_w_base
             new_val_lev = total_equity * target_w_lev
@@ -287,25 +296,35 @@ if st.button("開始回測 🚀"):
             shares_lev = new_val_lev / p_lev
             current_cash = new_val_cash
             
-            # 更新當下資產價值 (其實總額不變，只是分配變了)
+            # 更新當下顯示數值
             val_base = new_val_base
             val_lev = new_val_lev
+            curr_cash_pct = (current_cash / total_equity) * 100.0 # 重置後的佔比 (應該等於目標)
+            
+            # 紀錄事件
+            rebalance_events.append({
+                'date': date,
+                'type': trigger_type,
+                'equity': total_equity
+            })
 
         # 4. 紀錄數據
         equity_curve.append(total_equity)
         val_base_list.append(val_base)
         val_lev_list.append(val_lev)
         val_cash_list.append(current_cash)
+        cash_ratio_list.append(curr_cash_pct / 100.0)
 
     # 寫回 DataFrame
     df["Equity_Strategy"] = equity_curve
     df["Val_Base"] = val_base_list
     df["Val_Lev"] = val_lev_list
     df["Val_Cash"] = val_cash_list
+    df["Cash_Ratio"] = cash_ratio_list
     
     df["Return_Strategy"] = df["Equity_Strategy"].pct_change().fillna(0)
     
-    # 建立基準 (Benchmarks)
+    # 建立基準
     df["Equity_BH_Base"] = capital * (1 + df["Return_base"]).cumprod()
     df["Equity_BH_Lev"] = capital * (1 + df["Return_lev"]).cumprod()
 
@@ -324,15 +343,12 @@ if st.button("開始回測 🚀"):
         calmar = cagr / mdd if mdd > 0 else np.nan
         return final_eq, final_ret, cagr, mdd, vol, sharpe, sortino, calmar
 
-    # 策略
     eq_st_final, final_ret_st, cagr_st, mdd_st, vol_st, sharpe_st, sortino_st, calmar_st = calc_core(
         df["Equity_Strategy"], df["Return_Strategy"]
     )
-    # 原型 BH
     eq_base_final, final_ret_base, cagr_base, mdd_base, vol_base, sharpe_base, sortino_base, calmar_base = calc_core(
         df["Equity_BH_Base"], df["Return_base"]
     )
-    # 槓桿 BH
     eq_lev_final, final_ret_lev, cagr_lev, mdd_lev, vol_lev, sharpe_lev, sortino_lev, calmar_lev = calc_core(
         df["Equity_BH_Lev"], df["Return_lev"]
     )
@@ -342,20 +358,31 @@ if st.button("開始回測 🚀"):
     # ###############################################################
 
     # 1. 資金曲線比較
-    st.markdown("### 📈 資金曲線比較")
+    st.markdown("### 📈 資金曲線與再平衡點")
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], name=f"配置 ({w_base_pct}/{w_lev_pct}/{w_cash_pct})", line=dict(color="#636EFA", width=3)))
-    fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Lev"], name=f"{lev_label} Buy&Hold", line=dict(color="#EF553B", width=1.5, dash="dot")))
-    fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Base"], name=f"{base_label} Buy&Hold", line=dict(color="#00CC96", width=1.5, dash="dot")))
+    fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Lev"], name=f"{lev_label} BH", line=dict(color="#EF553B", width=1.5, dash="dot")))
+    fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Base"], name=f"{base_label} BH", line=dict(color="#00CC96", width=1.5, dash="dot")))
     
-    # 標記再平衡點
-    if rebalance_dates:
-        # 取出再平衡日期的淨值
-        rebal_y = df.loc[rebalance_dates, "Equity_Strategy"]
+    # 處理再平衡標記
+    evt_dates_annual = [e['date'] for e in rebalance_events if e['type'] == 'Annual']
+    evt_vals_annual = [e['equity'] for e in rebalance_events if e['type'] == 'Annual']
+    
+    evt_dates_thresh = [e['date'] for e in rebalance_events if e['type'] == 'Threshold']
+    evt_vals_thresh = [e['equity'] for e in rebalance_events if e['type'] == 'Threshold']
+
+    if evt_dates_annual:
         fig_eq.add_trace(go.Scatter(
-            x=rebalance_dates, y=rebal_y, 
-            mode="markers", name="再平衡日",
-            marker=dict(symbol="diamond", size=8, color="orange")
+            x=evt_dates_annual, y=evt_vals_annual, 
+            mode="markers", name="年度再平衡",
+            marker=dict(symbol="circle", size=8, color="orange", line=dict(width=1, color="white"))
+        ))
+        
+    if evt_dates_thresh:
+        fig_eq.add_trace(go.Scatter(
+            x=evt_dates_thresh, y=evt_vals_thresh, 
+            mode="markers", name=f"閥值觸發 (>{cash_upper_limit}%)",
+            marker=dict(symbol="star", size=12, color="red", line=dict(width=1, color="white"))
         ))
 
     fig_eq.update_layout(template="plotly_white", height=450, hovermode="x unified", yaxis_title="總資產 (元)")
@@ -381,6 +408,11 @@ if st.button("開始回測 🚀"):
         x=df.index, y=df["Pct_Cash"], mode='lines', stackgroup='one', name='現金 (Cash)',
         line=dict(width=0), fillcolor='rgba(0, 204, 150, 0.4)'
     ))
+    
+    # 畫出閥值線
+    if enable_threshold:
+        fig_stack.add_hline(y=cash_upper_limit/100, line_dash="dash", line_color="red", annotation_text="觸發閥值")
+
     fig_stack.update_layout(
         template="plotly_white", height=400, yaxis=dict(tickformat=".0%", title="資產佔比", range=[0, 1]),
         hovermode="x unified"
@@ -404,20 +436,26 @@ if st.button("開始回測 🚀"):
     
     st.markdown("### 📊 績效總結")
 
-    metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio"]
+    metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "觸發次數(閥值)"]
     
+    # 計算觸發次數
+    count_thresh = len(evt_dates_thresh)
+
     data_dict = {
         f"<b>配置策略</b><br><span style='font-size:0.8em; opacity:0.7'>{w_base_pct}/{w_lev_pct}/{w_cash_pct}</span>": {
             "期末資產": eq_st_final, "總報酬率": final_ret_st, "CAGR (年化)": cagr_st, "Calmar Ratio": calmar_st,
-            "最大回撤 (MDD)": mdd_st, "年化波動": vol_st, "Sharpe Ratio": sharpe_st, "Sortino Ratio": sortino_st
+            "最大回撤 (MDD)": mdd_st, "年化波動": vol_st, "Sharpe Ratio": sharpe_st, "Sortino Ratio": sortino_st,
+            "觸發次數(閥值)": count_thresh
         },
         f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
             "期末資產": eq_lev_final, "總報酬率": final_ret_lev, "CAGR (年化)": cagr_lev, "Calmar Ratio": calmar_lev,
-            "最大回撤 (MDD)": mdd_lev, "年化波動": vol_lev, "Sharpe Ratio": sharpe_lev, "Sortino Ratio": sortino_lev
+            "最大回撤 (MDD)": mdd_lev, "年化波動": vol_lev, "Sharpe Ratio": sharpe_lev, "Sortino Ratio": sortino_lev,
+            "觸發次數(閥值)": -1
         },
         f"<b>{base_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
             "期末資產": eq_base_final, "總報酬率": final_ret_base, "CAGR (年化)": cagr_base, "Calmar Ratio": calmar_base,
-            "最大回撤 (MDD)": mdd_base, "年化波動": vol_base, "Sharpe Ratio": sharpe_base, "Sortino Ratio": sortino_base
+            "最大回撤 (MDD)": mdd_base, "年化波動": vol_base, "Sharpe Ratio": sharpe_base, "Sortino Ratio": sortino_base,
+            "觸發次數(閥值)": -1
         }
     }
 
@@ -433,6 +471,7 @@ if st.button("開始回測 🚀"):
         "年化波動":       {"fmt": format_percent,   "invert": True},
         "Sharpe Ratio":   {"fmt": format_number,    "invert": False},
         "Sortino Ratio":  {"fmt": format_number,    "invert": False},
+        "觸發次數(閥值)": {"fmt": lambda x: str(x) if x >=0 else "—", "invert": False},
     }
 
     # 產生 HTML 表格
@@ -456,16 +495,21 @@ if st.button("開始回測 🚀"):
         cfg = metrics_config.get(metric, {"fmt": format_number, "invert": False})
         
         # 找冠軍
-        vals = [v for v in df_vertical.loc[metric].values if isinstance(v, (int, float)) and not pd.isna(v)]
+        vals = [v for v in df_vertical.loc[metric].values if isinstance(v, (int, float)) and v != -1 and not pd.isna(v)]
         target = min(vals) if cfg["invert"] and vals else max(vals) if vals else None
 
         html_code += f"<tr><td class='metric-name'>{metric}</td>"
         
         for i, col in enumerate(df_vertical.columns):
             val = df_vertical.at[metric, col]
-            display = cfg["fmt"](val) if isinstance(val, (int, float)) else "—"
             
-            is_winner = (target is not None and val == target)
+            if metric == "觸發次數(閥值)":
+                display = cfg["fmt"](val)
+                is_winner = False # 次數沒有輸贏
+            else:
+                display = cfg["fmt"](val) if isinstance(val, (int, float)) and val != -1 else "—"
+                is_winner = (target is not None and val == target and val != -1)
+            
             trophy = " 🏆" if is_winner else ""
             
             hl_class = "highlight" if i == 0 else ""
@@ -480,11 +524,11 @@ if st.button("開始回測 🚀"):
     # 下載
     # ###############################################################
     
-    csv_data = df[["Equity_Strategy", "Val_Base", "Val_Lev", "Val_Cash", "Equity_BH_Lev"]].to_csv(index=True).encode('utf-8-sig')
+    csv_data = df[["Equity_Strategy", "Val_Base", "Val_Lev", "Val_Cash", "Cash_Ratio", "Equity_BH_Lev"]].to_csv(index=True).encode('utf-8-sig')
     st.download_button(
         label="📥 下載回測數據 (CSV)",
         data=csv_data,
-        file_name=f"Allocation_{w_base_pct}_{w_lev_pct}_{w_cash_pct}.csv",
+        file_name=f"Allocation_{w_base_pct}_{w_lev_pct}_{w_cash_pct}_Threshold.csv",
         mime="text/csv"
     )
 
