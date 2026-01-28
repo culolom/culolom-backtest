@@ -1,6 +1,6 @@
 ###############################################################
 # app.py — Asset Allocation Flexible Rebalance
-# 彈性再平衡：年度 + 現金上限 + 現金下限
+# 彈性再平衡：年度 + 現金上限 + 現金下限 + MDD 圖表
 ###############################################################
 
 import os
@@ -349,6 +349,11 @@ if st.button("開始回測 🚀", type="primary"):
     df["Equity_BH_Base"] = capital * (1 + df["Return_base"]).cumprod()
     df["Equity_BH_Lev"] = capital * (1 + df["Return_lev"]).cumprod()
 
+    # 計算每日回撤序列 (用於畫圖) 
+    df["DD_Strategy"] = (df["Equity_Strategy"] / df["Equity_Strategy"].cummax() - 1)
+    df["DD_Lev"] = (df["Equity_BH_Lev"] / df["Equity_BH_Lev"].cummax() - 1)
+    df["DD_Base"] = (df["Equity_BH_Base"] / df["Equity_BH_Base"].cummax() - 1)
+
     # ###############################################################
     # 指標與圖表
     # ###############################################################
@@ -397,7 +402,7 @@ if st.button("開始回測 🚀", type="primary"):
     fig.update_layout(template="plotly_white", height=450, hovermode="x unified", yaxis_title="總資產")
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Plot 2: 堆疊圖 ---
+    # --- Plot 2: 資產佔比堆疊圖 ---
     st.markdown("### 🍰 資產佔比堆疊圖")
     df["Pct_Base"] = df["Val_Base"] / df["Equity_Strategy"]
     df["Pct_Lev"] = df["Val_Lev"] / df["Equity_Strategy"]
@@ -408,7 +413,6 @@ if st.button("開始回測 🚀", type="primary"):
     fig_stack.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], stackgroup='one', name='槓桿 ETF', line=dict(width=0), fillcolor='rgba(239, 85, 59, 0.6)'))
     fig_stack.add_trace(go.Scatter(x=df.index, y=df["Pct_Cash"], stackgroup='one', name='現金', line=dict(width=0), fillcolor='rgba(0, 204, 150, 0.4)'))
     
-    # 畫出上下限輔助線
     if enable_upper:
         fig_stack.add_hline(y=c_high_val/100, line_dash="dash", line_color="red", annotation_text="現金過高(加碼)")
     if enable_lower:
@@ -417,31 +421,32 @@ if st.button("開始回測 🚀", type="primary"):
     fig_stack.update_layout(template="plotly_white", height=400, yaxis=dict(tickformat=".0%", title="佔比", range=[0,1]))
     st.plotly_chart(fig_stack, use_container_width=True)
 
+    # --- Plot 3: 下檔風險 (MDD) 圖表 (新增) ---
+    st.markdown("### 📉 下檔風險 (Drawdown)")
+    fig_dd = go.Figure()
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df["DD_Strategy"], name="策略回撤", fill="tozeroy", line=dict(color="#636EFA", width=1.5)))
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df["DD_Lev"], name=f"{lev_label} 回撤", line=dict(color="#EF553B", width=1, dash="dot")))
+    
+    fig_dd.update_layout(template="plotly_white", height=350, yaxis=dict(tickformat=".1%", title="回撤幅度"), hovermode="x unified")
+    st.plotly_chart(fig_dd, use_container_width=True)
+
     # ###############################################################
     # 績效比較 (HTML 美化版)
     # ###############################################################
     st.markdown("<h3>📊 策略績效深度對照</h3>", unsafe_allow_html=True)
 
-    # 1. 準備數據與指標
-    # 定義要顯示的指標 (名稱, 格式化函數, 是否數值越小越好)
-    # 格式化函數: 'money', 'pct', 'float'
+    # 定義顯示指標
     metrics_def = [
         ("期末資產", "money", False),
         ("總報酬率", "pct", False),
         ("CAGR (年化)", "pct", False),
         ("Calmar Ratio", "float", False),
-        ("最大回撤 (MDD)", "pct", True),  # True 代表越小越好 (負越多越不好，但這邊比較是用絕對值或由大到小)
-                                         # 修正邏輯：MDD 通常是負數 (e.g. -30%)，數值越大(越接近0)越好。
-                                         # 但如果數據是正數表示虧損，則越小越好。
-                                         # 這裡假設 MDD 是負數 (如 -0.3)，則 max(-0.3, -0.5) = -0.3 為佳。
-                                         # 所以邏輯其實還是 "越大越好" (數值上)。
-        ("年化波動", "pct", True),       # 波動率越小越好 -> invert=True
+        ("最大回撤 (MDD)", "pct", True), 
+        ("年化波動", "pct", True),       
         ("Sharpe Ratio", "float", False),
         ("Sortino Ratio", "float", False),
     ]
 
-    # 建立比較對象的資料字典
-    # key: 顯示名稱, value: {指標名: 數值}
     strategies_data = {
         "自選策略": {
             "期末資產": eq_st, "總報酬率": ret_st, "CAGR (年化)": cagr_st,
@@ -462,135 +467,63 @@ if st.button("開始回測 🚀", type="primary"):
     
     col_names = list(strategies_data.keys())
 
-    # 2. CSS 樣式 (參考圖片風格)
+    # CSS 樣式
     st.markdown("""
     <style>
-        .perf-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-family: "Noto Sans TC", sans-serif;
-            margin-bottom: 2rem;
-            border: 1px solid #e9ecef;
-        }
-        .perf-table th {
-            background-color: #f8f9fa;
-            color: #495057;
-            font-weight: 700;
-            padding: 14px 16px;
-            text-align: center;
-            border-bottom: 2px solid #e9ecef;
-            font-size: 0.95rem;
-        }
-        .perf-table th:first-child {
-            text-align: left;
-            width: 25%;
-        }
-        .perf-table td {
-            padding: 14px 16px;
-            border-bottom: 1px solid #e9ecef;
-            color: #212529;
-            text-align: center;
-            font-size: 0.95rem;
-            vertical-align: middle;
-        }
-        .perf-table td:first-child {
-            text-align: left;
-            font-weight: 500;
-            color: #343a40;
-            background-color: #fff;
-        }
-        /* 冠軍樣式：金色文字 + 加粗 */
-        .winner-text {
-            color: #d97706; /* 類似圖片中的深金色 */
-            font-weight: 800;
-        }
-        .trophy-icon {
-            font-size: 1.1em;
-            margin-left: 6px;
-            filter: drop-shadow(0px 0px 1px rgba(217, 119, 6, 0.3));
-        }
-        .perf-table tr:hover td {
-            background-color: #f8f9fa;
-            transition: background-color 0.2s;
-        }
+        .perf-table { width: 100%; border-collapse: collapse; font-family: "Noto Sans TC", sans-serif; margin-bottom: 2rem; border: 1px solid #e9ecef; }
+        .perf-table th { background-color: #f8f9fa; color: #495057; font-weight: 700; padding: 14px 16px; text-align: center; border-bottom: 2px solid #e9ecef; font-size: 0.95rem; }
+        .perf-table th:first-child { text-align: left; width: 25%; }
+        .perf-table td { padding: 14px 16px; border-bottom: 1px solid #e9ecef; color: #212529; text-align: center; font-size: 0.95rem; vertical-align: middle; }
+        .perf-table td:first-child { text-align: left; font-weight: 500; color: #343a40; background-color: #fff; }
+        .winner-text { color: #d97706; font-weight: 800; }
+        .trophy-icon { font-size: 1.1em; margin-left: 6px; filter: drop-shadow(0px 0px 1px rgba(217, 119, 6, 0.3)); }
+        .perf-table tr:hover td { background-color: #f8f9fa; transition: background-color 0.2s; }
     </style>
     """, unsafe_allow_html=True)
 
-    # 3. 建構 HTML 表格
-    html = '<table class="perf-table">'
-    
-    # --- 表頭 ---
-    html += '<thead><tr><th>指標</th>'
+    # 建構 HTML 表格
+    html = '<table class="perf-table"><thead><tr><th>指標</th>'
     for name in col_names:
         html += f'<th>{name}</th>'
-    html += '</tr></thead>'
-    
-    # --- 內容 ---
-    html += '<tbody>'
+    html += '</tr></thead><tbody>'
     
     for metric_name, fmt_type, invert_best in metrics_def:
         html += f'<tr><td>{metric_name}</td>'
+        row_values = [strategies_data[strat].get(metric_name, 0) for strat in col_names]
         
-        # 取得該列所有數值，用來判斷誰是冠軍
-        row_values = []
-        for strat in col_names:
-            val = strategies_data[strat].get(metric_name, 0)
-            row_values.append(val)
-        
-        # 判斷冠軍值 (排除 NaN)
         valid_vals = [v for v in row_values if not pd.isna(v)]
         if not valid_vals:
             best_val = None
         else:
             if invert_best:
-                # 越小越好 (例如波動率)
                 best_val = min(valid_vals)
             else:
-                # 越大越好 (例如報酬率, MDD若為負數則越接近0越大)
-                # 注意：如果 MDD 是正數代表回撤幅度，則應設 invert=True。
-                # 這裡假設 MDD 是 0.38 (38%) 這種正數表示法，則越小越好。
-                # 但通常計算出來的 MDD 若是負數 (-0.38)，則 max(-0.38, -0.55) = -0.38 為佳。
-                # 根據之前的計算邏輯 mdd = 1 - (eq / eq.cummax()).min()，這是正數 (0~1)。
-                # 所以 MDD 應該是「越小越好」。
                 best_val = max(valid_vals)
-                
-                # 特別處理：回撤與波動率通常是越低越好，若是正數呈現
                 if metric_name in ["最大回撤 (MDD)", "年化波動"]:
                      best_val = min(valid_vals)
 
         for val in row_values:
-            # 格式化顯示
             if pd.isna(val):
                 display_str = "—"
                 is_winner = False
             else:
-                if fmt_type == 'money':
-                    display_str = f"{val:,.0f} 元"
-                elif fmt_type == 'pct':
-                    display_str = f"{val:.2%}"
-                elif fmt_type == 'float':
-                    display_str = f"{val:.2f}"
-                else:
-                    display_str = str(val)
-                
-                # 判斷是否為冠軍
-                # 浮點數比較容許微小誤差
+                if fmt_type == 'money': display_str = f"{val:,.0f} 元"
+                elif fmt_type == 'pct': display_str = f"{val:.2%}"
+                elif fmt_type == 'float': display_str = f"{val:.2f}"
+                else: display_str = str(val)
                 is_winner = (best_val is not None) and (abs(val - best_val) < 1e-9)
 
-            # 組合儲存格 HTML
             if is_winner:
                 html += f'<td><span class="winner-text">{display_str}</span> <span class="trophy-icon">🏆</span></td>'
             else:
                 html += f'<td>{display_str}</td>'
-                
         html += '</tr>'
-
     html += '</tbody></table>'
     st.markdown(html, unsafe_allow_html=True)
 
-    # 4. 下載按鈕 (維持原本邏輯)
+    # 下載按鈕 (增加回撤數據)
     st.markdown("<br>", unsafe_allow_html=True)
-    csv = df[["Equity_Strategy", "Val_Base", "Val_Lev", "Val_Cash"]].to_csv().encode('utf-8-sig')
-    st.download_button("📥 下載詳細回測數據 (CSV)", csv, "flex_rebalance.csv", "text/csv")
+    csv = df[["Equity_Strategy", "Val_Base", "Val_Lev", "Val_Cash", "DD_Strategy", "DD_Lev"]].to_csv().encode('utf-8-sig')
+    st.download_button("📥 下載詳細回測數據 (含回撤)", csv, "flex_rebalance.csv", "text/csv")
 
     st.markdown("<hr><div style='text-align: center; color: gray; font-size: 0.8rem;'>免責聲明：過去績效不代表未來表現。</div>", unsafe_allow_html=True)
