@@ -3,145 +3,182 @@ import datetime as dt
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from pathlib import Path
 
 # ==========================================
-# 1. 基礎設定與資料讀取
+# 1. 基礎設定與資料自動掃描
 # ==========================================
-DATA_DIR = Path("data")
+# 根據你的專案架構，資料存放於 data 資料夾
+DATA_DIR = Path("data") 
 
 def get_available_csvs():
-    if not DATA_DIR.exists(): return []
+    """自動抓取 data 資料夾下所有的 CSV 檔案"""
+    if not DATA_DIR.exists():
+        return []
     return [f.stem for f in DATA_DIR.glob("*.csv")]
 
 @st.cache_data
 def load_data(symbol: str) -> pd.DataFrame:
+    """讀取 CSV 並識別價格欄位"""
     path = DATA_DIR / f"{symbol}.csv"
     try:
         df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
+        # 優先使用還原股價 Adj Close
         df["Price"] = df["Adj Close"] if "Adj Close" in df.columns else df["Close"]
         return df[["Price"]]
-    except:
+    except Exception as e:
+        st.error(f"讀取 {symbol} 出錯: {e}")
         return pd.DataFrame()
 
 # ==========================================
-# 2. UI 介面設定
+# 2. UI 介面佈局 (側邊欄參數)
 # ==========================================
-st.set_page_config(page_title="雙區段量化分析", layout="wide")
-st.title("📈 量化動能研究室：觀察與回測分離系統")
+st.set_page_config(page_title="倉鼠量化戰情室", layout="wide")
+st.title("📈 倉鼠量化戰情室：雙區段動能回測系統")
 
 csv_files = get_available_csvs()
 
+if not csv_files:
+    st.error("❌ 在 data 資料夾中找不到任何 CSV 檔案，請確認路徑。")
+    st.stop()
+
 with st.sidebar:
-    st.header("⚙️ 全域參數")
-    selected_assets = st.multiselect("選擇分析標的", options=csv_files, default=csv_files[:3], max_selections=5)
-    sma_period = st.number_input("均線週期 (SMA)", value=200)
-    mom_months = st.number_input("動能計算週期 (月)", value=12)
+    st.header("⚙️ 全域參數設定")
+    selected_assets = st.multiselect(
+        "選擇分析標的 (最多5種)", 
+        options=csv_files, 
+        default=csv_files[:3] if len(csv_files) >= 3 else csv_files,
+        max_selections=5
+    )
+    
+    st.divider()
+    sma_period = st.number_input("均線週期 (SMA)", value=200, step=10)
+    mom_months = st.number_input("動能計算週期 (月)", value=12, step=1)
+    st.caption(f"提示：將計算近 {mom_months} 個月的滾動報酬。")
 
 if not selected_assets:
-    st.warning("👈 請在左側選單選擇標的。")
+    st.warning("👈 請在左側選單選擇標的以開始分析。")
     st.stop()
 
 # ==========================================
-# 3. 資料處理
+# 3. 核心數據處理邏輯
 # ==========================================
 all_data = {}
 for asset in selected_assets:
     df = load_data(asset)
     if not df.empty:
-        # 計算 12M 滾動報酬
+        # 計算 12M 滾動報酬 (Rolling Return)
+        # 每個時間點的數值 = (當前價格 / 12個月前價格) - 1
         days = mom_months * 21 
         df['Rolling_Mom'] = df['Price'].pct_change(periods=days) * 100
-        # 計算 SMA 乖離
+        
+        # 計算 SMA 乖離率 (Bias)
         df['SMA'] = df['Price'].rolling(window=sma_period).mean()
         df['Bias'] = ((df['Price'] - df['SMA']) / df['SMA']) * 100
         all_data[asset] = df
 
-# 獲取全局日期範圍
+# 獲取全局日期範圍以供選擇器使用
 all_dates = pd.concat([df.index.to_series() for df in all_data.values()])
 max_date = all_dates.max().date()
 min_date = all_dates.min().date()
 
 # ==========================================
-# 4. 兩階段日期選擇
+# 4. 兩階段日期選擇介面
 # ==========================================
-col1, col2 = st.columns(2)
+col_obs, col_inv = st.columns(2)
 
-with col1:
+with col_obs:
     st.subheader("🔍 第一區段：動能觀察期")
-    st.caption("用於判斷誰的動能最強、是否過熱")
+    st.write("用於比對各標的的相對強度與乖離狀態。")
     obs_range = st.date_input(
-        "選擇觀察時間",
+        "觀察時間區間",
         value=[max_date - dt.timedelta(days=365*2), max_date - dt.timedelta(days=365)],
         min_value=min_date, max_value=max_date, key="obs_date"
     )
 
-with col2:
+with col_inv:
     st.subheader("💰 第二區段：投資持有期")
-    st.caption("根據觀察結果，從此日期開始計算資金曲線")
+    st.write("設定全倉買入日，觀察後續資金成長。")
     invest_start = st.date_input(
-        "選擇買入日期 (Start Date)", 
+        "買入日期 (Investment Start)", 
         value=max_date - dt.timedelta(days=365),
         min_value=min_date, max_value=max_date, key="invest_date"
     )
 
 # ==========================================
-# 5. 繪製圖表
+# 5. 圖表繪製：觀察期 (連動上下圖)
 # ==========================================
+st.divider()
+st.markdown("### 📋 觀察期深度分析")
 
 if len(obs_range) == 2:
-    obs_start, obs_end = pd.to_datetime(obs_range[0]), pd.to_datetime(obs_range[1])
+    obs_s, obs_e = pd.to_datetime(obs_range[0]), pd.to_datetime(obs_range[1])
     
-    # --- 圖表 1 & 2：觀察期數據 ---
-    st.divider()
-    st.markdown("### 📋 觀察期分析 (第一區段)")
-    
-    fig_mom = go.Figure()
-    fig_bias = go.Figure()
-    
+    # 建立上下排列的子圖，共用 X 軸
+    fig_obs = make_subplots(
+        rows=2, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.07,
+        subplot_titles=(f"1. 近 {mom_months}M 滾動報酬率 (%)", f"2. {sma_period}SMA 乖離率 (%)"),
+        row_heights=[0.5, 0.5]
+    )
+
     for name, df in all_data.items():
-        d_obs = df.loc[obs_start:obs_end]
-        fig_mom.add_trace(go.Scatter(x=d_obs.index, y=d_obs['Rolling_Mom'], name=name))
-        fig_bias.add_trace(go.Scatter(x=d_obs.index, y=d_obs['Bias'], name=f"{name} Bias"))
+        d_sub = df.loc[obs_s:obs_e]
+        if d_sub.empty: continue
+        
+        # 上圖：動能
+        fig_obs.add_trace(
+            go.Scatter(x=d_sub.index, y=d_sub['Rolling_Mom'], name=name, legendgroup=name),
+            row=1, col=1
+        )
+        # 下圖：乖離率 (不重疊顯示 legend)
+        fig_obs.add_trace(
+            go.Scatter(x=d_sub.index, y=d_sub['Bias'], name=f"{name} Bias", legendgroup=name, showlegend=False),
+            row=2, col=1
+        )
 
-    fig_mom.update_layout(title=f"1. 滾動 {mom_months}M 報酬率 (%)", hovermode="x unified", template="plotly_white", height=400)
-    fig_mom.add_hline(y=0, line_dash="dash")
-    
-    fig_bias.update_layout(title=f"2. {sma_period}SMA 乖離率 (%)", hovermode="x unified", template="plotly_white", height=400)
-    fig_bias.add_hline(y=0, line_dash="dash")
+    # 加入零軸線
+    fig_obs.add_hline(y=0, line_dash="dash", line_color="black", row=1, col=1)
+    fig_obs.add_hline(y=0, line_dash="dash", line_color="black", row=2, col=1)
 
-    c1, c2 = st.columns(2)
-    c1.plotly_chart(fig_mom, use_container_width=True)
-    c2.plotly_chart(fig_bias, use_container_width=True)
+    fig_obs.update_layout(height=700, template="plotly_white", hovermode="x unified")
+    st.plotly_chart(fig_obs, use_container_width=True)
 
-# --- 圖表 3：投資持有期 (資金曲線) ---
+# ==========================================
+# 6. 圖表繪製：投資期 (資金曲線)
+# ==========================================
 st.divider()
-st.markdown(f"### 📈 投資持有期分析 (從 {invest_start} 開始)")
+st.markdown(f"### 🚀 持有期表現 (起始日: {invest_start})")
 
-fig_cum = go.Figure()
-summary_data = []
+fig_inv = go.Figure()
+inv_results = []
 
 for name, df in all_data.items():
-    # 找尋最接近買入日期的實際交易日
-    d_invest = df.loc[pd.to_datetime(invest_start):]
-    if d_invest.empty: continue
+    # 截取投資起始日之後的資料
+    d_inv = df.loc[pd.to_datetime(invest_start):]
+    if d_inv.empty: continue
     
-    # 以投資起始日為基點 0 (100% 資金)
-    # 計算公式：(當前價格 / 買入日價格 - 1) * 100
-    capital_curve = (d_invest['Price'] / d_invest['Price'].iloc[0] - 1) * 100
-    fig_cum.add_trace(go.Scatter(x=d_invest.index, y=capital_curve, name=f"{name} 成長"))
+    # 資金曲線計算：以起始日價格為 100% 基準
+    # 公式：(當前價格 / 初始價格 - 1) * 100
+    capital_curve = (d_inv['Price'] / d_inv['Price'].iloc[0] - 1) * 100
     
-    total_return = capital_curve.iloc[-1]
-    summary_data.append({"標的": name, "投資期總報酬": f"{total_return:.2f}%"})
+    fig_inv.add_trace(go.Scatter(x=d_inv.index, y=capital_curve, name=f"{name} 成長"))
+    
+    final_ret = capital_curve.iloc[-1]
+    inv_results.append({"資產標的": name, "持有期總報酬": f"{final_ret:.2f}%"})
 
-fig_cum.update_layout(
+fig_inv.update_layout(
     title="3. 買入後資金成長曲線 (%)", 
     yaxis_title="報酬率 (%)",
     hovermode="x unified", 
     template="plotly_white", 
     height=500
 )
-st.plotly_chart(fig_cum, use_container_width=True)
+st.plotly_chart(fig_inv, use_container_width=True)
 
-# 顯示最後結果
-st.table(pd.DataFrame(summary_data).sort_values("投資期總報酬", ascending=False))
+# 顯示最終戰績表
+if inv_results:
+    res_df = pd.DataFrame(inv_results).sort_values("持有期總報酬", ascending=False)
+    st.table(res_df)
