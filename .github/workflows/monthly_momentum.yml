@@ -1,10 +1,10 @@
-name: Monthly Momentum Update
+name: Daily Momentum Update
 
 on:
   schedule:
-    # ⚠️ 設定在每月 1 號 09:00 (UTC 01:00)
-    # 這是為了確保您的 "Auto update CSV data" (通常在 00:00 跑) 已經跑完並更新了 CSV
-    - cron: '0 1 1 * *'
+    # 每天 09:00 (台北時間) 執行，即 UTC 01:00
+    # 格式：分 時 日 月 週
+    - cron: '0 1 * * *'
   
   workflow_dispatch: # 允許手動執行
 
@@ -26,10 +26,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install pandas
-        # 不需要 yfinance，因為我們讀本地 CSV
 
       - name: Run calculation script
-        # 👇 關鍵：指向 scripts 資料夾下的檔案
+        # 指向您放置 Python 腳本的路徑
         run: python scripts/update_momentum.py
 
       - name: Commit and Push
@@ -37,5 +36,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add momentum.json
-          git commit -m "Auto-update momentum.json 🚀" || echo "No changes to commit"
+          git commit -m "Daily auto-update momentum.json 🚀" || echo "No changes to commit"
           git push
