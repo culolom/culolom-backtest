@@ -1,545 +1,103 @@
-###############################################################
-# app.py — CLEC 433 Strategy Backtest
-# CLEC 433 策略：0050 + 槓桿 + 現金 (彈性再平衡)
-###############################################################
-
 import os
 import datetime as dt
-import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib
-import matplotlib.font_manager as fm
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from pathlib import Path
-import sys
 
-###############################################################
-# 字型設定
-###############################################################
-
-font_path = "./NotoSansTC-Bold.ttf"
-if os.path.exists(font_path):
-    fm.fontManager.addfont(font_path)
-    matplotlib.rcParams["font.family"] = "Noto Sans TC"
-else:
-    matplotlib.rcParams["font.sans-serif"] = [
-        "Microsoft JhengHei",
-        "PingFang TC",
-        "Heiti TC",
-    ]
-matplotlib.rcParams["axes.unicode_minus"] = False
-
-###############################################################
-# Streamlit 頁面設定
-###############################################################
-
-st.set_page_config(
-    page_title="CLEC 433 策略回測",
-    page_icon="⚖️",
-    layout="wide",
-)
-
-# ------------------------------------------------------
-# 🔒 驗證守門員
-# ------------------------------------------------------
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-try:
-    import auth 
-    if not auth.check_password():
-        st.stop() 
-except ImportError:
-    pass 
-
-# ------------------------------------------------------
-with st.sidebar:
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
-    st.divider()
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-
-st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚖️ CLEC 433 資產配置策略</h1>",
-    unsafe_allow_html=True,
-)
-
-###############################################################
-# ETF 名稱清單
-###############################################################
-
-BASE_ETFS = {
-    "0050 元大台灣50": "0050.TW",
-    "006208 富邦台50": "006208.TW",
-}
-
-LEV_ETFS = {
-    "00631L 元大台灣50正2": "00631L.TW",
-    "00663L 國泰台灣加權正2": "00663L.TW",
-    "00675L 富邦台灣加權正2": "00675L.TW",
-    "00685L 群益台灣加權正2": "00685L.TW",
-}
-
+# ==========================================
+# 1. 基礎設定與資料讀取函數
+# ==========================================
 DATA_DIR = Path("data")
 
-###############################################################
-# 讀取 CSV
-###############################################################
+ASSET_OPTIONS = {
+    "0050.TW (台灣50)": "0050.TW",
+    "00631L.TW (台指2X)": "00631L.TW",
+    "QQQ (納斯達克100)": "QQQ", 
+    "SPY (標普500)": "SPY", 
+    "NVDA (輝達)": "NVDA"
+}
 
 def load_csv(symbol: str) -> pd.DataFrame:
-    path = DATA_DIR / f"{symbol}.csv"
-    if not path.exists():
+    candidates = [f"{symbol}.csv", f"{symbol.upper()}.csv"]
+    path = next((DATA_DIR / c for c in candidates if (DATA_DIR / c).exists()), None)
+    if not path:
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
+        df["Price"] = df["Adj Close"] if "Adj Close" in df.columns else df["Close"]
+        return df[["Price"]]
+    except:
         return pd.DataFrame()
 
-    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
-    df = df.sort_index()
-    df["Price"] = df["Close"]
-    return df[["Price"]]
+# ==========================================
+# 2. UI 介面佈局
+# ==========================================
+st.title("📈 動能衰竭研究室")
 
+with st.sidebar:
+    st.markdown("### ⚙️ 參數設定")
+    lookback_months = st.slider("動能計算週期 (月)", 1, 24, 12)
+    smooth_days = st.slider("動能平滑天數", 5, 60, 20)
 
-def get_full_range_from_csv(base_symbol: str, lev_symbol: str):
-    df1 = load_csv(base_symbol)
-    df2 = load_csv(lev_symbol)
+col_target, col_date = st.columns([1, 2])
 
-    if df1.empty or df2.empty:
-        return dt.date(2012, 1, 1), dt.date.today()
+with col_target:
+    selected_label = st.selectbox("選擇研究標的", list(ASSET_OPTIONS.keys()))
+    sym = ASSET_OPTIONS[selected_label]
 
-    start = max(df1.index.min().date(), df2.index.min().date())
-    end = min(df1.index.max().date(), df2.index.max().date())
-    return start, end
+# --- 關鍵修正：先定義 df_raw，確保後面檢查時它已經存在 ---
+df_raw = load_csv(sym)
 
-###############################################################
-# 工具函式
-###############################################################
+if df_raw.empty:
+    st.error(f"❌ 找不到 {sym}.csv 的資料，請確認 data 資料夾是否有該檔案。")
+    st.stop()
 
-def calc_metrics(series: pd.Series):
-    daily = series.dropna()
-    if len(daily) <= 1:
-        return np.nan, np.nan, np.nan
-    avg = daily.mean()
-    std = daily.std()
-    downside = daily[daily < 0].std()
-    vol = std * np.sqrt(252)
-    sharpe = (avg / std) * np.sqrt(252) if std > 0 else np.nan
-    sortino = (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
-    return vol, sharpe, sortino
+# 取得日期區間
+s_min, s_max = df_raw.index.min().date(), df_raw.index.max().date()
+with col_date:
+    date_range = st.date_input("選擇觀察區間", 
+                               value=[max(s_min, s_max - dt.timedelta(days=365*3)), s_max], 
+                               min_value=s_min, max_value=s_max)
 
-def format_currency(v):
-    try: return f"{v:,.0f} 元"
-    except: return "—"
-
-def format_percent(v, d=2):
-    try: return f"{v*100:.{d}f}%"
-    except: return "—"
-
-def format_number(v, d=2):
-    try: return f"{v:.{d}f}"
-    except: return "—"
-
-###############################################################
-# UI 輸入區塊
-###############################################################
-
-# 1. 選股與時間
-col1, col2 = st.columns(2)
-with col1:
-    base_label = st.selectbox("原型 ETF", list(BASE_ETFS.keys()))
-    base_symbol = BASE_ETFS[base_label]
-with col2:
-    lev_label = st.selectbox("槓桿 ETF", list(LEV_ETFS.keys()))
-    lev_symbol = LEV_ETFS[lev_label]
-
-s_min, s_max = get_full_range_from_csv(base_symbol, lev_symbol)
-
-col3, col4, col5 = st.columns(3)
-with col3:
-    start = st.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=10 * 365)), min_value=s_min, max_value=s_max)
-with col4:
-    end = st.date_input("結束日期", value=s_max, min_value=s_min, max_value=s_max)
-with col5:
-    capital = st.number_input("投入本金（元）", 1000, 100_000_000, 1_000_000, step=10_000)
-
-st.divider()
-
-# 2. 資產配置目標
-st.subheader("🎯 資產配置目標 (預設 433)")
-col_w1, col_w2, col_w3 = st.columns(3)
-
-with col_w1:
-    w_base_pct = st.number_input(f"原型 ({base_label}) %", 0, 100, 40, 5)
-with col_w2:
-    w_lev_pct = st.number_input(f"槓桿 ({lev_label}) %", 0, 100, 30, 5)
-
-w_cash_pct = 100 - w_base_pct - w_lev_pct
-
-with col_w3:
-    st.metric("現金 (Cash) 目標 %", f"{w_cash_pct}%")
-    if w_cash_pct < 0:
-        st.error("⚠️ 比例超過 100%！")
-
-# 3. 再平衡規則 (Rebalance Triggers)
-st.subheader("⚙️ 再平衡觸發規則 (多選)")
-
-with st.container(border=True):
-    # Rule 1: Annual
-    col_r1_a, col_r1_b = st.columns([1, 4])
-    with col_r1_a:
-        enable_annual = st.checkbox("啟用", value=True, key="chk_annual")
-    with col_r1_b:
-        st.markdown("**1. 每年定期再平衡** (於每年第一個交易日執行)")
-
-    st.markdown("---")
-
-    # Rule 2: Cash Too Low (Sell Stocks)
-    col_r2_a, col_r2_b = st.columns([1, 4])
-    with col_r2_a:
-        enable_lower = st.checkbox("啟用", value=False, key="chk_lower")
-    with col_r2_b:
-        c_low_val = st.number_input(
-            "2. 當現金「低於」多少 % 時觸發？ (代表股市大漲，停利)", 
-            min_value=0.0, max_value=100.0, value=max(0.0, w_cash_pct - 10.0), step=1.0, 
-            disabled=not enable_lower
-        )
-        if enable_lower and c_low_val >= w_cash_pct:
-            st.warning(f"⚠️ 邏輯警告：觸發值 ({c_low_val}%) 必須 < 目標值 ({w_cash_pct}%)，否則會無限觸發。")
-
-    st.markdown("---")
-
-    # Rule 3: Cash Too High (Buy Stocks)
-    col_r3_a, col_r3_b = st.columns([1, 4])
-    with col_r3_a:
-        enable_upper = st.checkbox("啟用", value=True, key="chk_upper")
-    with col_r3_b:
-        c_high_val = st.number_input(
-            "3. 當現金「高於」多少 % 時觸發？ (代表股市大跌，加碼)", 
-            min_value=0.0, max_value=100.0, value=w_cash_pct + 10.0, step=1.0, 
-            disabled=not enable_upper
-        )
-        if enable_upper and c_high_val <= w_cash_pct:
-            st.warning(f"⚠️ 邏輯警告：觸發值 ({c_high_val}%) 必須 > 目標值 ({w_cash_pct}%)，否則會無限觸發。")
-
-###############################################################
-# 主程式開始
-###############################################################
-
-if st.button("開始回測 🚀", type="primary"):
-
-    if w_cash_pct < 0:
-        st.error("❌ 配置比例錯誤：總和超過 100%")
-        st.stop()
+# ==========================================
+# 3. 核心計算邏輯 (動能與衰竭偵測)
+# ==========================================
+if len(date_range) == 2:
+    start_date, end_date = date_range
+    df = df_raw.loc[str(start_date):str(end_date)].copy()
     
-    # 邏輯防呆檢查
-    if enable_lower and c_low_val >= w_cash_pct:
-        st.error("❌ 無法執行：現金低於觸發值設定錯誤，請修正。")
-        st.stop()
-    if enable_upper and c_high_val <= w_cash_pct:
-        st.error("❌ 無法執行：現金高於觸發值設定錯誤，請修正。")
-        st.stop()
-
-    with st.spinner("計算中..."):
-        df_base_raw = load_csv(base_symbol)
-        df_lev_raw = load_csv(lev_symbol)
-
-    if df_base_raw.empty or df_lev_raw.empty:
-        st.error("⚠️ CSV 資料讀取失敗")
-        st.stop()
-
-    # 1. 資料對齊
-    df_base_raw = df_base_raw.loc[start:end]
-    df_lev_raw = df_lev_raw.loc[start:end]
-    df = pd.DataFrame(index=df_base_raw.index)
-    df["Price_base"] = df_base_raw["Price"]
-    df = df.join(df_lev_raw["Price"].rename("Price_lev"), how="inner").sort_index()
-
-    if df.empty:
-        st.error("⚠️ 有效回測區間不足")
-        st.stop()
-
-    # 基準報酬
-    df["Return_base"] = df["Price_base"].pct_change().fillna(0)
-    df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
+    # 計算 12M 動能 (ROC)
+    lookback_days = lookback_months * 21
+    df['Momentum'] = df['Price'].pct_change(lookback_days)
     
-    # 2. 回測核心邏輯
-    target_w_base = w_base_pct / 100.0
-    target_w_lev = w_lev_pct / 100.0
-    target_w_cash = w_cash_pct / 100.0
-
-    equity_curve = []
-    val_base_list = []
-    val_lev_list = []
-    val_cash_list = []
-    cash_ratio_list = []
+    # 計算平滑動能 (紅線)
+    df['Mom_Smooth'] = df['Momentum'].rolling(window=smooth_days).mean()
     
-    # 紀錄事件: {'date': date, 'type': 'Annual'/'High'/'Low', 'equity': val}
-    rebalance_events = [] 
+    # 計算斜率 (判斷是否衰竭)
+    df['Mom_Slope'] = df['Mom_Smooth'].diff(5)
+    df['Is_Exhaustion'] = (df['Mom_Smooth'] > 0) & (df['Mom_Slope'] < 0)
 
-    # 初始進場
-    current_cash = capital * target_w_cash
-    shares_base = (capital * target_w_base) / df["Price_base"].iloc[0]
-    shares_lev = (capital * target_w_lev) / df["Price_lev"].iloc[0]
-    last_year = df.index[0].year
+    # ==========================================
+    # 4. 繪製圖表 (價格與動能對照)
+    # ==========================================
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                        vertical_spacing=0.08, 
+                        subplot_titles=(f"{selected_label} 價格走勢 (底色為動能衰竭區)", "動能強度 (ROC)"),
+                        row_heights=[0.6, 0.4])
 
-    for date, row in df.iterrows():
-        p_base = row["Price_base"]
-        p_lev = row["Price_lev"]
-        
-        # 1. 計算當前市值
-        val_base = shares_base * p_base
-        val_lev = shares_lev * p_lev
-        total_equity = val_base + val_lev + current_cash
-        curr_cash_pct = (current_cash / total_equity) * 100.0
-        
-        trigger_type = None
+    # 價格線
+    fig.add_trace(go.Scatter(x=df.index, y=df['Price'], name="價格", line=dict(color="#1f77b4")), row=1, col=1)
 
-        # --- Check Rule 1: Annual ---
-        is_new_year = (date.year != last_year)
-        if is_new_year:
-            last_year = date.year
-            if enable_annual:
-                trigger_type = "Annual"
+    # 動能線
+    fig.add_trace(go.Scatter(x=df.index, y=df['Mom_Smooth'], name="平滑動能", line=dict(color="#e41a1c", width=3)), row=2, col=1)
+    fig.add_hline(y=0, line_dash="dash", line_color="black", row=2, col=1)
 
-        # --- Check Rule 2: Cash Too Low (Profit Take) ---
-        # 只有在尚未觸發 Annual 時才檢查，避免重複觸發
-        if not trigger_type and enable_lower:
-            if curr_cash_pct < c_low_val:
-                trigger_type = "LowCash"
+    # 標註衰竭區間 (橘色背景)
+    for i in range(1, len(df)):
+        if df['Is_Exhaustion'].iloc[i]:
+            fig.add_vrect(x0=df.index[i-1], x1=df.index[i], fillcolor="orange", opacity=0.1, line_width=0, row=1, col=1)
 
-        # --- Check Rule 3: Cash Too High (Buy Dip) ---
-        if not trigger_type and enable_upper:
-            if curr_cash_pct > c_high_val:
-                trigger_type = "HighCash"
-
-        # 3. 執行再平衡
-        if trigger_type:
-            # 還原至目標配置
-            new_val_base = total_equity * target_w_base
-            new_val_lev = total_equity * target_w_lev
-            new_val_cash = total_equity * target_w_cash
-            
-            shares_base = new_val_base / p_base
-            shares_lev = new_val_lev / p_lev
-            current_cash = new_val_cash
-            
-            # 數值更新
-            val_base = new_val_base
-            val_lev = new_val_lev
-            curr_cash_pct = (current_cash / total_equity) * 100.0
-            
-            rebalance_events.append({
-                'date': date,
-                'type': trigger_type,
-                'equity': total_equity
-            })
-
-        # 4. 紀錄
-        equity_curve.append(total_equity)
-        val_base_list.append(val_base)
-        val_lev_list.append(val_lev)
-        val_cash_list.append(current_cash)
-        cash_ratio_list.append(curr_cash_pct / 100.0)
-
-    # DataFrame 寫入
-    df["Equity_Strategy"] = equity_curve
-    df["Val_Base"] = val_base_list
-    df["Val_Lev"] = val_lev_list
-    df["Val_Cash"] = val_cash_list
-    df["Return_Strategy"] = df["Equity_Strategy"].pct_change().fillna(0)
-    
-    df["Equity_BH_Base"] = capital * (1 + df["Return_base"]).cumprod()
-    df["Equity_BH_Lev"] = capital * (1 + df["Return_lev"]).cumprod()
-
-    # 計算每日回撤序列 (用於畫圖)
-    df["DD_Strategy"] = (df["Equity_Strategy"] / df["Equity_Strategy"].cummax() - 1)
-    df["DD_Lev"] = (df["Equity_BH_Lev"] / df["Equity_BH_Lev"].cummax() - 1)
-    df["DD_Base"] = (df["Equity_BH_Base"] / df["Equity_BH_Base"].cummax() - 1)
-
-    # ###############################################################
-    # 指標與圖表
-    # ###############################################################
-
-    years_len = (df.index[-1] - df.index[0]).days / 365
-    def calc_core(eq, rets):
-        final_eq = eq.iloc[-1]
-        final_ret = (final_eq / capital) - 1
-        cagr = (final_eq / capital)**(1/years_len) - 1 if years_len > 0 else np.nan
-        mdd = 1 - (eq / eq.cummax()).min()
-        vol, sharpe, sortino = calc_metrics(rets)
-        calmar = cagr / mdd if mdd > 0 else np.nan
-        return final_eq, final_ret, cagr, mdd, vol, sharpe, sortino, calmar
-
-    eq_st, ret_st, cagr_st, mdd_st, vol_st, sharpe_st, sort_st, cal_st = calc_core(df["Equity_Strategy"], df["Return_Strategy"])
-    eq_lev, ret_lev, cagr_lev, mdd_lev, vol_lev, sharpe_lev, sort_lev, cal_lev = calc_core(df["Equity_BH_Lev"], df["Return_lev"])
-    eq_base, ret_base, cagr_base, mdd_base, vol_base, sharpe_base, sort_base, cal_base = calc_core(df["Equity_BH_Base"], df["Return_base"])
-
-    # --- Plot 1: 資金曲線 ---
-    st.markdown("### 📈 資金曲線與觸發點")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"], name="CLEC433 淨值", line=dict(color="#636EFA", width=3)))
-    fig.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Lev"], name=f"{lev_label} BH", line=dict(color="#EF553B", width=1.5, dash="dot")))
-    
-    # 分類畫出觸發點
-    evt_annual = [e for e in rebalance_events if e['type'] == 'Annual']
-    evt_high = [e for e in rebalance_events if e['type'] == 'HighCash'] # 股市跌深
-    evt_low = [e for e in rebalance_events if e['type'] == 'LowCash']   # 股市大漲
-
-    if evt_annual:
-        fig.add_trace(go.Scatter(
-            x=[e['date'] for e in evt_annual], y=[e['equity'] for e in evt_annual],
-            mode='markers', name='年度再平衡', marker=dict(symbol='circle', size=8, color='orange')
-        ))
-    if evt_high:
-        fig.add_trace(go.Scatter(
-            x=[e['date'] for e in evt_high], y=[e['equity'] for e in evt_high],
-            mode='markers', name=f'現金過高 (>{c_high_val}%)', marker=dict(symbol='star', size=12, color='red')
-        ))
-    if evt_low:
-        fig.add_trace(go.Scatter(
-            x=[e['date'] for e in evt_low], y=[e['equity'] for e in evt_low],
-            mode='markers', name=f'現金過低 (<{c_low_val}%)', marker=dict(symbol='triangle-up', size=10, color='green')
-        ))
-
-    fig.update_layout(template="plotly_white", height=450, hovermode="x unified", yaxis_title="總資產")
+    fig.update_layout(height=700, template="plotly_white", hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
-
-    # --- Plot 2: 資產佔比堆疊圖 ---
-    st.markdown("### 🍰 資產佔比堆疊圖")
-    df["Pct_Base"] = df["Val_Base"] / df["Equity_Strategy"]
-    df["Pct_Lev"] = df["Val_Lev"] / df["Equity_Strategy"]
-    df["Pct_Cash"] = df["Val_Cash"] / df["Equity_Strategy"]
-
-    fig_stack = go.Figure()
-    fig_stack.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], stackgroup='one', name='原型 ETF', line=dict(width=0), fillcolor='rgba(99, 110, 250, 0.6)'))
-    fig_stack.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], stackgroup='one', name='槓桿 ETF', line=dict(width=0), fillcolor='rgba(239, 85, 59, 0.6)'))
-    fig_stack.add_trace(go.Scatter(x=df.index, y=df["Pct_Cash"], stackgroup='one', name='現金', line=dict(width=0), fillcolor='rgba(0, 204, 150, 0.4)'))
-    
-    if enable_upper:
-        fig_stack.add_hline(y=c_high_val/100, line_dash="dash", line_color="red", annotation_text="現金過高(加碼)")
-    if enable_lower:
-        fig_stack.add_hline(y=c_low_val/100, line_dash="dash", line_color="green", annotation_text="現金過低(停利)")
-
-    fig_stack.update_layout(template="plotly_white", height=400, yaxis=dict(tickformat=".0%", title="佔比", range=[0,1]))
-    st.plotly_chart(fig_stack, use_container_width=True)
-
-    # --- Plot 3: 下檔風險 (MDD) 圖表 ---
-    st.markdown("### 📉 下檔風險 (Drawdown)")
-    fig_dd = go.Figure()
-    fig_dd.add_trace(go.Scatter(x=df.index, y=df["DD_Strategy"], name="CLEC433 回撤", fill="tozeroy", line=dict(color="#636EFA", width=1.5)))
-    fig_dd.add_trace(go.Scatter(x=df.index, y=df["DD_Lev"], name=f"{lev_label} 回撤", line=dict(color="#EF553B", width=1, dash="dot")))
-    
-    fig_dd.update_layout(template="plotly_white", height=350, yaxis=dict(tickformat=".1%", title="回撤幅度"), hovermode="x unified")
-    st.plotly_chart(fig_dd, use_container_width=True)
-
-    # ###############################################################
-    # 績效比較 (HTML 美化版)
-    # ###############################################################
-    st.markdown("<h3>📊 策略績效深度對照</h3>", unsafe_allow_html=True)
-
-    # 1. 定義顯示指標 (避免長行被截斷，改為垂直排列)
-    metrics_def = [
-        ("期末資產", "money", False),
-        ("總報酬率", "pct", False),
-        ("CAGR (年化)", "pct", False),
-        ("Calmar Ratio", "float", False),
-        ("最大回撤 (MDD)", "pct", True), 
-        ("年化波動", "pct", True),       
-        ("Sharpe Ratio", "float", False),
-        ("Sortino Ratio", "float", False),
-    ]
-
-    # 2. 建立比較數據 (修正：將每個 Key 獨立一行，防止 SyntaxError)
-    strategies_data = {
-        "CLEC 433": {
-            "期末資產": eq_st,
-            "總報酬率": ret_st,
-            "CAGR (年化)": cagr_st,
-            "Calmar Ratio": cal_st,
-            "最大回撤 (MDD)": mdd_st,
-            "年化波動": vol_st,
-            "Sharpe Ratio": sharpe_st,
-            "Sortino Ratio": sort_st
-        },
-        f"Buy & Hold ({lev_label})": {
-            "期末資產": eq_lev,
-            "總報酬率": ret_lev,
-            "CAGR (年化)": cagr_lev,
-            "Calmar Ratio": cal_lev,
-            "最大回撤 (MDD)": mdd_lev,
-            "年化波動": vol_lev,
-            "Sharpe Ratio": sharpe_lev,
-            "Sortino Ratio": sort_lev
-        },
-        f"Buy & Hold ({base_label})": {
-            "期末資產": eq_base,
-            "總報酬率": ret_base,
-            "CAGR (年化)": cagr_base,
-            "Calmar Ratio": cal_base,
-            "最大回撤 (MDD)": mdd_base,
-            "年化波動": vol_base,
-            "Sharpe Ratio": sharpe_base,
-            "Sortino Ratio": sort_base
-        }
-    }
-    
-    col_names = list(strategies_data.keys())
-
-    # 3. CSS 樣式
-    st.markdown("""
-    <style>
-        .perf-table { width: 100%; border-collapse: collapse; font-family: "Noto Sans TC", sans-serif; margin-bottom: 2rem; border: 1px solid #e9ecef; }
-        .perf-table th { background-color: #f8f9fa; color: #495057; font-weight: 700; padding: 14px 16px; text-align: center; border-bottom: 2px solid #e9ecef; font-size: 0.95rem; }
-        .perf-table th:first-child { text-align: left; width: 25%; }
-        .perf-table td { padding: 14px 16px; border-bottom: 1px solid #e9ecef; color: #212529; text-align: center; font-size: 0.95rem; vertical-align: middle; }
-        .perf-table td:first-child { text-align: left; font-weight: 500; color: #343a40; background-color: #fff; }
-        .winner-text { color: #d97706; font-weight: 800; }
-        .trophy-icon { font-size: 1.1em; margin-left: 6px; filter: drop-shadow(0px 0px 1px rgba(217, 119, 6, 0.3)); }
-        .perf-table tr:hover td { background-color: #f8f9fa; transition: background-color 0.2s; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 4. 建構 HTML 表格
-    html = '<table class="perf-table"><thead><tr><th>指標</th>'
-    for name in col_names:
-        html += f'<th>{name}</th>'
-    html += '</tr></thead><tbody>'
-    
-    for metric_name, fmt_type, invert_best in metrics_def:
-        html += f'<tr><td>{metric_name}</td>'
-        row_values = [strategies_data[strat].get(metric_name, 0) for strat in col_names]
-        
-        valid_vals = [v for v in row_values if not pd.isna(v)]
-        if not valid_vals:
-            best_val = None
-        else:
-            if invert_best:
-                best_val = min(valid_vals)
-            else:
-                best_val = max(valid_vals)
-                if metric_name in ["最大回撤 (MDD)", "年化波動"]:
-                     best_val = min(valid_vals)
-
-        for val in row_values:
-            if pd.isna(val):
-                display_str = "—"
-                is_winner = False
-            else:
-                if fmt_type == 'money': display_str = f"{val:,.0f} 元"
-                elif fmt_type == 'pct': display_str = f"{val:.2%}"
-                elif fmt_type == 'float': display_str = f"{val:.2f}"
-                else: display_str = str(val)
-                is_winner = (best_val is not None) and (abs(val - best_val) < 1e-9)
-
-            if is_winner:
-                html += f'<td><span class="winner-text">{display_str}</span> <span class="trophy-icon">🏆</span></td>'
-            else:
-                html += f'<td>{display_str}</td>'
-        html += '</tr>'
-    html += '</tbody></table>'
-    st.markdown(html, unsafe_allow_html=True)
-
-    # 下載按鈕
-    st.markdown("<br>", unsafe_allow_html=True)
-    csv = df[["Equity_Strategy", "Val_Base", "Val_Lev", "Val_Cash", "DD_Strategy", "DD_Lev"]].to_csv().encode('utf-8-sig')
-    st.download_button("📥 下載詳細回測數據 (含回撤)", csv, "CLEC433_Backtest.csv", "text/csv")
-
-    st.markdown("<hr><div style='text-align: center; color: gray; font-size: 0.8rem;'>免責聲明：過去績效不代表未來表現。</div>", unsafe_allow_html=True)
