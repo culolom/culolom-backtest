@@ -1,301 +1,261 @@
-###############################################################
-# app.py — 單一標的雙向乖離動態槓桿回測
-###############################################################
+"""
+HamrLab Backtest Platform main entry.
+Main page: Dashboard style layout with Password Protection & Market Signals.
+"""
 
-import os
-import datetime as dt
-import numpy as np
-import pandas as pd
 import streamlit as st
-import matplotlib
-import matplotlib.font_manager as fm
-import plotly.graph_objects as go
-from pathlib import Path
-import sys
+import os
+import datetime
+import pandas as pd
+import glob
+import auth  # 引入會員驗證模組
 
-###############################################################
-# 1. 字型與驗證設定
-###############################################################
+# 1. 頁面設定
+st.set_page_config(
+    page_title="倉鼠量化戰情室 | 白銀小倉鼠專屬福利",
+    page_icon="🐹",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-font_path = "./NotoSansTC-Bold.ttf"
-if os.path.exists(font_path):
-    fm.fontManager.addfont(font_path)
-    matplotlib.rcParams["font.family"] = "Noto Sans TC"
-else:
-    matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
-matplotlib.rcParams["axes.unicode_minus"] = False
-
-st.set_page_config(page_title="雙向乖離動態策略", page_icon="📈", layout="wide")
-
-# 🔒 驗證守門員
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-try:
-    import auth 
-    if not auth.check_password(): st.stop()
-except ImportError: pass 
-
-###############################################################
-# 2. 核心計算函數
-###############################################################
-
-def calc_metrics(series: pd.Series):
-    daily = series.dropna()
-    if len(daily) <= 1: return np.nan, np.nan, np.nan
-    avg, std, downside = daily.mean(), daily.std(), daily[daily < 0].std()
-    vol = std * np.sqrt(252)
-    sharpe = (avg / std) * np.sqrt(252) if std > 0 else np.nan
-    sortino = (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
-    return vol, sharpe, sortino
-
-def get_stats(eq, rets, y):
-    f_eq = eq.iloc[-1]
-    f_ret = f_eq - 1
-    cagr = (1 + f_ret)**(1/y) - 1 if y > 0 else 0
-    mdd = 1 - (eq / eq.cummax()).min()
-    v, sh, so = calc_metrics(rets)
-    calmar = cagr / mdd if mdd > 0 else 0
-    return f_eq, f_ret, cagr, mdd, v, sh, so, calmar
-
-def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
-def fmt_money(v): return f"{v:,.0f} 元"
-def fmt_pct(v, d=2): return f"{v:.{d}%}"
-def fmt_num(v, d=2): return f"{v:.{d}f}"
-def fmt_int(v): return f"{int(v):,}"
-
-###############################################################
-# 3. Sidebar 與 UI 配置
-###############################################################
-
-with st.sidebar:
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
-    st.divider()
-    st.markdown("### 🔗 快速連結")
-    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
-
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 單一標的雙向乖離動態策略 </h1>", unsafe_allow_html=True)
-
-# 整合所有標的清單
-ETF_OPTIONS = {
-    "0050 元大台灣50": "0050.TW",
-    "2330 台積電": "2330.TW",
-    "00878 國泰永續高股息": "00878.TW",
-    "00662 富邦 NASDAQ": "00662.TW",
-    "00646 元大 S&P 500": "00646.TW",
-    "00670L 富邦 NASDAQ 正2": "00670L.TW",
-    "00647L 元大 S&P 500 正2": "00647L.TW",
-    "006208 富邦台50": "006208.TW",
-    "00631L 元大台灣50正2": "00631L.TW",
-    "00663L 國泰台灣加權正2": "00663L.TW",
-    "00675L 富邦台灣加權正2": "00675L.TW",
-    "00685L 群益台灣加權正2": "00685L.TW",
-    "00708L 元大 S&P 原油正2": "00708L.TW",
-    "00635U 元大 S&P 黃金": "00635U.TW",
-    "QQQ (Invesco QQQ Trust)": "QQQ",
-    "QLD (ProShares Ultra QQQ)": "QLD",
-    "TQQQ (ProShares UltraPro QQQ)": "TQQQ",
-    "SPY (SPDR S&P 500 ETF)": "SPY",
-    "BTC-USD (Bitcoin)": "BTC-USD",
-}
-
-def load_csv(symbol: str) -> pd.DataFrame:
-    path = Path("data") / f"{symbol}.csv"
-    if not path.exists(): return pd.DataFrame()
-    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
-    df = df.sort_index(); df["Price"] = df["Close"]
-    return df[["Price"]]
-
-# 單一標的選擇
-etf_label = st.selectbox("選擇交易標的", list(ETF_OPTIONS.keys()))
-df_tmp = load_csv(ETF_OPTIONS[etf_label])
-
-if df_tmp.empty:
-    st.error("找不到資料檔案，請確認 data 資料夾路徑。")
+# ------------------------------------------------------
+# 🔒 會員驗證守門員
+# ------------------------------------------------------
+if not auth.check_password():
     st.stop()
 
-s_min, s_max = df_tmp.index.min().date(), df_tmp.index.max().date()
+# ------------------------------------------------------
+# ✅ 全域配置與工具函式
+# ------------------------------------------------------
+DATA_DIR = "data"
 
-col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-start = col_p1.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5*365)))
-end = col_p2.date_input("結束日期", value=s_max)
-capital = col_p3.number_input("投入本金", 1000, 10000000, 100000, step=10000)
-sma_window = col_p4.number_input("均線週期 (SMA)", 10, 240, 200, step=10)
+# ======================================
+# 🔧 更新後的動能排行榜標的清單
+# ======================================
+TARGET_SYMBOLS = [
+    "0050.TW", "2330.TW", "00878.TW", "00662.TW", "00646.TW", 
+    "00670L.TW", "00647L.TW", "006208.TW", "00631L.TW", "00663L.TW", 
+    "00675L.TW", "00685L.TW", "00708L.TW", "00635U.TW", 
+    "QQQ", "QLD", "TQQQ", "SPY", "BTC-USD"
+]
 
-st.write("---")
-position_mode = st.radio("策略初始狀態", ["一開局就全倉標的 ETF", "空手起跑"], index=0)
+def find_csv_for_symbol(symbol: str, files: list):
+    symbol_lower = symbol.lower()
+    for f in files:
+        name = os.path.basename(f).lower()
+        if symbol_lower in name:
+            return f
+    return None
 
-col_set1, col_set2 = st.columns(2)
-with col_set1:
-    with st.expander("📉 均線下：負乖離 DCA 加碼設定", expanded=True):
-        enable_dca = st.toggle("啟用 DCA", value=True)
-        dca_bias_trigger = st.number_input("加碼門檻乖離率 (%)", max_value=0.0, value=-15.0)
-        dca_pct = st.number_input("每次加碼比例 (%)", 1, 100, 20)
-        dca_cooldown = st.slider("加碼冷卻天數", 1, 60, 10)
-with col_set2:
-    with st.expander("🚀 均線上：高位乖離套利減碼設定", expanded=True):
-        enable_arb = st.toggle("啟用套利", value=True)
-        arb_bias_trigger = st.number_input("套利門檻乖離率 (%)", min_value=0.0, value=35.0)
-        arb_reduce_pct = st.number_input("每次減碼比例 (%)", 1, 100, 100)
-        arb_cooldown = st.slider("套利冷卻天數", 1, 60, 10)
+def load_price_series(csv_path: str):
+    try:
+        df = pd.read_csv(csv_path)
+        df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0], errors="coerce")
+        df = df.set_index(df.columns[0]).sort_index()
+        candidates = ["Adj Close", "Close", "close", "adjclose"]
+        for c in candidates:
+            if c in df.columns:
+                return df[c].astype(float).dropna()
+        num_cols = df.select_dtypes(include="number").columns
+        return df[num_cols[-1]].astype(float).dropna() if len(num_cols) > 0 else None
+    except Exception:
+        return None
 
-###############################################################
-# 4. 回測核心執行
-###############################################################
+def classify_trend(price: pd.Series):
+    if price is None or len(price) < 200:
+        return "資料不足", "⬜"
+    ma200 = price.rolling(200).mean().iloc[-1]
+    last = price.iloc[-1]
+    if pd.isna(ma200) or pd.isna(last):
+        return "資料不足", "⬜"
+    diff = (last / ma200) - 1.0
+    if diff > 0.05: return "多頭", "🟢"
+    elif diff > 0: return "偏多", "🟡"
+    elif diff > -0.05: return "偏空", "🟠"
+    else: return "空頭", "🔴"
 
-if st.button("開始回測 🚀"):
-    start_buf = start - dt.timedelta(days=int(sma_window * 2))
-    df = load_csv(ETF_OPTIONS[etf_label]).loc[start_buf:end].copy()
-    
-    df["MA"] = df["Price"].rolling(sma_window).mean()
-    df["Bias"] = (df["Price"] - df["MA"]) / df["MA"]
-    df = df.dropna(subset=["MA"]).loc[start:end]
-    
-    # 策略運算
-    sigs, pos = [0] * len(df), [0.0] * len(df)
-    curr_pos, can_buy = (1.0, True) if "一開局" in position_mode else (0.0, False)
-    pos[0], dca_cd, arb_cd = curr_pos, 0, 0
+def get_momentum_ranking(data_dir="data", symbols=None):
+    if not os.path.exists(data_dir):
+        return None, "無資料夾"
+    today = pd.Timestamp.today()
+    this_month_start = today.replace(day=1)
+    end_date = this_month_start - pd.Timedelta(days=1)
+    start_date = end_date - pd.DateOffset(months=12)
+    results = []
+    all_files = [f for f in os.listdir(data_dir) if f.endswith(".csv")]
 
-    for i in range(1, len(df)):
-        p, m, bias = df["Price"].iloc[i], df["MA"].iloc[i], df["Bias"].iloc[i] * 100
-        p0, m0 = df["Price"].iloc[i-1], df["MA"].iloc[i-1]
-        
-        if dca_cd > 0: dca_cd -= 1
-        if arb_cd > 0: arb_cd -= 1
-        sig = 0
+    if symbols:
+        use_files = []
+        for s in symbols:
+            matched = find_csv_for_symbol(s, all_files)
+            if matched: use_files.append(os.path.basename(matched))
+    else:
+        use_files = all_files
 
-        if p > m:
-            # === 均線上 ===
-            if can_buy:
-                if p0 <= m0: 
-                    curr_pos = 1.0
-                    sig = 1
-                if enable_arb and bias >= arb_bias_trigger and arb_cd == 0 and curr_pos > 0:
-                    curr_pos = max(0.0, curr_pos - (arb_reduce_pct / 100.0))
-                    sig, arb_cd = 3, arb_cooldown
-            else:
-                curr_pos = 0.0
-            dca_cd = 0
-        else:
-            # === 均線下 ===
-            can_buy = True 
-            if p0 > m0: # 死亡交叉
-                curr_pos, sig, arb_cd = 0.0, -1, 0
-            elif enable_dca and curr_pos < 1.0:
-                if bias <= dca_bias_trigger and dca_cd == 0:
-                    curr_pos = min(1.0, curr_pos + (dca_pct / 100.0))
-                    sig, dca_cd = 2, dca_cooldown
-        
-        pos[i], sigs[i] = round(curr_pos, 4), sig
+    for f in use_files:
+        symbol = f.replace(".csv", "")
+        try:
+            df = pd.read_csv(os.path.join(data_dir, f))
+            col_price = "Adj Close" if "Adj Close" in df.columns else "Close"
+            df["Date"] = pd.to_datetime(df["Date"])
+            df = df.set_index("Date").sort_index()
+            df["MA_200"] = df[col_price].rolling(window=200).mean()
+            hist_window = df.loc[:end_date]
+            if hist_window.empty: continue
+            last_valid = hist_window.index[-1]
+            p_end = hist_window[col_price].iloc[-1]
+            ma_end = df.loc[last_valid, "MA_200"]
+            start_window = df.loc[:start_date]
+            if start_window.empty: continue
+            p_start = start_window[col_price].iloc[-1]
+            ret = (p_end - p_start) / p_start
+            results.append({"代號": symbol, "12月累積報酬": ret * 100, "收盤價": p_end, "200SMA": ma_end})
+        except Exception:
+            continue
+    if not results: return None, end_date
+    df_res = pd.DataFrame(results).sort_values("12月累積報酬", ascending=False).reset_index(drop=True)
+    df_res.index += 1
+    return df_res, end_date
 
-    df["Signal"], df["Position"] = sigs, pos
+# ------------------------------------------------------
+# 2. 側邊欄
+# ------------------------------------------------------
+with st.sidebar:
+    if os.path.exists("logo.png"): st.image("logo.png", width=120)
+    else: st.title("🐹") 
+    st.title("倉鼠量化戰情室")
+    st.caption("v1.2.0 | 白銀小倉鼠限定")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="部落格首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+    st.divider()
+    if st.button("🚪 登出系統"):
+        st.session_state["password_correct"] = False
+        st.rerun()
 
-    # 計算策略淨值
-    equity_lrs = [1.0]
-    for i in range(1, len(df)):
-        ret = (df["Price"].iloc[i] / df["Price"].iloc[i-1]) - 1
-        equity_lrs.append(equity_lrs[-1] * (1 + (ret * df["Position"].iloc[i-1])))
-    
-    df["Equity_Strategy"] = equity_lrs
-    df["Return_Strategy"] = df["Equity_Strategy"].pct_change().fillna(0)
-    df["Equity_BH"] = (df["Price"] / df["Price"].iloc[0])
-    df["Return_BH"] = df["Price"].pct_change().fillna(0)
-    
-    y_len = (df.index[-1] - df.index[0]).days / 365
-    sl = get_stats(df["Equity_Strategy"], df["Return_Strategy"], y_len)
-    sb = get_stats(df["Equity_BH"], df["Return_BH"], y_len)
+# ------------------------------------------------------
+# 3. 主畫面
+# ------------------------------------------------------
+st.title("🚀 戰情室軍火庫")
 
-    # ------------------------------------------------------
-    # 5. KPI 與 圖表
-    # ------------------------------------------------------
-    st.markdown("""<style>.kpi-card {background: var(--secondary-background-color); border-radius: 16px; padding: 24px; border: 1px solid rgba(128,128,128,0.1); text-align:center;} .kpi-val {font-size:2.2rem; font-weight:900; margin:10px 0;} .delta {color:#21c354; background:#21c3541a; padding:4px 12px; border-radius:12px; font-weight:700;}</style>""", unsafe_allow_html=True)
-    kc = st.columns(4)
-    kc[0].markdown(f'<div class="kpi-card">策略期末資產<div class="kpi-val">{fmt_money(sl[0]*capital)}</div><span class="delta">vs {fmt_money(sb[0]*capital)} (BH)</span></div>', unsafe_allow_html=True)
-    kc[1].markdown(f'<div class="kpi-card">策略 CAGR<div class="kpi-val">{sl[2]:.2%}</div><span class="delta">BH: {sb[2]:.2%}</span></div>', unsafe_allow_html=True)
-    kc[2].markdown(f'<div class="kpi-card">策略波動<div class="kpi-val">{sl[4]:.2%}</div></div>', unsafe_allow_html=True)
-    kc[3].markdown(f'<div class="kpi-card">策略最大回撤<div class="kpi-val">{sl[3]:.2%}</div></div>', unsafe_allow_html=True)
+# 狀態檢查
+files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+last_update = datetime.datetime.fromtimestamp(os.path.getmtime(max(files, key=os.path.getmtime))).strftime("%Y-%m-%d") if files else "N/A"
+st.caption(f"✅ 系統數據正常 | 📅 最後更新：{last_update}")
 
-    st.markdown("### 📌 交易訊號標註")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price"], name="標的價格", line=dict(color="#636EFA")))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name="SMA", line=dict(color="#FFA15A")))
-    
-    colors = {1: ("全倉買進", "#00C853", "triangle-up", 12), -1: ("清倉賣出", "#D50000", "triangle-down", 12), 2: ("DCA 加碼", "#2E7D32", "circle", 8), 3: ("套利減碼", "#FF9800", "diamond", 10)}
-    for v, (l, c, s, sz) in colors.items():
-        pts = df[df["Signal"] == v]
-        if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=sz, symbol=s)))
-    fig.update_layout(template="plotly_white", height=500, hovermode="x unified")
-    st.plotly_chart(fig, use_container_width=True)
+st.markdown("""
+歡迎來到 **倉鼠量化戰情室**！下方為白銀小倉鼠專屬的策略實驗室與市場儀表板。
+利用 **200日均線趨勢過濾** 與 **動能排行**，在牛市進攻、熊市防守。
+""")
 
-    # ------------------------------------------------------
-    # 6. 四大分頁分析
-    # ------------------------------------------------------
-    st.markdown("### 📊 策略分析")
-    tab1, tab2, tab3, tab4 = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈"])
-    with tab1:
-        fe = go.Figure()
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="標的 Buy & Hold", line=dict(dash='dot')))
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="動態策略", line=dict(width=3, color="#00D494")))
-        fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%"), height=450); st.plotly_chart(fe, use_container_width=True)
-    with tab2:
-        fd = go.Figure()
-        fd.add_trace(go.Scatter(x=df.index, y=(df["Equity_Strategy"]/df["Equity_Strategy"].cummax()-1)*100, name="策略回撤", fill='tozeroy', line=dict(color='red')))
-        fd.update_layout(template="plotly_white", height=450, title="策略回撤 (%)"); st.plotly_chart(fd, use_container_width=True)
-    with tab3:
-        cat = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反)"]
-        r_l = [nz(sl[2]), nz(sl[5]), nz(sl[6]), nz(-sl[3]), nz(-sl[4])]
-        r_b = [nz(sb[2]), nz(sb[5]), nz(sb[6]), nz(-sb[3]), nz(-sb[4])]
-        fr = go.Figure()
-        fr.add_trace(go.Scatterpolar(r=r_l, theta=cat, fill='toself', name='策略', marker_color="#00D494"))
-        fr.add_trace(go.Scatterpolar(r=r_b, theta=cat, fill='toself', name='標的BH', marker_color="gray"))
-        fr.update_layout(polar=dict(radialaxis=dict(visible=True)), height=450); st.plotly_chart(fr, use_container_width=True)
-    with tab4:
-        fh = go.Figure()
-        fh.add_trace(go.Histogram(x=df["Return_Strategy"]*100, name="策略", marker_color="#00D494", opacity=0.7))
-        fh.add_trace(go.Histogram(x=df["Return_BH"]*100, name="標的BH", opacity=0.4))
-        fh.update_layout(barmode="overlay", template="plotly_white", height=450, title="日報酬分佈 (%)"); st.plotly_chart(fh, use_container_width=True)
+st.divider()
 
-    # ------------------------------------------------------
-    # 7. 高級績效表格
-    # ------------------------------------------------------
-    metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    dt_table = {
-        f"<b>{etf_label}</b><br>動態策略": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()],
-        f"<b>{etf_label}</b><br>Buy & Hold": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0]
+# ==========================================
+# 🛠️ 策略實驗室 (自動掃描 + 美化)
+# ==========================================
+st.subheader("🛠️ 選擇你的實驗策略")
+
+HIDE_STRATEGIES = ["temp_test", "old_strategy"]
+
+META_INFO = {
+    "1_QQQLRS": {
+        "name": "QQQ LRS 動態槓桿",
+        "icon": "🦅",
+        "tags": ["美股", "Nasdaq", "動態槓桿"],
+        "desc": "以 QQQ 200SMA 為訊號，動態切換 QLD (2x) 或 TQQQ (3x)，捕捉科技股長期上升趨勢。"
+    },
+    "2_0050LRS": {
+        "name": "0050 LRS 動態槓桿",
+        "icon": "🇹🇼",
+        "tags": ["台股", "0050", "曝險調整"],
+        "desc": "以台股大盤為訊號源，動態調整正2槓桿比例，追求更優化的風險回報比。"
+    },
+    "3_Basic0050score": {
+        "name": "0050 景氣燈號 (基礎)",
+        "icon": "🚦",
+        "tags": ["基本面", "景氣循環"],
+        "desc": "國發會景氣對策信號簡單策略：藍燈買進、紅燈賣出。"
+    },
+    "7_50dbdl": {
+        "name": "單一標的雙向乖離策略",
+        "icon": "⚖️",
+        "tags": ["動態定期定額", "抄底套利", "單一標的"],
+        "desc": "最新版本！支援 SMA 趨勢過濾開關，透過負乖離 DCA 加碼與高位套利減碼，大幅優化正2長期持有的心理壓力。"
+    },
+    "8_nsf": {
+        "name": "0050 國安基金爆擊法",
+        "icon": "🛡️",
+        "tags": ["政策盤", "抄底爆擊"],
+        "desc": "模擬國安基金進場心理，在極端恐慌時勇敢打出爆擊部位。"
     }
-    df_v = pd.DataFrame(dt_table, index=metrics)
-    
-    html = '<style>.ctable {width:100%; border-collapse:separate; border-spacing:0; border-radius:12px; border:1px solid rgba(128,128,128,0.1); overflow:hidden;} .ctable th {background:var(--secondary-background-color); padding:15px; text-align:center;} .ctable td {padding:12px; text-align:center; border-bottom:1px solid rgba(128,128,128,0.05);} .mname {text-align:left !important; background:var(--secondary-background-color); font-weight:500;}</style>'
-    html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
-    for col in df_v.columns: html += f'<th>{col}</th>'
-    html += '</tr></thead><tbody>'
-    for m in metrics:
-        html += f'<tr><td class="mname">{m}</td>'
-        rv = df_v.loc[m].values
-        best = min(rv) if m in ["最大回撤 (MDD)", "年化波動", "交易次數"] else max(rv)
-        for i, v in enumerate(rv):
-            is_win = (v == best and m != "交易次數")
-            if "資產" in m: txt = fmt_money(v)
-            elif any(x in m for x in ["率", "報酬", "波動", "MDD"]): txt = fmt_pct(v)
-            elif "次數" in m: txt = fmt_int(v)
-            else: txt = fmt_num(v)
-            style = 'style="font-weight:bold; color:var(--primary-color);"' if i == 0 else ''
-            html += f'<td {style}>{txt} {"🏆" if is_win else ""}</td>'
-        html += '</tr>'
-    st.write(html + '</tbody></table>', unsafe_allow_html=True)
+}
 
-    # ------------------------------------------------------
-    # 8. 下載數據
-    # ------------------------------------------------------
-    st.markdown("<br>", unsafe_allow_html=True)
-    export_cols = ["Price", "MA", "Bias", "Signal", "Position", "Equity_BH", "Equity_Strategy"]
-    csv_data = df[export_cols].to_csv(index=True).encode('utf-8-sig')
-    st.download_button(
-        label="📥 下載回測數據 (CSV)",
-        data=csv_data,
-        file_name=f"bias_strategy_{ETF_OPTIONS[etf_label]}_{start}.csv",
-        mime="text/csv"
+pages_dir = "pages"
+page_files = sorted(glob.glob(os.path.join(pages_dir, "*.py")))
+cols = st.columns(2)
+count = 0
+
+for file_path in page_files:
+    filename = os.path.basename(file_path).replace(".py", "")
+    if filename in HIDE_STRATEGIES: continue
+    
+    info = META_INFO.get(filename, {
+        "name": filename, "icon": "📄", "tags": ["New"], "desc": "策略描述補充中..."
+    })
+    
+    with cols[count % 2]:
+        with st.container(border=True):
+            st.markdown(f"### {info['icon']} {info['name']}")
+            st.markdown(" ".join([f"`{tag}`" for tag in info['tags']]))
+            st.write(info['desc'])
+            st.page_link(file_path, label="進入策略回測", icon="👉", use_container_width=True)
+    count += 1
+
+st.divider()
+
+# ==========================================
+# 📊 市場儀表板
+# ==========================================
+st.subheader("📌 重點市場趨勢 (SMA200)")
+summary_cols = st.columns(4)
+ASSETS = [
+    {"label": "美股科技 (QQQ)", "symbol": "QQQ"},
+    {"label": "台股大盤 (0050)", "symbol": "0050.TW"},
+    {"label": "比特幣 (BTC)", "symbol": "BTC-USD"},
+    {"label": "全球股市 (VT)", "symbol": "VT"},
+]
+
+for i, asset in enumerate(ASSETS):
+    with summary_cols[i]:
+        csv_path = find_csv_for_symbol(asset["symbol"], files)
+        if csv_path:
+            p = load_price_series(csv_path)
+            t_text, t_icon = classify_trend(p)
+            st.metric(asset["label"], t_text, t_icon)
+        else:
+            st.metric(asset["label"], "無資料", "⬜")
+
+# ==========================================
+# 🏆 本月動能排行榜
+# ==========================================
+st.markdown("### 🏆 本月動能排行榜 (過去 12 個月績效)")
+rank_df, calc_date = get_momentum_ranking(DATA_DIR, symbols=TARGET_SYMBOLS)
+
+if rank_df is not None:
+    st.caption(f"📅 統計基準日：**{calc_date.strftime('%Y-%m-%d')}** (上個月底)")
+    st.dataframe(
+        rank_df,
+        column_config={
+            "12月累積報酬": st.column_config.ProgressColumn(
+                "12月累積報酬", format="%.2f%%", min_value=-50, max_value=100
+            ),
+            "收盤價": st.column_config.NumberColumn("收盤價", format="$%.2f"),
+            "200SMA": st.column_config.NumberColumn("200SMA", format="$%.2f"),
+        },
+        use_container_width=True,
     )
 
-    st.markdown("<br><hr>", unsafe_allow_html=True)
-    st.markdown('<div style="text-align: center; color: gray; font-size: 0.85rem;">免責聲明：本工具僅供參考，投資前請自行評估風險。</div>', unsafe_allow_html=True)
+st.markdown("---")
+st.caption("🚧 更多策略 (MACD、RSI) 與情緒指標開發中，敬請期待！")
