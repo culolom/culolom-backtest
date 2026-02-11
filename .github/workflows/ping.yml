@@ -1,9 +1,8 @@
-          
 name: Keep Streamlit Awake
 
 on:
   schedule:
-    - cron: "*/15 * * * *"   # 每 15 分鐘 ping 一次
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -11,6 +10,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Ping Streamlit app
+      - name: Ping Streamlit app (ignore errors)
         run: |
-          curl -L --max-time 30 https://hamrlab.streamlit.app
+          curl -L --max-time 30 https://your-app-name.streamlit.app || true
