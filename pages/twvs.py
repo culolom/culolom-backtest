@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 正2 直球對決 + 布林通道調節 (含回檔過濾版)
+# app.py — 正2 趨勢跟隨 + 布林移動停損 (Trend + Trailing Stop)
 ###############################################################
 
 import os
@@ -30,7 +30,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 ###############################################################
 
 st.set_page_config(
-    page_title="正2 布林動態策略 (回檔過濾版)",
+    page_title="正2 趨勢 + 移動停損策略",
     page_icon="⚡",
     layout="wide",
 )
@@ -57,18 +57,17 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 st.markdown(
-    "<h1 style='margin-bottom:0.5em;'>⚡ 正2 布林動態調節 (回檔過濾版)</h1>",
+    "<h1 style='margin-bottom:0.5em;'>⚡ 正2 趨勢跟隨 + 布林移動停損</h1>",
     unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-<b>策略邏輯 (含盤整濾網)：</b><br>
-1️⃣ <b>抄底 (優先)</b>：<span style='color:#E040FB'><b>訊號線</b></span> < 布林下軌 (-2σ) ⮕ <span style='color:#66BB6A'><b>買進加碼</b></span>。<br>
-2️⃣ <b>進場</b>：<span style='color:#E040FB'><b>訊號線</b></span> 黃金交叉 200SMA ⮕ <span style='color:#4CAF50'><b>All In (100%)</b></span>。<br>
-3️⃣ <b>獲利調節</b>：<span style='color:#E040FB'><b>訊號線</b></span> > 布林上軌 (2σ) ⮕ <span style='color:#FFA726'><b>賣出減碼</b></span>。<br>
-4️⃣ <b>停損 (雙重條件)</b>：<span style='color:#E040FB'><b>訊號線</b></span> 在 200SMA 之下 <b>且</b> <span style='color:#FF5252'><b>收盤價跌破高點門檻</b></span> ⮕ 清空。<br>
-<small>💡 濾網目的：避免在均線附近盤整時頻繁被洗出場，只有確認大幅回檔才真正離場。</small>
+<b>策略邏輯：</b><br>
+1️⃣ <b>進場 (趨勢)</b>：<span style='color:#2962FF'><b>收盤價</b></span> 站上 200SMA ⮕ <span style='color:#4CAF50'><b>買進 (100%)</b></span>。<br>
+2️⃣ <b>離場 (趨勢)</b>：<span style='color:#2962FF'><b>收盤價</b></span> 跌破 200SMA ⮕ <span style='color:#FF5252'><b>賣出清空</b></span>。<br>
+3️⃣ <b>動態停損 (獲利保護)</b>：當價格突破 <span style='color:#FFA726'><b>布林上軌</b></span> 時啟動監控，若從波段高點回檔 <span style='color:#FF5252'><b>超過 X%</b></span> ⮕ <b>提早獲利了結</b>。<br>
+<small>💡 優點：平時跟隨大趨勢，遇到瘋狂急漲時，利用布林通道啟動保護機制，避免獲利大幅回吐。</small>
 """,
     unsafe_allow_html=True,
 )
@@ -167,26 +166,15 @@ with col6:
 st.write("---")
 st.write("### ⚙️ 策略參數設定")
 
-col_sig, col_bb = st.columns(2)
-with col_sig:
-    st.markdown("#### 🎯 訊號與濾網")
-    c1, c2 = st.columns(2)
-    with c1:
-        signal_window = st.number_input("訊號判定週期 (天)", value=5, help="用幾日均線作為訊號線")
-    with c2:
-        high_window = st.number_input("高點回溯 (天)", value=100, help="計算最近 N 天最高價")
-        
-    dd_pct = st.number_input("停損過濾：需跌破高點 (%)", value=30.0, step=5.0, help="只有當 訊號<200SMA 且 價格<最高價*(1-X%) 時才真正賣出")
+col_bb_set, col_stop_set = st.columns(2)
 
-with col_bb:
-    st.markdown("#### 🌊 布林通道與操作")
-    c3, c4 = st.columns(2)
-    with c3:
-        bb_std_dev = st.number_input("通道倍數 (σ)", value=2.0, step=0.1)
-        action_pct = st.number_input("加/減碼幅度 (%)", value=10, step=5)
-    with c4:
-        add_interval = st.number_input("加碼冷卻(天)", value=3)
-        reduce_interval = st.number_input("減碼冷卻(天)", value=5)
+with col_bb_set:
+    st.markdown("#### 🌊 布林通道 (啟動條件)")
+    bb_std_dev = st.number_input("通道倍數 (σ)", value=2.0, step=0.1, help="當價格超過上軌時，開始啟動移動停損監控")
+
+with col_stop_set:
+    st.markdown("#### 🛡️ 移動停損 (出場條件)")
+    trailing_stop_pct = st.number_input("高點回檔賣出 (%)", value=10.0, step=1.0, help="啟動監控後，若價格從波段最高點下跌超過此幅度，則獲利了結")
 
 ###############################################################
 # 主程式開始
@@ -194,7 +182,7 @@ with col_bb:
 
 if st.button("開始回測 🚀"):
 
-    start_early = start - dt.timedelta(days=int(sma_window * 1.5) + max(200, high_window)) 
+    start_early = start - dt.timedelta(days=int(sma_window * 1.5)) 
 
     with st.spinner("讀取 CSV 中…"):
         df_raw = load_csv(lev_symbol)
@@ -212,19 +200,12 @@ if st.button("開始回測 🚀"):
     # 1. 計算技術指標
     df["MA_Long"] = df["Price"].rolling(sma_window).mean()
     df["Std_Dev"] = df["Price"].rolling(sma_window).std()
-    df["Signal_Price"] = df["Price"].rolling(signal_window).mean()
     
     # 布林通道
     df["BB_Upper"] = df["MA_Long"] + (bb_std_dev * df["Std_Dev"])
     df["BB_Lower"] = df["MA_Long"] - (bb_std_dev * df["Std_Dev"])
 
-    # 🌟 新增：高點回落濾網計算
-    # 找出過去 N 天的最高「收盤價」
-    df["Rolling_Max"] = df["Price"].rolling(high_window).max()
-    # 計算「真正停損價位」 = 最高價 * (1 - 跌幅%)
-    df["Stop_Threshold"] = df["Rolling_Max"] * (1 - dd_pct / 100.0)
-
-    df = df.dropna(subset=["MA_Long", "BB_Upper", "Signal_Price", "Stop_Threshold"])
+    df = df.dropna(subset=["MA_Long", "BB_Upper"])
     df = df.loc[start:end]
     
     if df.empty:
@@ -234,88 +215,86 @@ if st.button("開始回測 🚀"):
     df["Return"] = df["Price"].pct_change().fillna(0)
 
     # ###############################################################
-    # 核心交易邏輯
+    # 核心交易邏輯 (State Machine)
     # ###############################################################
 
     executed_signals = [0] * len(df)
     positions = [0.0] * len(df)
+    stop_lines = [np.nan] * len(df) # 用於畫圖：移動停損線
     
-    # 初始狀態
+    # 狀態變數
     current_pos = 0.0 
-    days_since_add = 999 
-    days_since_reduce = 999
+    trailing_mode = False     # 是否處於移動停損監控模式
+    peak_price = 0.0          # 監控期間的最高價
 
-    # 初始判斷
-    if df["Signal_Price"].iloc[0] > df["MA_Long"].iloc[0]:
+    # 初始判斷 (第一天)
+    if df["Price"].iloc[0] > df["MA_Long"].iloc[0]:
         current_pos = 1.0
 
     positions[0] = current_pos
 
     for i in range(1, len(df)):
         price = df["Price"].iloc[i]
-        sig_curr = df["Signal_Price"].iloc[i]
-        sig_prev = df["Signal_Price"].iloc[i-1]
-        
         sma = df["MA_Long"].iloc[i]
-        prev_sma = df["MA_Long"].iloc[i-1]
-        
         upper = df["BB_Upper"].iloc[i]
-        lower = df["BB_Lower"].iloc[i]
         
-        # 濾網門檻價
-        stop_line = df["Stop_Threshold"].iloc[i]
-
         signal_code = 0
-        days_since_add += 1
-        days_since_reduce += 1
-
-        # ==========================================================
-        # 交易邏輯
-        # ==========================================================
-
-        # 1. 抄底 (霸王條款)：訊號線跌破下軌
-        if sig_curr < lower:
-            if days_since_add >= add_interval:
-                current_pos += (action_pct / 100.0)
-                if current_pos > 1.0: current_pos = 1.0
-                signal_code = 2 # Buy
-                days_since_add = 0
-
-        # 2. 進場：黃金交叉 (訊號線站上 SMA)
-        elif sig_curr > sma and sig_prev <= prev_sma:
-            current_pos = 1.0
-            signal_code = 1 # All In
-
-        # 3. 減碼：漲破上軌
-        elif sig_curr > upper and current_pos > 0:
-            if days_since_reduce >= reduce_interval:
-                current_pos -= (action_pct / 100.0)
-                if current_pos < 0.0: current_pos = 0.0
-                signal_code = -2 # Sell
-                days_since_reduce = 0
-
-        # 4. 停損 (雙重條件)：
-        #    (A) 訊號線在 SMA 下方 (包含剛跌破或已經跌破)
-        #    (B) 收盤價 < 高點回落門檻 (真正大跌)
-        elif sig_curr < sma:
-            # 只有當價格也跌破「容忍門檻」時，才真正清空
-            if price < stop_line:
-                if current_pos > 0:
-                    current_pos = 0.0
-                    signal_code = -1 # Clear (Stop Loss)
-            else:
-                # 雖然跌破均線，但還沒跌破 30% (舉例)，視為盤整，續抱
-                pass
-
-        # 5. 其他
-        else:
-            pass
         
-        positions[i] = round(current_pos, 4)
+        # 邏輯核心：
+        # 1. 先判斷是否持有 (Hold)
+        if current_pos > 0:
+            
+            # --- 出場條件檢查 ---
+            
+            # A. 趨勢反轉 (優先)：跌破 SMA -> 賣出
+            if price < sma:
+                current_pos = 0.0
+                signal_code = -1 # Sell (Trend Break)
+                trailing_mode = False # 重置監控
+                peak_price = 0.0
+            
+            # B. 移動停損 (Trailing Stop)
+            elif trailing_mode:
+                # 更新波段最高價
+                if price > peak_price:
+                    peak_price = price
+                
+                # 計算當前的停損價位
+                current_stop_price = peak_price * (1 - trailing_stop_pct / 100.0)
+                stop_lines[i] = current_stop_price # 記錄下來畫圖用
+
+                # 觸發停損
+                if price < current_stop_price:
+                    current_pos = 0.0
+                    signal_code = -2 # Sell (Trailing Stop Hit)
+                    trailing_mode = False
+                    peak_price = 0.0
+            
+            # --- 狀態更新 ---
+            # C. 檢查是否觸發布林上軌 (開啟監控模式)
+            # 注意：如果已經在 trailing_mode，就繼續保持
+            if current_pos > 0 and not trailing_mode:
+                if price > upper:
+                    trailing_mode = True
+                    peak_price = price
+                    # 設定當下的停損線供參考
+                    stop_lines[i] = peak_price * (1 - trailing_stop_pct / 100.0)
+
+        else:
+            # --- 進場條件檢查 ---
+            # 當前空手，檢查是否站上 SMA
+            if price > sma:
+                current_pos = 1.0
+                signal_code = 1 # Buy
+                trailing_mode = False # 剛買進，重置監控
+                peak_price = 0.0
+
+        positions[i] = current_pos
         executed_signals[i] = signal_code
 
     df["Signal"] = executed_signals
     df["Position"] = positions
+    df["Stop_Line_Trace"] = stop_lines
 
     # ###############################################################
     # 資金曲線計算
@@ -336,10 +315,9 @@ if st.button("開始回測 🚀"):
     df["Pct_LRS"] = df["Equity_LRS"] - 1
 
     # 篩選訊號點位
-    sig_all_in = df[df["Signal"] == 1]
-    sig_clear  = df[df["Signal"] == -1]
-    sig_buy_bb = df[df["Signal"] == 2]
-    sig_sell_bb = df[df["Signal"] == -2]
+    sig_buy = df[df["Signal"] == 1]
+    sig_sell_trend = df[df["Signal"] == -1]
+    sig_sell_trail = df[df["Signal"] == -2]
 
     # ###############################################################
     # 統計指標
@@ -381,52 +359,41 @@ if st.button("開始回測 🚀"):
         mode="lines", line=dict(width=1, color="rgba(99, 110, 250, 0.4)"),
     ))
 
-    # 2. 訊號線
-    fig_price.add_trace(go.Scatter(
-        x=df.index, y=df["Signal_Price"], name=f"訊號線 ({signal_window}MA)", 
-        mode="lines", line=dict(width=1.5, color="#E040FB"),
-    ))
-
-    # 3. SMA
+    # 2. SMA
     fig_price.add_trace(go.Scatter(
         x=df.index, y=df["MA_Long"], name=f"趨勢線 ({sma_window}SMA)", 
         mode="lines", line=dict(width=1.5, color="#FFA15A"),
     ))
 
-    # 🌟 4. 停損過濾線 (虛線)
-    fig_price.add_trace(go.Scatter(
-        x=df.index, y=df["Stop_Threshold"], name=f"停損門檻 (高點-{dd_pct}%)", 
-        mode="lines", line=dict(width=1, color="gray", dash="dash"),
-        visible="legendonly" # 預設隱藏，點擊圖例可顯示，保持畫面乾淨
-    ))
-
-    # 5. 布林通道
+    # 3. 布林通道
     fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_Upper"], mode="lines", line=dict(width=0), showlegend=False, hoverinfo='skip'))
     fig_price.add_trace(go.Scatter(
         x=df.index, y=df["BB_Lower"], name=f"布林通道 (±{bb_std_dev}σ)", 
         mode="lines", line=dict(width=0), fill='tonexty', fillcolor='rgba(128,128,128,0.1)'
     ))
 
-    # 6. 標記
-    if not sig_all_in.empty:
+    # 🌟 4. 動態停損線 (只在監控模式下顯示)
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["Stop_Line_Trace"], name="移動停損線", 
+        mode="lines", line=dict(width=2, color="#FF5252", dash="dot"),
+        connectgaps=False # 不連線，斷開顯示
+    ))
+
+    # 5. 標記
+    if not sig_buy.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_all_in.index, y=sig_all_in["Price"], mode="markers", name="All In (黃金交叉)", 
-            marker=dict(color="#00C853", size=12, symbol="star", line=dict(width=1, color="white"))
+            x=sig_buy.index, y=sig_buy["Price"], mode="markers", name="買進 (站上SMA)", 
+            marker=dict(color="#00C853", size=10, symbol="triangle-up", line=dict(width=1, color="white"))
         ))
-    if not sig_clear.empty:
+    if not sig_sell_trend.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_clear.index, y=sig_clear["Price"], mode="markers", name=f"清空 (破線且跌{dd_pct}%)", 
-            marker=dict(color="#D50000", size=10, symbol="x", line=dict(width=1, color="white"))
+            x=sig_sell_trend.index, y=sig_sell_trend["Price"], mode="markers", name="賣出 (跌破SMA)", 
+            marker=dict(color="#757575", size=10, symbol="x", line=dict(width=1, color="white"))
         ))
-    if not sig_buy_bb.empty:
+    if not sig_sell_trail.empty:
         fig_price.add_trace(go.Scatter(
-            x=sig_buy_bb.index, y=sig_buy_bb["Price"], mode="markers", name="抄底", 
-            marker=dict(color="#66BB6A", size=8, symbol="triangle-up")
-        ))
-    if not sig_sell_bb.empty:
-        fig_price.add_trace(go.Scatter(
-            x=sig_sell_bb.index, y=sig_sell_bb["Price"], mode="markers", name="減碼", 
-            marker=dict(color="#FFA726", size=8, symbol="triangle-down")
+            x=sig_sell_trail.index, y=sig_sell_trail["Price"], mode="markers", name="停利 (移動停損)", 
+            marker=dict(color="#FF5252", size=10, symbol="star", line=dict(width=1, color="white"))
         ))
 
     fig_price.update_layout(
@@ -470,7 +437,7 @@ if st.button("開始回測 🚀"):
     metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
     
     data_dict = {
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>策略 (含濾網)</span>": {
+        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>策略 (SMA+Stop)</span>": {
             "期末資產": capital_lrs_final,
             "總報酬率": final_ret_lrs,
             "CAGR (年化)": cagr_lrs,
