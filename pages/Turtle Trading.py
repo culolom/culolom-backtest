@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 順勢交易：區間極值與百分比反轉策略 (移動停利損)
+# app.py — 0050 順勢長線濾網 (200SMA) + 區間極值提早買賣系統
 ###############################################################
 
 import os
@@ -42,7 +42,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-st.set_page_config(page_title="區間極值與百分比反轉策略", page_icon="📈", layout="wide")
+st.set_page_config(page_title="200SMA + 極值提早買賣策略", page_icon="📈", layout="wide")
 
 # 🔒 驗證守門員
 try:
@@ -103,7 +103,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.1em;'>📈 順勢交易：區間極值與百分比反轉策略</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.1em;'>📈 長線濾網 (200SMA) + 區間極值反轉策略</h1>", unsafe_allow_html=True)
 
 available_ids = get_csv_list()
 if not available_ids:
@@ -131,60 +131,88 @@ capital = col_p3.number_input("投入本金", 1000, 10000000, 100000, step=10000
 st.write("---")
 st.markdown("### ⚙️ 策略參數設定")
 
-col_set1, col_set2, col_set3 = st.columns(3)
+col_set1, col_set2, col_set3, col_set4 = st.columns(4)
 
 with col_set1:
-    lookback_window = st.number_input("基準區間 (尋找最高/低點的天數)", 5, 240, 20, step=1)
+    sma_window = st.number_input("長線趨勢濾網 (SMA)", 10, 300, 200, step=10)
 with col_set2:
-    buy_pct = st.number_input("買進：自區間最低點上漲 (%)", 1.0, 50.0, 5.0, step=0.5)
+    lookback_window = st.number_input("基準區間 (尋找最高/低點天數)", 5, 240, 20, step=1)
 with col_set3:
-    sell_pct = st.number_input("賣出：自區間最高點下跌 (%)", 1.0, 50.0, 5.0, step=0.5)
+    buy_pct = st.number_input("空頭提早買：自最低點上漲 (%)", 1.0, 50.0, 5.0, step=0.5)
+with col_set4:
+    sell_pct = st.number_input("多頭提早賣：自最高點下跌 (%)", 1.0, 50.0, 5.0, step=0.5)
 
 ###############################################################
 # 4. 回測執行邏輯
 ###############################################################
 
 if st.button("啟動回測引擎 🚀"):
-    # 預留緩衝天數以計算區間極值
-    start_buf = start - dt.timedelta(days=int(lookback_window * 2))
+    # 預留足夠天數計算 200SMA
+    start_buf = start - dt.timedelta(days=int(max(sma_window, lookback_window) * 2))
     df = load_csv(target_id).loc[start_buf:end]
     
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
-    # 計算區間最低點與最高點 (shift(1) 避免未來函數)
+    # 計算技術指標 (shift避免未來函數)
+    df["SMA"] = df["Price"].rolling(sma_window).mean()
     df["Period_Min"] = df["Price"].rolling(lookback_window).min().shift(1)
     df["Period_Max"] = df["Price"].rolling(lookback_window).max().shift(1)
     
-    # 計算觸發買賣的門檻線
+    # 計算提早買賣的觸發線
     df["Buy_Line"] = df["Period_Min"] * (1 + buy_pct / 100.0)
     df["Sell_Line"] = df["Period_Max"] * (1 - sell_pct / 100.0)
     
-    df = df.dropna(subset=["Period_Min", "Period_Max"]).loc[start:end]
+    df = df.dropna(subset=["Period_Min", "Period_Max", "SMA"]).loc[start:end]
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
+    
+    # 狀態機變數
     in_position = False
-
+    
     for i in range(1, len(df)):
         p = df["Price"].iloc[i]
-        buy_trigger = df["Buy_Line"].iloc[i]
-        sell_trigger = df["Sell_Line"].iloc[i]
+        p0 = df["Price"].iloc[i-1]
+        sma = df["SMA"].iloc[i]
+        sma0 = df["SMA"].iloc[i-1]
         
-        sig = 0 # 0:無動作, 1:建倉, -1:平倉
+        p_max = df["Period_Max"].iloc[i]
+        p_min = df["Period_Min"].iloc[i]
+        early_sell = df["Sell_Line"].iloc[i]
+        early_buy = df["Buy_Line"].iloc[i]
         
-        if not in_position:
-            # 【進場】自區間最低點上漲突破 X%
-            if p > buy_trigger:
-                in_position = True
-                curr_pos = 1.0 # 滿倉進場
-                sig = 1
-        else:
-            # 【出場】自區間最高點回檔跌破 Y%
-            if p < sell_trigger:
-                in_position = False
-                curr_pos = 0.0 # 空倉
-                sig = -1
+        sig = 0
+        
+        # 判斷是否發生穿越
+        cross_up_sma = (p > sma) and (p0 <= sma0)
+        cross_dn_sma = (p < sma) and (p0 >= sma0)
 
-        pos[i] = curr_pos if in_position else 0.0
+        # 狀態 1：多頭趨勢 (股價 > 200 SMA)
+        if p > sma:
+            if not in_position:
+                # 買進條件：(1) 剛突破 200 SMA (2) 提早賣出後，股價創新高證明趨勢延續
+                if cross_up_sma or p >= p_max:
+                    in_position = True
+                    sig = 1
+            else:
+                # 持有中，檢查是否觸發「提早賣出」移動停利
+                if p < early_sell:
+                    in_position = False
+                    sig = -1
+                    
+        # 狀態 2：空頭趨勢 (股價 <= 200 SMA)
+        else:
+            if in_position:
+                # 賣出條件：(1) 剛跌破 200 SMA (2) 提早買進後，股價跌破前低點(停損)
+                if cross_dn_sma or p <= p_min:
+                    in_position = False
+                    sig = -1
+            else:
+                # 空手中，檢查是否觸發「提早買進」抄底
+                if p > early_buy:
+                    in_position = True
+                    sig = 1
+
+        pos[i] = 1.0 if in_position else 0.0
         sigs[i] = sig
 
     df["Signal"], df["Position"] = sigs, pos
@@ -218,7 +246,7 @@ if st.button("啟動回測引擎 🚀"):
 
     st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    data_map = { f"<b>{ch_name}</b><br><small>百分比反轉策略</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
+    data_map = { f"<b>{ch_name}</b><br><small>長線濾網+極值反轉</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
     html = '<style>.ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; margin-top:10px; } .ctable th { background: #ffffff; padding: 20px; border-bottom: 1px solid #f0f0f0; color: #595959; } .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; } .m-name { text-align: left !important; font-weight: 500; }</style>'
     html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
     for col in data_map.keys(): html += f"<th>{col}</th>"
@@ -238,15 +266,15 @@ if st.button("啟動回測引擎 🚀"):
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 整合圖表：極值與觸發線視覺化
+    # 7. 整合圖表：乾淨版視覺化 (依多空狀態顯示對應的觸發線)
     # ------------------------------------------------------
-    st.markdown("### 📈 區間極值與動態觸發線 (Trailing Stop)")
+    st.markdown("### 📈 趨勢狀態與動態觸發線")
 
     fig_master = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.08,
-        subplot_titles=("資金曲線比較", "價格走勢、區間極值與買賣觸發線"),
+        subplot_titles=("資金曲線比較", f"價格走勢與動態買賣觸發線 ({sma_window}SMA 濾網)"),
         row_heights=[0.3, 0.7]
     )
 
@@ -256,19 +284,26 @@ if st.button("啟動回測引擎 🚀"):
 
     # --- 第二列：觸發線與訊號 ---
     
-    # 1. 區間最高低點 (僅供參考，用細實線或淡色標示)
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Period_Max"], name=f"{lookback_window}日最高點", line=dict(color="rgba(255, 77, 79, 0.3)", width=1)), row=2, col=1)
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Period_Min"], name=f"{lookback_window}日最低點", line=dict(color="rgba(24, 144, 255, 0.3)", width=1)), row=2, col=1)
+    # 1. 核心趨勢線：SMA
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["SMA"], name=f"{sma_window} SMA 趨勢線", line=dict(color="#FFA15A", width=2.5)), row=2, col=1)
 
-    # 2. 買賣觸發線 (重點線，用虛線標示)
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Buy_Line"], name=f"買進線 (+{buy_pct}%)", line=dict(color="#1890FF", width=2, dash='dash')), row=2, col=1)
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Sell_Line"], name=f"賣出線 (-{sell_pct}%)", line=dict(color="#FF4D4F", width=2, dash='dash')), row=2, col=1)
+    # 2. 為了讓圖表乾淨，只在對應的狀態下畫出觸發線
+    df_bull = df[df["Price"] > df["SMA"]]
+    df_bear = df[df["Price"] <= df["SMA"]]
+
+    # 多頭狀態才顯示「提早賣出線」與「區間最高點」
+    fig_master.add_trace(go.Scatter(x=df_bull.index, y=df_bull["Period_Max"], mode="markers", name=f"多頭防守: 前高點", marker=dict(color="rgba(255, 77, 79, 0.4)", size=3)), row=2, col=1)
+    fig_master.add_trace(go.Scatter(x=df_bull.index, y=df_bull["Sell_Line"], mode="markers", name=f"提早賣出觸發線 (-{sell_pct}%)", marker=dict(color="#FF4D4F", size=4, symbol="line-ew")), row=2, col=1)
+
+    # 空頭狀態才顯示「提早買進線」與「區間最低點」
+    fig_master.add_trace(go.Scatter(x=df_bear.index, y=df_bear["Period_Min"], mode="markers", name=f"空頭防守: 前低點", marker=dict(color="rgba(24, 144, 255, 0.4)", size=3)), row=2, col=1)
+    fig_master.add_trace(go.Scatter(x=df_bear.index, y=df_bear["Buy_Line"], mode="markers", name=f"提早買進觸發線 (+{buy_pct}%)", marker=dict(color="#1890FF", size=4, symbol="line-ew")), row=2, col=1)
 
     # 3. 股價
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#1F2937", width=1.5)), row=2, col=1)
     
     # 4. 交易訊號點
-    colors = {1: ("觸發買進", "#00C853", "triangle-up"), -1: ("觸發賣出", "#D50000", "triangle-down")}
+    colors = {1: ("買進 (突破SMA 或 提早進場)", "#00C853", "triangle-up"), -1: ("賣出 (跌破SMA 或 提早出場)", "#D50000", "triangle-down")}
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
         if not pts.empty:
