@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 海龜交易法 (修正版唐奇安通道系統)
+# app.py — 0050 海龜交易法 (含唐奇安中軌)
 ###############################################################
 
 import os
@@ -44,7 +44,7 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(page_title="海龜交易法 - 唐奇安通道系統", page_icon="🐢", layout="wide")
 
-# 🔒 驗證守門員 (保留你的設定)
+# 🔒 驗證守門員
 try:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     import auth 
@@ -160,20 +160,20 @@ with col_set3:
 ###############################################################
 
 if st.button("啟動回測引擎 🚀"):
-    # 預留緩衝天數以計算長週期指標 (確保 200MA 能算出來)
+    # 預留緩衝天數以計算長週期指標
     max_window = max(entry_window, exit_window, 200 if use_200sma_filter else 0)
     start_buf = start - dt.timedelta(days=int(max_window * 2))
     df = load_csv(target_id).loc[start_buf:end]
     
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
-    # 計算唐奇安通道與指標 (shift(1) 是為了避免用到當天的最高/低價，形成未來函數)
+    # 計算唐奇安通道與指標
     df["Donchian_High"] = df["Price"].rolling(entry_window).max().shift(1)
     df["Donchian_Low"] = df["Price"].rolling(exit_window).min().shift(1)
+    # 計算中心線：(上軌 + 下軌) / 2
     df["Donchian_Mid"] = (df["Donchian_High"] + df["Donchian_Low"]) / 2
     df["SMA_200"] = df["Price"].rolling(200).mean()
     
-    # 裁切回使用者選擇的時間段
     df = df.dropna(subset=["Donchian_High", "Donchian_Low", "SMA_200" if use_200sma_filter else "Price"]).loc[start:end]
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
@@ -275,17 +275,20 @@ if st.button("啟動回測引擎 🚀"):
     # 1. 唐奇安上軌 (進場線)
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_High"], name=f"{entry_window}日上阻力線 (做多)", line=dict(color="#1890FF", width=1.5)), row=2, col=1)
     
-    # 2. 唐奇安下軌 (出場線) - 畫在同一張圖並填滿顏色形成通道
+    # 2. 唐奇安中軌 (中心線) - 新增
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_Mid"], name="中心線 (Mid Channel)", line=dict(color="#AB63FA", width=1.5, dash='dash')), row=2, col=1)
+
+    # 3. 唐奇安下軌 (出場線) - 填滿上下軌之間的顏色
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_Low"], name=f"{exit_window}日下支撐線 (平倉)", fill='tonexty', fillcolor='rgba(24, 144, 255, 0.05)', line=dict(color="#FF4D4F", width=1.5)), row=2, col=1)
     
-    # 3. 200 SMA (若啟用)
+    # 4. 200 SMA (若啟用)
     if use_200sma_filter:
         fig_master.add_trace(go.Scatter(x=df.index, y=df["SMA_200"], name="200日均線 (趨勢濾網)", line=dict(color="#FFA15A", width=2, dash='dot')), row=2, col=1)
 
-    # 4. 股價
+    # 5. 股價
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#1F2937", width=1.5)), row=2, col=1)
     
-    # 5. 交易訊號點
+    # 6. 交易訊號點
     colors = {1: ("突破進場", "#00C853", "triangle-up"), -1: ("跌破出場", "#D50000", "triangle-down")}
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
