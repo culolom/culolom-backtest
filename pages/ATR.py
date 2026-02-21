@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 區間極值反轉策略 (支援成本價停損 / 移動停利)
+# app.py — 0050 區間極值反轉策略 (純粹版：SMA濾網 + 百分比移動停利)
 ###############################################################
 
 import os
@@ -103,7 +103,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.1em;'>📈 區間極值反轉策略 (動態濾網版)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.1em;'>📈 區間極值反轉策略 (百分比移動停利版)</h1>", unsafe_allow_html=True)
 
 available_ids = get_csv_list()
 if not available_ids:
@@ -136,34 +136,21 @@ with col_set_a:
     enable_sma = st.toggle("啟用 SMA 趨勢濾網", value=True)
     sma_window = st.number_input("長線趨勢濾網 (SMA)", 10, 300, 200, step=10, disabled=not enable_sma)
     lookback_window = st.number_input("基準區間 (尋找最低點天數)", 5, 240, 20, step=1)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    sl_basis = st.radio("🛡️ 賣出防守基準 (核心邏輯)", ["買進成本價 (固定停損)", "持倉期間最高價 (動態移動停利)"], horizontal=True)
 
 with col_set_b:
-    trigger_mode = st.radio("提早買賣觸發模式", ["ATR 波動率 (動態伸縮)", "固定百分比 (%)"], horizontal=True)
-    
-    if "ATR" in trigger_mode:
-        atr_window = st.number_input("ATR 計算週期", 5, 60, 14, step=1)
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            buy_multi = st.number_input("買進：最低點 + N 倍 ATR", 0.1, 10.0, 2.0, step=0.1)
-        with col_m2:
-            sell_multi = st.number_input("賣出：基準點 - N 倍 ATR", 0.1, 10.0, 2.0, step=0.1)
-    else:
-        atr_window = 14 # 預設保留不報錯
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            buy_pct = st.number_input("買進：自最低點上漲 (%)", 1.0, 50.0, 5.0, step=0.5)
-        with col_m2:
-            sell_pct = st.number_input("賣出：自基準點下跌 (%)", 1.0, 50.0, 5.0, step=0.5)
+    st.markdown("##### 觸發百分比設定 (防守基準：持倉最高價)")
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        buy_pct = st.number_input("買進：自最低點上漲 (%)", 1.0, 50.0, 5.0, step=0.5)
+    with col_m2:
+        sell_pct = st.number_input("賣出：自最高點下跌 (%)", 1.0, 50.0, 5.0, step=0.5)
 
 ###############################################################
 # 4. 回測執行邏輯
 ###############################################################
 
 if st.button("啟動回測引擎 🚀"):
-    max_lookback = max(sma_window if enable_sma else 0, lookback_window, atr_window)
+    max_lookback = max(sma_window if enable_sma else 0, lookback_window)
     start_buf = start - dt.timedelta(days=int(max_lookback * 2))
     df = load_csv(target_id).loc[start_buf:end]
     
@@ -177,27 +164,18 @@ if st.button("啟動回測引擎 🚀"):
         
     df["Period_Min"] = df["Price"].rolling(lookback_window).min().shift(1)
     
-    # 計算 ATR
-    df["True_Range"] = df["Price"].diff().abs()
-    df["ATR"] = df["True_Range"].rolling(atr_window).mean().shift(1)
-    
-    # 計算「買進觸發線」 (賣出線現在改為動態計算)
-    if "ATR" in trigger_mode:
-        df["Buy_Line"] = df["Period_Min"] + (df["ATR"] * buy_multi)
-    else:
-        df["Buy_Line"] = df["Period_Min"] * (1 + buy_pct / 100.0)
+    # 計算買進觸發線
+    df["Buy_Line"] = df["Period_Min"] * (1 + buy_pct / 100.0)
     
     # 裁切資料
     drop_cols = ["Period_Min", "Buy_Line"]
     if enable_sma: drop_cols.append("SMA")
-    if "ATR" in trigger_mode: drop_cols.append("ATR")
     df = df.dropna(subset=drop_cols).loc[start:end]
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
     dynamic_sl_list = [np.nan] * len(df) # 記錄動態停損線供畫圖
     
     in_position = False
-    entry_price = 0.0
     highest_since_entry = 0.0
     
     for i in range(1, len(df)):
@@ -208,17 +186,12 @@ if st.button("啟動回測引擎 🚀"):
         sig = 0
         current_sl = np.nan
         
-        # --- 如果持有部位，更新最高價並計算動態停損線 ---
+        # --- 如果持有部位，更新最高價並計算動態停利線 ---
         if in_position:
             if p > highest_since_entry:
                 highest_since_entry = p
-                
-            base_price = entry_price if "成本價" in sl_basis else highest_since_entry
-            
-            if "ATR" in trigger_mode:
-                current_sl = base_price - (df["ATR"].iloc[i] * sell_multi)
-            else:
-                current_sl = base_price * (1 - sell_pct / 100.0)
+            # 純百分比動態移動停利
+            current_sl = highest_since_entry * (1 - sell_pct / 100.0)
                 
         # --- 進出場狀態判斷 ---
         if enable_sma:
@@ -231,7 +204,6 @@ if st.button("啟動回測引擎 🚀"):
                 if not in_position:
                     if cross_up_sma or p > early_buy:
                         in_position, sig = True, 1
-                        entry_price = p
                         highest_since_entry = p
                 else:
                     if p < current_sl:
@@ -243,20 +215,18 @@ if st.button("啟動回測引擎 🚀"):
                 else:
                     if p > early_buy:
                         in_position, sig = True, 1
-                        entry_price = p
                         highest_since_entry = p
         else:
             # 無 SMA 濾網
             if not in_position:
                 if p > early_buy:
                     in_position, sig = True, 1
-                    entry_price = p
                     highest_since_entry = p
             else:
                 if p < current_sl:
                     in_position, sig = False, -1
 
-        # 記錄當天的動態停損線
+        # 記錄當天的動態防守線
         dynamic_sl_list[i] = current_sl if in_position or sig == -1 else np.nan
         pos[i], sigs[i] = (1.0 if in_position else 0.0), sig
 
@@ -282,7 +252,7 @@ if st.button("啟動回測引擎 🚀"):
     sl = get_stats(df["Equity_Strategy"], df["Return_Strategy"], y_len)
     sb = get_stats(df["Equity_BH"], df["Return_BH"], y_len)
 
-    # KPI 渲染 
+    # KPI 渲染
     st.markdown("""<style>.kpi-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; text-align: left; } .kpi-label { color: #8c8c8c; font-size: 1rem; margin-bottom: 12px; font-weight: 500; } .kpi-val { font-size: 2.3rem; font-weight: 900; color: #1a1a1a; margin-bottom: 15px; } .delta-tag { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700; } .delta-pos { background: #e6f7ed; color: #21c354; } .delta-neg { background: #fff1f0; color: #ff4d4f; } </style> """, unsafe_allow_html=True)
     k_cols = st.columns(4)
     def render_kpi(col, label, val, delta, is_better_if_higher=True):
@@ -297,8 +267,7 @@ if st.button("啟動回測引擎 🚀"):
     st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
     filter_label = "有濾網" if enable_sma else "無濾網"
-    mode_label = "ATR防守" if "ATR" in trigger_mode else "%防守"
-    data_map = { f"<b>{ch_name}</b><br><small>{mode_label} ({filter_label})</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
+    data_map = { f"<b>{ch_name}</b><br><small>移動停利 ({filter_label})</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
     html = '<style>.ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; margin-top:10px; } .ctable th { background: #ffffff; padding: 20px; border-bottom: 1px solid #f0f0f0; color: #595959; } .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; } .m-name { text-align: left !important; font-weight: 500; }</style>'
     html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
     for col in data_map.keys(): html += f"<th>{col}</th>"
@@ -322,7 +291,7 @@ if st.button("啟動回測引擎 🚀"):
     # ------------------------------------------------------
     st.markdown("### 📈 價格走勢與動態買賣觸發線")
     
-    title_suffix = f" ({sma_window}SMA 濾網, {mode_label})" if enable_sma else f" (無濾網, {mode_label})"
+    title_suffix = f" ({sma_window}SMA 濾網, %防守)" if enable_sma else " (無濾網, %防守)"
     fig_master = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
@@ -336,8 +305,8 @@ if st.button("啟動回測引擎 🚀"):
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')), row=1, col=1)
 
     # --- 第二列：觸發線與訊號 ---
-    buy_legend_txt = f"買進線 (+{buy_multi}ATR)" if "ATR" in trigger_mode else f"買進線 (+{buy_pct}%)"
-    sell_legend_txt = "防守線 (停損/停利)"
+    buy_legend_txt = f"買進線 (+{buy_pct}%)"
+    sell_legend_txt = f"移動停利線 (-{sell_pct}%)"
 
     # 1. 核心趨勢線：SMA
     if enable_sma:
@@ -346,7 +315,7 @@ if st.button("啟動回測引擎 🚀"):
     # 2. 空手時的買進觸發線 (用淡藍色虛線)
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Buy_Line_Draw"], name=buy_legend_txt, line=dict(color="#1890FF", width=2, dash='dash')), row=2, col=1)
     
-    # 3. 持有部位時的動態賣出線 (用淡紅色實線，並搭配填滿效果)
+    # 3. 持有部位時的動態賣出線 (用淡紅色實線，並搭配階梯線條)
     df_holding = df.dropna(subset=["Dynamic_SL"])
     if not df_holding.empty:
         fig_master.add_trace(go.Scatter(x=df.index, y=df["Dynamic_SL"], name=sell_legend_txt, line=dict(color="#FF4D4F", width=2, shape='hv')), row=2, col=1)
