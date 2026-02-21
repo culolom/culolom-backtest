@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 順勢通道突破與金字塔加碼系統 (Donchian + ATR)
+# app.py — 0050 海龜交易法 (修正版唐奇安通道系統)
 ###############################################################
 
 import os
@@ -42,9 +42,9 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-st.set_page_config(page_title="順勢突破與金字塔加碼系統", page_icon="📈", layout="wide")
+st.set_page_config(page_title="海龜交易法 - 唐奇安通道系統", page_icon="🐢", layout="wide")
 
-# 🔒 驗證守門員
+# 🔒 驗證守門員 (保留你的設定)
 try:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     import auth 
@@ -103,7 +103,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.1em;'>📊 順勢突破與金字塔加碼系統</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.1em;'>🐢 海龜交易法 (唐奇安通道)</h1>", unsafe_allow_html=True)
 
 available_ids = get_csv_list()
 if not available_ids:
@@ -131,103 +131,85 @@ capital = col_p3.number_input("投入本金", 1000, 10000000, 100000, step=10000
 st.write("---")
 st.markdown("### ⚙️ 策略參數設定")
 
-col_set1, col_set2, col_set3, col_set4 = st.columns(4)
-with col_set1:
-    entry_window = st.number_input("進場：創 N 日新高 (Donchian)", 10, 240, 20, step=5)
-with col_set2:
-    pyramid_pct = st.number_input("加碼：每次加碼比例 (%)", 5, 100, 20, step=5) / 100.0
-with col_set3:
-    exit_window = st.number_input("出場：跌破 N 日均線", 10, 240, 60, step=10)
-with col_set4:
-    atr_window = st.number_input("風控：ATR 計算週期", 5, 60, 14, step=1)
+turtle_mode = st.radio(
+    "選擇海龜策略模式", 
+    ["海龜短線 (20日突破進 / 10日跌破出)", "海龜長線 (55日突破進 / 20日跌破出)", "自訂參數"], 
+    horizontal=True
+)
 
-st.markdown("💡 **波動率控管 (ATR) 輔助設定：**")
-col_sub1, col_sub2 = st.columns(2)
-with col_sub1:
-    atr_pyramid_multi = st.number_input("加碼間距 (ATR 乘數)", 0.1, 5.0, 0.5, step=0.1, help="突破前次買點加上此倍數的 ATR 才允許加碼，避免在極小區間內頻繁打滿倉位。")
-with col_sub2:
-    atr_stop_multi = st.number_input("ATR 動態停損 (乘數)", 1.0, 10.0, 2.5, step=0.1, help="當價格從波段最高點回落超過此倍數的 ATR 時，提早清倉停損。")
+col_set1, col_set2, col_set3 = st.columns(3)
+
+# 根據選擇自動帶入參數
+if "短線" in turtle_mode:
+    def_entry, def_exit = 20, 10
+elif "長線" in turtle_mode:
+    def_entry, def_exit = 55, 20
+else:
+    def_entry, def_exit = 20, 10
+
+with col_set1:
+    entry_window = st.number_input("進場：唐奇安上軌 (突破 N 日最高價)", 5, 240, def_entry, step=1, disabled=("自訂" not in turtle_mode))
+with col_set2:
+    exit_window = st.number_input("出場：唐奇安下軌 (跌破 M 日最低價)", 5, 240, def_exit, step=1, disabled=("自訂" not in turtle_mode))
+with col_set3:
+    st.markdown("<br>", unsafe_allow_html=True)
+    use_200sma_filter = st.checkbox("啟用 200 日均線趨勢濾網 (僅在均線之上做多)", value=True)
 
 ###############################################################
 # 4. 回測執行邏輯
 ###############################################################
 
 if st.button("啟動回測引擎 🚀"):
-    # 預留緩衝天數以計算長週期指標
-    max_window = max(entry_window, exit_window, atr_window)
+    # 預留緩衝天數以計算長週期指標 (確保 200MA 能算出來)
+    max_window = max(entry_window, exit_window, 200 if use_200sma_filter else 0)
     start_buf = start - dt.timedelta(days=int(max_window * 2))
     df = load_csv(target_id).loc[start_buf:end]
     
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
-    # 計算指標
-    # 1. 唐奇安通道上軌 (N日最高價，shift(1)避免用到當天未來的價格)
+    # 計算唐奇安通道與指標 (shift(1) 是為了避免用到當天的最高/低價，形成未來函數)
     df["Donchian_High"] = df["Price"].rolling(entry_window).max().shift(1)
-    # 2. 趨勢出場均線
-    df["Exit_MA"] = df["Price"].rolling(exit_window).mean()
-    # 3. 近似 ATR (因僅有收盤價，使用收盤價的絕對變化量作為真實波幅的替代)
-    df["True_Range"] = df["Price"].diff().abs()
-    df["ATR"] = df["True_Range"].rolling(atr_window).mean()
+    df["Donchian_Low"] = df["Price"].rolling(exit_window).min().shift(1)
+    df["Donchian_Mid"] = (df["Donchian_High"] + df["Donchian_Low"]) / 2
+    df["SMA_200"] = df["Price"].rolling(200).mean()
     
-    df = df.dropna(subset=["Exit_MA", "Donchian_High", "ATR"]).loc[start:end]
+    # 裁切回使用者選擇的時間段
+    df = df.dropna(subset=["Donchian_High", "Donchian_Low", "SMA_200" if use_200sma_filter else "Price"]).loc[start:end]
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
-    atr_stops = [np.nan] * len(df)
-    
     in_position = False
-    curr_pos = 0.0
-    highest_price_since_entry = 0.0
-    last_buy_price = 0.0
 
     for i in range(1, len(df)):
         p = df["Price"].iloc[i]
         don_h = df["Donchian_High"].iloc[i]
-        exit_ma = df["Exit_MA"].iloc[i]
-        atr = df["ATR"].iloc[i]
+        don_l = df["Donchian_Low"].iloc[i]
+        sma200 = df["SMA_200"].iloc[i]
         
-        sig = 0 # 0:無動作, 1:建倉, 2:加碼, -1:平倉
+        sig = 0 # 0:無動作, 1:建倉, -1:平倉
         
         if not in_position:
-            # 【進場】突破 N 日新高
-            if p > don_h:
+            # 【進場】突破 N 日最高價
+            trend_condition = (p > sma200) if use_200sma_filter else True
+            if p > don_h and trend_condition:
                 in_position = True
-                curr_pos = pyramid_pct
-                last_buy_price = p
-                highest_price_since_entry = p
+                curr_pos = 1.0 # 滿倉進場
                 sig = 1
         else:
-            # 更新波段最高價 (用於動態停損)
-            if p > highest_price_since_entry:
-                highest_price_since_entry = p
-            
-            # 計算 ATR 停損點
-            current_atr_stop = highest_price_since_entry - (atr * atr_stop_multi)
-            atr_stops[i] = current_atr_stop
-
-            # 【出場】跌破均線 OR 跌破 ATR 動態停損
-            if p < exit_ma or p < current_atr_stop:
+            # 【出場】跌破 M 日最低價
+            if p < don_l:
                 in_position = False
-                curr_pos = 0.0
-                last_buy_price = 0.0
-                highest_price_since_entry = 0.0
+                curr_pos = 0.0 # 空倉
                 sig = -1
-            else:
-                # 【加碼】創新高且超過 ATR 風控間距
-                if p > (last_buy_price + atr * atr_pyramid_multi):
-                    if curr_pos < 1.0: # 尚未滿倉
-                        curr_pos = min(1.0, curr_pos + pyramid_pct)
-                        last_buy_price = p # 更新最後買進價
-                        sig = 2
 
-        pos[i], sigs[i] = round(curr_pos, 4), sig
+        pos[i] = curr_pos if in_position else 0.0
+        sigs[i] = sig
 
-    df["Signal"], df["Position"], df["ATR_Stop"] = sigs, pos, atr_stops
+    df["Signal"], df["Position"] = sigs, pos
     
     # 計算資金曲線
     equity = [1.0]
     for i in range(1, len(df)):
         ret = (df["Price"].iloc[i] / df["Price"].iloc[i-1]) - 1
-        # 實際報酬 = 標的報酬 * 昨日收盤後的倉位
         equity.append(equity[-1] * (1 + (ret * df["Position"].iloc[i-1])))
     
     df["Equity_Strategy"] = equity
@@ -239,7 +221,7 @@ if st.button("啟動回測引擎 🚀"):
     sl = get_stats(df["Equity_Strategy"], df["Return_Strategy"], y_len)
     sb = get_stats(df["Equity_BH"], df["Return_BH"], y_len)
 
-    # KPI 卡片與績效總表渲染 (保持你原有的精美風格)
+    # KPI 卡片與績效總表
     st.markdown("""<style>.kpi-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; text-align: left; } .kpi-label { color: #8c8c8c; font-size: 1rem; margin-bottom: 12px; font-weight: 500; } .kpi-val { font-size: 2.3rem; font-weight: 900; color: #1a1a1a; margin-bottom: 15px; } .delta-tag { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700; } .delta-pos { background: #e6f7ed; color: #21c354; } .delta-neg { background: #fff1f0; color: #ff4d4f; } </style> """, unsafe_allow_html=True)
     k_cols = st.columns(4)
     def render_kpi(col, label, val, delta, is_better_if_higher=True):
@@ -253,7 +235,7 @@ if st.button("啟動回測引擎 🚀"):
 
     st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    data_map = { f"<b>{ch_name}</b><br><small>趨勢加碼策略</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
+    data_map = { f"<b>{ch_name}</b><br><small>海龜通道策略</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
     html = '<style>.ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; margin-top:10px; } .ctable th { background: #ffffff; padding: 20px; border-bottom: 1px solid #f0f0f0; color: #595959; } .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; } .m-name { text-align: left !important; font-weight: 500; }</style>'
     html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
     for col in data_map.keys(): html += f"<th>{col}</th>"
@@ -273,48 +255,47 @@ if st.button("啟動回測引擎 🚀"):
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 整合圖表：三圖連動版 (趨勢通道 + 倉位變化)
+    # 7. 整合圖表：唐奇安通道視覺化
     # ------------------------------------------------------
-    st.markdown("### 📈 策略深度視覺化")
+    st.markdown("### 📈 唐奇安通道與交易訊號")
 
     fig_master = make_subplots(
-        rows=3, cols=1, 
+        rows=2, cols=1, 
         shared_xaxes=True, 
-        vertical_spacing=0.05,
-        subplot_titles=("資金曲線比較", "趨勢通道、訊號與動態停損", "金字塔倉位水位 (Pyramiding)"),
-        row_heights=[0.3, 0.4, 0.3]
+        vertical_spacing=0.08,
+        subplot_titles=("資金曲線比較", "唐奇安通道 (Donchian Channel) 與買賣點"),
+        row_heights=[0.3, 0.7]
     )
 
     # --- 第一列：資金曲線 ---
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="趨勢加碼策略", line=dict(width=2.5, color="#00D494")), row=1, col=1)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="海龜策略", line=dict(width=2.5, color="#00D494")), row=1, col=1)
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')), row=1, col=1)
 
-    # --- 第二列：股價、通道與訊號 ---
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_High"], name=f"{entry_window}日創高線", line=dict(color="#1890FF", width=1.5, dash='dot')), row=2, col=1)
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Exit_MA"], name=f"{exit_window}MA 停利線", line=dict(color="#FFA15A", width=2)), row=2, col=1)
+    # --- 第二列：通道與訊號 ---
+    # 1. 唐奇安上軌 (進場線)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_High"], name=f"{entry_window}日上阻力線 (做多)", line=dict(color="#1890FF", width=1.5)), row=2, col=1)
     
-    # 畫出啟動中的 ATR 停損線 (僅在持倉時顯示)
-    df_atr_stop = df.dropna(subset=["ATR_Stop"])
-    if not df_atr_stop.empty:
-        fig_master.add_trace(go.Scatter(x=df_atr_stop.index, y=df_atr_stop["ATR_Stop"], name="ATR 動態停損", mode="markers", marker=dict(color="#D50000", size=3, symbol="x")), row=2, col=1)
+    # 2. 唐奇安下軌 (出場線) - 畫在同一張圖並填滿顏色形成通道
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_Low"], name=f"{exit_window}日下支撐線 (平倉)", fill='tonexty', fillcolor='rgba(24, 144, 255, 0.05)', line=dict(color="#FF4D4F", width=1.5)), row=2, col=1)
+    
+    # 3. 200 SMA (若啟用)
+    if use_200sma_filter:
+        fig_master.add_trace(go.Scatter(x=df.index, y=df["SMA_200"], name="200日均線 (趨勢濾網)", line=dict(color="#FFA15A", width=2, dash='dot')), row=2, col=1)
 
+    # 4. 股價
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#1F2937", width=1.5)), row=2, col=1)
     
-    # 交易訊號點
-    colors = {1: ("建倉", "#00C853", "triangle-up"), -1: ("平倉", "#D50000", "triangle-down"), 2: ("加碼", "#2E7D32", "circle")}
+    # 5. 交易訊號點
+    colors = {1: ("突破進場", "#00C853", "triangle-up"), -1: ("跌破出場", "#D50000", "triangle-down")}
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
         if not pts.empty:
             fig_master.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=12, symbol=s), showlegend=True), row=2, col=1)
 
-    # --- 第三列：倉位變化 (Pyramiding) ---
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Position"] * 100, name="倉位水位 (%)", line=dict(color="#AB63FA", shape="hv"), fill='tozeroy', fillcolor='rgba(171, 99, 250, 0.2)'), row=3, col=1)
-
     # 全域佈局
-    fig_master.update_layout(height=1000, template="plotly_white", hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    fig_master.update_layout(height=800, template="plotly_white", hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     fig_master.update_yaxes(title_text="累積報酬率", tickformat=".0%", row=1, col=1)
     fig_master.update_yaxes(title_text="價格", row=2, col=1)
-    fig_master.update_yaxes(title_text="倉位比例 (%)", ticksuffix="%", range=[-5, 105], row=3, col=1)
 
     st.plotly_chart(fig_master, use_container_width=True)
     st.caption("免責聲明：本工具僅供策略研究參考，投資必有風險。")
