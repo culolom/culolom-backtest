@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 海龜交易法 (含唐奇安中軌)
+# app.py — 0050 順勢交易：區間極值與百分比反轉策略 (移動停利損)
 ###############################################################
 
 import os
@@ -42,7 +42,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-st.set_page_config(page_title="海龜交易法 - 唐奇安通道系統", page_icon="🐢", layout="wide")
+st.set_page_config(page_title="區間極值與百分比反轉策略", page_icon="📈", layout="wide")
 
 # 🔒 驗證守門員
 try:
@@ -103,7 +103,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.1em;'>🐢 海龜交易法 (唐奇安通道)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.1em;'>📈 順勢交易：區間極值與百分比反轉策略</h1>", unsafe_allow_html=True)
 
 available_ids = get_csv_list()
 if not available_ids:
@@ -131,72 +131,55 @@ capital = col_p3.number_input("投入本金", 1000, 10000000, 100000, step=10000
 st.write("---")
 st.markdown("### ⚙️ 策略參數設定")
 
-turtle_mode = st.radio(
-    "選擇海龜策略模式", 
-    ["海龜短線 (20日突破進 / 10日跌破出)", "海龜長線 (55日突破進 / 20日跌破出)", "自訂參數"], 
-    horizontal=True
-)
-
 col_set1, col_set2, col_set3 = st.columns(3)
 
-# 根據選擇自動帶入參數
-if "短線" in turtle_mode:
-    def_entry, def_exit = 20, 10
-elif "長線" in turtle_mode:
-    def_entry, def_exit = 55, 20
-else:
-    def_entry, def_exit = 20, 10
-
 with col_set1:
-    entry_window = st.number_input("進場：唐奇安上軌 (突破 N 日最高價)", 5, 240, def_entry, step=1, disabled=("自訂" not in turtle_mode))
+    lookback_window = st.number_input("基準區間 (尋找最高/低點的天數)", 5, 240, 20, step=1)
 with col_set2:
-    exit_window = st.number_input("出場：唐奇安下軌 (跌破 M 日最低價)", 5, 240, def_exit, step=1, disabled=("自訂" not in turtle_mode))
+    buy_pct = st.number_input("買進：自區間最低點上漲 (%)", 1.0, 50.0, 5.0, step=0.5)
 with col_set3:
-    st.markdown("<br>", unsafe_allow_html=True)
-    use_200sma_filter = st.checkbox("啟用 200 日均線趨勢濾網 (僅在均線之上做多)", value=True)
+    sell_pct = st.number_input("賣出：自區間最高點下跌 (%)", 1.0, 50.0, 5.0, step=0.5)
 
 ###############################################################
 # 4. 回測執行邏輯
 ###############################################################
 
 if st.button("啟動回測引擎 🚀"):
-    # 預留緩衝天數以計算長週期指標
-    max_window = max(entry_window, exit_window, 200 if use_200sma_filter else 0)
-    start_buf = start - dt.timedelta(days=int(max_window * 2))
+    # 預留緩衝天數以計算區間極值
+    start_buf = start - dt.timedelta(days=int(lookback_window * 2))
     df = load_csv(target_id).loc[start_buf:end]
     
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
-    # 計算唐奇安通道與指標
-    df["Donchian_High"] = df["Price"].rolling(entry_window).max().shift(1)
-    df["Donchian_Low"] = df["Price"].rolling(exit_window).min().shift(1)
-    # 計算中心線：(上軌 + 下軌) / 2
-    df["Donchian_Mid"] = (df["Donchian_High"] + df["Donchian_Low"]) / 2
-    df["SMA_200"] = df["Price"].rolling(200).mean()
+    # 計算區間最低點與最高點 (shift(1) 避免未來函數)
+    df["Period_Min"] = df["Price"].rolling(lookback_window).min().shift(1)
+    df["Period_Max"] = df["Price"].rolling(lookback_window).max().shift(1)
     
-    df = df.dropna(subset=["Donchian_High", "Donchian_Low", "SMA_200" if use_200sma_filter else "Price"]).loc[start:end]
+    # 計算觸發買賣的門檻線
+    df["Buy_Line"] = df["Period_Min"] * (1 + buy_pct / 100.0)
+    df["Sell_Line"] = df["Period_Max"] * (1 - sell_pct / 100.0)
+    
+    df = df.dropna(subset=["Period_Min", "Period_Max"]).loc[start:end]
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
     in_position = False
 
     for i in range(1, len(df)):
         p = df["Price"].iloc[i]
-        don_h = df["Donchian_High"].iloc[i]
-        don_l = df["Donchian_Low"].iloc[i]
-        sma200 = df["SMA_200"].iloc[i]
+        buy_trigger = df["Buy_Line"].iloc[i]
+        sell_trigger = df["Sell_Line"].iloc[i]
         
         sig = 0 # 0:無動作, 1:建倉, -1:平倉
         
         if not in_position:
-            # 【進場】突破 N 日最高價
-            trend_condition = (p > sma200) if use_200sma_filter else True
-            if p > don_h and trend_condition:
+            # 【進場】自區間最低點上漲突破 X%
+            if p > buy_trigger:
                 in_position = True
                 curr_pos = 1.0 # 滿倉進場
                 sig = 1
         else:
-            # 【出場】跌破 M 日最低價
-            if p < don_l:
+            # 【出場】自區間最高點回檔跌破 Y%
+            if p < sell_trigger:
                 in_position = False
                 curr_pos = 0.0 # 空倉
                 sig = -1
@@ -235,7 +218,7 @@ if st.button("啟動回測引擎 🚀"):
 
     st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    data_map = { f"<b>{ch_name}</b><br><small>海龜通道策略</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
+    data_map = { f"<b>{ch_name}</b><br><small>百分比反轉策略</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
     html = '<style>.ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; margin-top:10px; } .ctable th { background: #ffffff; padding: 20px; border-bottom: 1px solid #f0f0f0; color: #595959; } .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; } .m-name { text-align: left !important; font-weight: 500; }</style>'
     html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
     for col in data_map.keys(): html += f"<th>{col}</th>"
@@ -255,41 +238,37 @@ if st.button("啟動回測引擎 🚀"):
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 整合圖表：唐奇安通道視覺化
+    # 7. 整合圖表：極值與觸發線視覺化
     # ------------------------------------------------------
-    st.markdown("### 📈 唐奇安通道與交易訊號")
+    st.markdown("### 📈 區間極值與動態觸發線 (Trailing Stop)")
 
     fig_master = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.08,
-        subplot_titles=("資金曲線比較", "唐奇安通道 (Donchian Channel) 與買賣點"),
+        subplot_titles=("資金曲線比較", "價格走勢、區間極值與買賣觸發線"),
         row_heights=[0.3, 0.7]
     )
 
     # --- 第一列：資金曲線 ---
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="海龜策略", line=dict(width=2.5, color="#00D494")), row=1, col=1)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="策略報酬", line=dict(width=2.5, color="#00D494")), row=1, col=1)
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')), row=1, col=1)
 
-    # --- 第二列：通道與訊號 ---
-    # 1. 唐奇安上軌 (進場線)
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_High"], name=f"{entry_window}日上阻力線 (做多)", line=dict(color="#1890FF", width=1.5)), row=2, col=1)
+    # --- 第二列：觸發線與訊號 ---
     
-    # 2. 唐奇安中軌 (中心線) - 新增
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_Mid"], name="中心線 (Mid Channel)", line=dict(color="#AB63FA", width=1.5, dash='dash')), row=2, col=1)
+    # 1. 區間最高低點 (僅供參考，用細實線或淡色標示)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Period_Max"], name=f"{lookback_window}日最高點", line=dict(color="rgba(255, 77, 79, 0.3)", width=1)), row=2, col=1)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Period_Min"], name=f"{lookback_window}日最低點", line=dict(color="rgba(24, 144, 255, 0.3)", width=1)), row=2, col=1)
 
-    # 3. 唐奇安下軌 (出場線) - 填滿上下軌之間的顏色
-    fig_master.add_trace(go.Scatter(x=df.index, y=df["Donchian_Low"], name=f"{exit_window}日下支撐線 (平倉)", fill='tonexty', fillcolor='rgba(24, 144, 255, 0.05)', line=dict(color="#FF4D4F", width=1.5)), row=2, col=1)
-    
-    # 4. 200 SMA (若啟用)
-    if use_200sma_filter:
-        fig_master.add_trace(go.Scatter(x=df.index, y=df["SMA_200"], name="200日均線 (趨勢濾網)", line=dict(color="#FFA15A", width=2, dash='dot')), row=2, col=1)
+    # 2. 買賣觸發線 (重點線，用虛線標示)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Buy_Line"], name=f"買進線 (+{buy_pct}%)", line=dict(color="#1890FF", width=2, dash='dash')), row=2, col=1)
+    fig_master.add_trace(go.Scatter(x=df.index, y=df["Sell_Line"], name=f"賣出線 (-{sell_pct}%)", line=dict(color="#FF4D4F", width=2, dash='dash')), row=2, col=1)
 
-    # 5. 股價
+    # 3. 股價
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#1F2937", width=1.5)), row=2, col=1)
     
-    # 6. 交易訊號點
-    colors = {1: ("突破進場", "#00C853", "triangle-up"), -1: ("跌破出場", "#D50000", "triangle-down")}
+    # 4. 交易訊號點
+    colors = {1: ("觸發買進", "#00C853", "triangle-up"), -1: ("觸發賣出", "#D50000", "triangle-down")}
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
         if not pts.empty:
