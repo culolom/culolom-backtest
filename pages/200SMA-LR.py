@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 倉鼠量化戰情室：0050 多空切換 (反一雙重保險機制)
+# app.py — 倉鼠量化戰情室：0050 多空切換 (反一雙重保險機制 + 單次扣打)
 ###############################################################
 
 import os
@@ -94,7 +94,7 @@ with st.sidebar:
     sma_drop_target = st.number_input("2. 跌破均線乖離抄底 (%)", min_value=5.0, max_value=50.0, value=20.0, step=0.5, disabled=not enable_early_exit) / 100
     
     if enable_early_exit:
-        st.info("💡 規則 1：買入反一後，若反一獲利達標，提前轉回正 2。\n\n💡 規則 2：0050 跌破均線過深 (乖離率達標)，提前轉回正 2 抄底。")
+        st.info("💡 規則 1：買入反一後，若反一獲利達標，提前轉回正 2。\n\n💡 規則 2：0050 跌破均線過深 (乖離率達標)，提前轉回正 2 抄底。\n\n⚠️ 每次跌破 200SMA 的空頭循環中，反一最多只會買進一次。")
     
     st.divider()
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
@@ -143,6 +143,9 @@ if st.button("開始回測 🚀"):
     is_early_exited = [0] * len(df) # 0: 正常, 1: 獲利轉向, 2: 乖離抄底
     bear_entry_price = 0.0
     current_sig = 1
+    
+    # 新增：記錄本次空頭循環是否已經買過反一
+    has_traded_bear_in_downtrend = False 
 
     for i in range(1, len(df)):
         pb = df["Price_base"].iloc[i]
@@ -155,11 +158,15 @@ if st.button("開始回測 🚀"):
         if trend == 1:
             current_sig = 1
             bear_entry_price = 0.0
+            has_traded_bear_in_downtrend = False # 站回均線，重置反一扣打
         else:
             if current_sig == 1: 
-                # 剛轉空頭，開始持有反一並記錄成本
-                current_sig = -1
-                bear_entry_price = p_bear
+                # 目前持有正2，且在均線之下
+                # 只有當「還沒買過反一」時，才切換到反一
+                if not has_traded_bear_in_downtrend:
+                    current_sig = -1
+                    bear_entry_price = p_bear
+                    has_traded_bear_in_downtrend = True # 用掉本次空頭的扣打
             elif current_sig == -1 and enable_early_exit:
                 # 規則 1: 反一獲利達標
                 profit_pct = (p_bear / bear_entry_price) - 1 if bear_entry_price > 0 else 0
@@ -256,7 +263,6 @@ if st.button("開始回測 🚀"):
         fig_eq = go.Figure()
         fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="多空切換策略", line=dict(width=3, color="#636EFA")))
         fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_0050"]-1, name="0050 B&H", line=dict(width=1.5, color="#AB63FA", dash="dash")))
-        # ✅ 修正了透明度 (opacity) 的語法錯誤
         fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Bull_BH"]-1, name="正2 B&H", line=dict(width=1.5, color="#00CC96"), opacity=0.5))
         
         fig_eq.update_layout(template="plotly_white", height=450, yaxis=dict(title="累積報酬率", tickformat=".0%"), hovermode="x unified")
