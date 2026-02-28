@@ -1,3 +1,7 @@
+###############################################################
+# app.py — 0050 多空切換 (正2 vs 反1) + 右軸百分比視覺化版
+###############################################################
+
 import os
 import datetime as dt
 import numpy as np
@@ -62,7 +66,6 @@ def fmt_num(v, d=2): return f"{v:.{d}f}"
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
-    st.markdown("### 🔗 快速連結")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
 st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050 多空切換回測</h1>", unsafe_allow_html=True)
@@ -81,16 +84,14 @@ with col4:
 # 4. 回測執行
 ###############################################################
 if st.button("開始回測 🚀"):
-    # 讀取資料
     df_base = load_csv("0050.TW")
     df_bull = load_csv("00631L.TW")
     df_bear = load_csv("00632R.TW")
 
     if df_base.empty or df_bull.empty or df_bear.empty:
-        st.error("⚠️ 資料夾內必須包含 0050.TW, 00631L.TW, 00632R.TW 三份 CSV 檔案")
+        st.error("⚠️ 請確保資料夾內有 0050.TW, 00631L.TW, 00632R.TW 的 CSV 檔案")
         st.stop()
 
-    # 合併與計算
     df = pd.DataFrame(index=df_base.index)
     df["Price_base"] = df_base["Price"]
     df = df.join(df_bull["Price"].rename("Price_bull"), how="inner")
@@ -103,6 +104,10 @@ if st.button("開始回測 🚀"):
     df["Ret_bull"] = df["Price_bull"].pct_change().fillna(0)
     df["Ret_bear"] = df["Price_bear"].pct_change().fillna(0)
     
+    # 計算正2/反1的累積漲跌幅 (用於圖表右軸)
+    df["CumRet_bull_pct"] = (df["Price_bull"] / df["Price_bull"].iloc[0] - 1)
+    df["CumRet_bear_pct"] = (df["Price_bear"] / df["Price_bear"].iloc[0] - 1)
+
     # 核心邏輯：用昨日訊號，決定今日報酬
     df["Strategy_Ret"] = 0.0
     for i in range(1, len(df)):
@@ -115,22 +120,49 @@ if st.button("開始回測 🚀"):
     df["Equity_Bull_BH"] = (1 + df["Ret_bull"]).cumprod()
 
     ###############################################################
-    # 5. 視覺化：雙軸圖表
+    # 5. 視覺化：雙軸圖表 (修改點：右軸百分比化)
     ###############################################################
     st.markdown("<h3>📌 策略訊號與執行價格 (雙軸對照)</h3>", unsafe_allow_html=True)
     fig_price = go.Figure()
+    
+    # 1. [左軸] 0050 價格與 SMA
     fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name="0050 (左軸)", line=dict(color="#636EFA", width=2)))
     fig_price.add_trace(go.Scatter(x=df.index, y=df["SMA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A", width=1.5)))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_bull"], name="00631L (右軸)", yaxis="y2", line=dict(dash='dot', color="#00CC96"), opacity=0.4))
+    
+    # 2. [右軸] 正2 與 反1 的累積報酬率 (%)
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["CumRet_bull_pct"], 
+        name="00631L 累積報酬 (右軸)", 
+        yaxis="y2", 
+        line=dict(dash='dot', color="#00CC96"), opacity=0.4,
+        hovertemplate="正2累積報酬: %{y:.2%}"
+    ))
+    fig_price.add_trace(go.Scatter(
+        x=df.index, y=df["CumRet_bear_pct"], 
+        name="00632R 累積報酬 (右軸)", 
+        yaxis="y2", 
+        line=dict(dash='dashdot', color="#EF553B"), opacity=0.4,
+        hovertemplate="反1累積報酬: %{y:.2%}"
+    ))
 
-    # 切換點標註
+    # 3. 切換點標註
     switch_to_bull = df[df["Signal"].diff() == 2]
     switch_to_bear = df[df["Signal"].diff() == -2]
     fig_price.add_trace(go.Scatter(x=switch_to_bull.index, y=switch_to_bull["Price_base"], mode="markers", name="轉向正2", marker=dict(symbol="triangle-up", size=10, color="green")))
     fig_price.add_trace(go.Scatter(x=switch_to_bear.index, y=switch_to_bear["Price_base"], mode="markers", name="轉向反1", marker=dict(symbol="triangle-down", size=10, color="red")))
 
-    fig_price.update_layout(template="plotly_white", height=450, hovermode="x unified",
-                            yaxis2=dict(overlaying="y", side="right", showgrid=False))
+    fig_price.update_layout(
+        template="plotly_white", height=500, hovermode="x unified",
+        yaxis=dict(title="0050 價格"),
+        yaxis2=dict(
+            title="正2/反1 累積報酬率 (%)",
+            overlaying="y", 
+            side="right", 
+            showgrid=False,
+            tickformat=".0%" # 強制顯示為百分比
+        ),
+        legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center")
+    )
     st.plotly_chart(fig_price, use_container_width=True)
 
     ###############################################################
@@ -153,11 +185,11 @@ if st.button("開始回測 🚀"):
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=df.index, y=dd_strat, name="策略回撤", fill="tozeroy", line=dict(color="red")))
         fig_dd.add_trace(go.Scatter(x=df.index, y=dd_0050, name="0050 回撤"))
+        fig_dd.update_layout(template="plotly_white", yaxis=dict(ticksuffix="%"))
         st.plotly_chart(fig_dd, use_container_width=True)
 
     with tab_radar:
-        st.info("💡 雷達圖展示各策略在 CAGR、風險、Sharpe 之綜合表現")
-        # 此處可依原樣板加入 radar chart 代碼
+        st.info("💡 雷達圖分析進行中...")
 
     ###############################################################
     # 7. 高級比較表格 (🏆 獎盃邏輯)
@@ -173,8 +205,6 @@ if st.button("開始回測 🚀"):
         return [eq.iloc[-1]*capital, f_ret, cagr, calmar, mdd, vol, sharpe, sortino]
 
     metrics_labels = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio"]
-    
-    # 計算各策略數據
     data_table = {
         "多空切換策略": get_full_stats(df["Equity_Strategy"], df["Strategy_Ret"]),
         "0050 B&H": get_full_stats(df["Equity_0050"], df["Price_base"].pct_change()),
@@ -183,35 +213,26 @@ if st.button("開始回測 🚀"):
     
     df_compare = pd.DataFrame(data_table, index=metrics_labels)
 
-    # 生成 HTML 表格
     html_table = "<style>.win{font-weight:bold; color:#d4af37;}.comp-table{width:100%; border-collapse:collapse; font-family:sans-serif;} .comp-table th, .comp-table td{padding:12px; border-bottom:1px solid #eee; text-align:center;}</style>"
     html_table += "<table class='comp-table'><tr><th>指標</th>" + "".join([f"<th>{c}</th>" for c in df_compare.columns]) + "</tr>"
 
     for metric in metrics_labels:
         row_vals = df_compare.loc[metric]
-        # 判斷好壞 (MDD 與 波動率 越小越好，其他越大越好)
         is_invert = metric in ["最大回撤 (MDD)", "年化波動"]
         best_val = min(row_vals) if is_invert else max(row_vals)
-        
         html_table += f"<tr><td style='text-align:left;'>{metric}</td>"
         for val in row_vals:
-            # 格式化
             if "資產" in metric: d_val = fmt_money(val)
-            elif "Ratio" in metric or "Sharpe" in metric or "Sortino" in metric: d_val = fmt_num(val)
+            elif any(x in metric for x in ["Ratio", "Sharpe", "Sortino"]): d_val = fmt_num(val)
             else: d_val = fmt_pct(val)
-            
-            # 標註冠軍
-            if val == best_val:
-                html_table += f"<td class='win'>{d_val} 🏆</td>"
-            else:
-                html_table += f"<td>{d_val}</td>"
+            if val == best_val: html_table += f"<td class='win'>{d_val} 🏆</td>"
+            else: html_table += f"<td>{d_val}</td>"
         html_table += "</tr>"
     html_table += "</table>"
     
     st.write("### 🏆 策略指標深度對比")
     st.write(html_table, unsafe_allow_html=True)
 
-    # 8. 下載與頁尾
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.download_button("📥 下載完整回測數據 (CSV)", df.to_csv().encode('utf-8-sig'), "backtest_full.csv")
-    st.markdown("<hr><div style='text-align:center; color:gray; font-size:0.8em;'>倉鼠人生實驗室 © 2026 | 投資有風險，回測僅供參考</div>", unsafe_allow_html=True)
+    # 8. 下載
+    st.download_button("📥 下載完整回測數據", df.to_csv().encode('utf-8-sig'), "switch_backtest.csv")
+    st.markdown("<hr><div style='text-align:center; color:gray; font-size:0.8em;'>倉鼠人生實驗室 © 2026</div>", unsafe_allow_html=True)
