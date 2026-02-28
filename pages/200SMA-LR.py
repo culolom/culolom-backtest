@@ -88,8 +88,8 @@ with st.sidebar:
     st.markdown("### ⚙️ 策略參數設定")
     sma_window = st.number_input("均線週期 (SMA)", min_value=10, max_value=240, value=200, step=10)
     
-    st.markdown("#### 🛡️ 反一提前轉向機制 (抄底)")
-    enable_early_exit = st.toggle("啟用提前轉向", value=True)
+    st.markdown("#### 🛡️ 反一雙重保險機制 (抄底)")
+    enable_early_exit = st.toggle("啟用雙重保險", value=True)
     bear_profit_target = st.number_input("1. 反一獲利轉向點 (%)", min_value=1.0, max_value=50.0, value=10.0, step=0.5, disabled=not enable_early_exit) / 100
     sma_drop_target = st.number_input("2. 跌破均線乖離抄底 (%)", min_value=5.0, max_value=50.0, value=20.0, step=0.5, disabled=not enable_early_exit) / 100
     
@@ -256,7 +256,9 @@ if st.button("開始回測 🚀"):
         fig_eq = go.Figure()
         fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="多空切換策略", line=dict(width=3, color="#636EFA")))
         fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_0050"]-1, name="0050 B&H", line=dict(width=1.5, color="#AB63FA", dash="dash")))
-        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Bull_BH"]-1, name="正2 B&H", line=dict(width=1.5, color="#00CC96", opacity=0.5)))
+        # ✅ 修正了透明度 (opacity) 的語法錯誤
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Bull_BH"]-1, name="正2 B&H", line=dict(width=1.5, color="#00CC96"), opacity=0.5))
+        
         fig_eq.update_layout(template="plotly_white", height=450, yaxis=dict(title="累積報酬率", tickformat=".0%"), hovermode="x unified")
         st.plotly_chart(fig_eq, use_container_width=True)
 
@@ -269,6 +271,39 @@ if st.button("開始回測 🚀"):
         fig_dd.update_layout(template="plotly_white", height=450, yaxis=dict(title="回撤幅度", tickformat=".0%"))
         st.plotly_chart(fig_dd, use_container_width=True)
 
+    with tab_radar:
+        radar_categories = ["CAGR", "Sharpe Ratio", "Sortino Ratio", "Calmar Ratio", "低波動性 (反轉)"]
+        
+        def get_full_stats(eq, rets):
+            years = (df.index[-1] - df.index[0]).days / 365
+            f_ret = eq.iloc[-1] - 1
+            cagr = (1 + f_ret)**(1/years) - 1 if years > 0 else 0
+            mdd = 1 - (eq / eq.cummax()).min()
+            vol, sharpe, sortino = calc_metrics(rets)
+            calmar = cagr / mdd if mdd > 0 else 0
+            return [eq.iloc[-1]*capital, f_ret, cagr, calmar, mdd, vol, sharpe, sortino]
+
+        # 準備資料
+        stats_strat = get_full_stats(df["Equity_Strategy"], df["Strategy_Ret"])
+        stats_bull = get_full_stats(df["Equity_Bull_BH"], df["Ret_bull"])
+        stats_base = get_full_stats(df["Equity_0050"], df["Price_base"].pct_change().fillna(0))
+
+        def normalize_radar(stats_list):
+            c = nz(stats_list[2]) * 2
+            s = nz(stats_list[6])
+            so = nz(stats_list[7])
+            cal = nz(stats_list[3])
+            v_inv = 1 / (nz(stats_list[5]) + 0.1) 
+            return [c, s, so, cal, v_inv]
+
+        fig_radar = go.Figure()
+        fig_radar.add_trace(go.Scatterpolar(r=normalize_radar(stats_strat), theta=radar_categories, fill='toself', name='多空策略', line=dict(color='#636EFA')))
+        fig_radar.add_trace(go.Scatterpolar(r=normalize_radar(stats_bull), theta=radar_categories, fill='toself', name='正2 BH', line=dict(color='#00CC96')))
+        fig_radar.add_trace(go.Scatterpolar(r=normalize_radar(stats_base), theta=radar_categories, fill='toself', name='0050 BH', line=dict(color='gray', dash='dot')))
+        
+        fig_radar.update_layout(polar=dict(radialaxis=dict(visible=False)), showlegend=True, height=450, margin=dict(t=40, b=40))
+        st.plotly_chart(fig_radar, use_container_width=True)
+
     with tab_hist:
         fig_hist = go.Figure()
         fig_hist.add_trace(go.Histogram(x=df["Strategy_Ret"]*100, name="多空策略", nbinsx=60, marker_color='#636EFA', opacity=0.75))
@@ -277,51 +312,19 @@ if st.button("開始回測 🚀"):
         st.plotly_chart(fig_hist, use_container_width=True)
 
     ###############################################################
-    # 7. 高級比較表格與雷達圖數據準備
+    # 7. 高級比較表格
     ###############################################################
     st.markdown("### 🏆 策略指標深度對比")
-    years = (df.index[-1] - df.index[0]).days / 365
     
-    def get_full_stats(eq, rets):
-        f_ret = eq.iloc[-1] - 1
-        cagr = (1 + f_ret)**(1/years) - 1 if years > 0 else 0
-        mdd = 1 - (eq / eq.cummax()).min()
-        vol, sharpe, sortino = calc_metrics(rets)
-        calmar = cagr / mdd if mdd > 0 else 0
-        return [eq.iloc[-1]*capital, f_ret, cagr, calmar, mdd, vol, sharpe, sortino]
-
     metrics_labels = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio"]
-    
     data_dict = {
-        "多空切換策略": get_full_stats(df["Equity_Strategy"], df["Strategy_Ret"]),
-        "正2 Buy & Hold": get_full_stats(df["Equity_Bull_BH"], df["Ret_bull"]),
-        "0050 Buy & Hold": get_full_stats(df["Equity_0050"], df["Price_base"].pct_change().fillna(0))
+        "多空切換策略": stats_strat,
+        "正2 Buy & Hold": stats_bull,
+        "0050 Buy & Hold": stats_base
     }
     
     df_compare = pd.DataFrame(data_dict, index=metrics_labels)
 
-    # --- 繪製風險雷達圖 (在 Tab 3 中) ---
-    with tab_radar:
-        radar_categories = ["CAGR", "Sharpe Ratio", "Sortino Ratio", "Calmar Ratio", "低波動性 (反轉)"]
-        
-        def normalize_radar(stats_list):
-            # 取出對應數值並進行簡單縮放，讓雷達圖好看
-            c = nz(stats_list[2]) * 2
-            s = nz(stats_list[6])
-            so = nz(stats_list[7])
-            cal = nz(stats_list[3])
-            v_inv = 1 / (nz(stats_list[5]) + 0.1) # 波動越小分數越高
-            return [c, s, so, cal, v_inv]
-
-        fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(r=normalize_radar(data_dict["多空切換策略"]), theta=radar_categories, fill='toself', name='多空策略', line=dict(color='#636EFA')))
-        fig_radar.add_trace(go.Scatterpolar(r=normalize_radar(data_dict["正2 Buy & Hold"]), theta=radar_categories, fill='toself', name='正2 BH', line=dict(color='#00CC96')))
-        fig_radar.add_trace(go.Scatterpolar(r=normalize_radar(data_dict["0050 Buy & Hold"]), theta=radar_categories, fill='toself', name='0050 BH', line=dict(color='gray', dash='dot')))
-        
-        fig_radar.update_layout(polar=dict(radialaxis=dict(visible=False)), showlegend=True, height=450, margin=dict(t=40, b=40))
-        st.plotly_chart(fig_radar, use_container_width=True)
-
-    # --- 生成帶有 🏆 的 HTML 比較表格 ---
     html_table = """
     <style>
         .win {font-weight: 900; color: #d4af37;}
@@ -364,7 +367,6 @@ if st.button("開始回測 🚀"):
     ###############################################################
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 準備乾淨的 CSV 下載資料
     export_df = df[["Price_base", "SMA", "Price_bull", "Price_bear", "Signal", "Early_Exit", "Equity_Strategy", "Equity_Bull_BH", "Equity_0050"]]
     csv_data = export_df.to_csv(index=True).encode('utf-8-sig')
     
