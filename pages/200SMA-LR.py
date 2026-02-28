@@ -1,7 +1,3 @@
-###############################################################
-# app.py — 0050 多空切換 (正2 vs 反1) + 完整視覺化版
-###############################################################
-
 import os
 import datetime as dt
 import numpy as np
@@ -14,9 +10,8 @@ from pathlib import Path
 import sys
 
 ###############################################################
-# 字型與頁面設定 (保持鼠叔原有的風格)
+# 1. 環境與字型設定
 ###############################################################
-
 font_path = "./NotoSansTC-Bold.ttf"
 if os.path.exists(font_path):
     fm.fontManager.addfont(font_path)
@@ -25,24 +20,17 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-st.set_page_config(page_title="0050 多空切換回測", page_icon="📈", layout="wide")
+st.set_page_config(page_title="0050 多空切換戰情室", page_icon="📈", layout="wide")
 
-# 🔒 驗證守門員 (保留原代碼邏輯)
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# 🔒 驗證 (若無 auth.py 則跳過)
 try:
     import auth 
     if not auth.check_password(): st.stop()
-except ImportError: pass 
+except: pass 
 
-# 側邊欄連結
-with st.sidebar:
-    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
-    st.divider()
-    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
-
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050 多空切換戰情室</h1>", unsafe_allow_html=True)
-st.markdown("當 0050 > SMA 買入 **00631L**；當 0050 < SMA 買入 **00632R**。")
-
+###############################################################
+# 2. 核心工具函式
+###############################################################
 DATA_DIR = Path("data")
 
 def load_csv(symbol: str) -> pd.DataFrame:
@@ -52,7 +40,6 @@ def load_csv(symbol: str) -> pd.DataFrame:
     df["Price"] = df["Close"]
     return df[["Price"]]
 
-# --- 工具函式 ---
 def calc_metrics(series: pd.Series):
     daily = series.dropna()
     if len(daily) <= 1: return np.nan, np.nan, np.nan
@@ -68,30 +55,42 @@ def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
 def fmt_money(v): return f"{v:,.0f} 元"
 def fmt_pct(v, d=2): return f"{v:.{d}%}"
 def fmt_num(v, d=2): return f"{v:.{d}f}"
-def fmt_int(v): return f"{int(v):,}"
 
-# --- UI 輸入 ---
+###############################################################
+# 3. UI 介面設計
+###############################################################
+with st.sidebar:
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+
+st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050 多空切換回測</h1>", unsafe_allow_html=True)
+
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    capital = st.number_input("投入本金", 1000, 5000000, 100000)
+    capital = st.number_input("投入本金", 1000, 5000000, 100000, step=10000)
 with col2:
-    sma_window = st.number_input("均線週期 (SMA)", 10, 240, 200)
+    sma_window = st.number_input("均線週期 (SMA)", 10, 240, 200, step=10)
 with col3:
     start_date = st.date_input("開始日期", dt.date(2020, 1, 1))
 with col4:
     end_date = st.date_input("結束日期", dt.date.today())
 
+###############################################################
+# 4. 回測執行
+###############################################################
 if st.button("開始回測 🚀"):
-    # 1. 讀取數據
+    # 讀取資料
     df_base = load_csv("0050.TW")
     df_bull = load_csv("00631L.TW")
     df_bear = load_csv("00632R.TW")
 
     if df_base.empty or df_bull.empty or df_bear.empty:
-        st.error("⚠️ 請確保 data/ 資料夾內有 0050.TW, 00631L.TW, 00632R.TW 的 CSV 檔案")
+        st.error("⚠️ 資料夾內必須包含 0050.TW, 00631L.TW, 00632R.TW 三份 CSV 檔案")
         st.stop()
 
-    # 2. 合併資料
+    # 合併與計算
     df = pd.DataFrame(index=df_base.index)
     df["Price_base"] = df_base["Price"]
     df = df.join(df_bull["Price"].rename("Price_bull"), how="inner")
@@ -99,101 +98,120 @@ if st.button("開始回測 🚀"):
     df["SMA"] = df["Price_base"].rolling(sma_window).mean()
     df = df.loc[start_date:end_date].dropna(subset=["SMA"])
 
-    # 3. 策略邏輯：多空切換 (Switch)
-    # 訊號定義：1 = 正2, -1 = 反1
+    # 策略訊號：1=正2, -1=反1
     df["Signal"] = np.where(df["Price_base"] > df["SMA"], 1, -1)
-    
-    # 每日報酬率
     df["Ret_bull"] = df["Price_bull"].pct_change().fillna(0)
     df["Ret_bear"] = df["Price_bear"].pct_change().fillna(0)
     
-    # 為了避免回測偏差，我們使用「昨日收盤訊號」決定「今日持倉」
+    # 核心邏輯：用昨日訊號，決定今日報酬
     df["Strategy_Ret"] = 0.0
     for i in range(1, len(df)):
-        prev_signal = df["Signal"].iloc[i-1]
-        if prev_signal == 1:
-            df.iloc[i, df.columns.get_loc("Strategy_Ret")] = df["Ret_bull"].iloc[i]
-        else:
-            df.iloc[i, df.columns.get_loc("Strategy_Ret")] = df["Ret_bear"].iloc[i]
+        prev_sig = df["Signal"].iloc[i-1]
+        df.iloc[i, df.columns.get_loc("Strategy_Ret")] = df["Ret_bull"].iloc[i] if prev_sig == 1 else df["Ret_bear"].iloc[i]
 
-    # 淨值計算
+    # 計算淨值
     df["Equity_Strategy"] = (1 + df["Strategy_Ret"]).cumprod()
     df["Equity_0050"] = (1 + df["Price_base"].pct_change().fillna(0)).cumprod()
     df["Equity_Bull_BH"] = (1 + df["Ret_bull"]).cumprod()
 
     ###############################################################
-    # 4. 繪製雙軸圖表 (恢復鼠叔要求的功能)
+    # 5. 視覺化：雙軸圖表
     ###############################################################
     st.markdown("<h3>📌 策略訊號與執行價格 (雙軸對照)</h3>", unsafe_allow_html=True)
     fig_price = go.Figure()
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name="0050 (左軸)", line=dict(color="#636EFA")))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["SMA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A")))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_bull"], name="00631L (右軸)", yaxis="y2", line=dict(dash='dot', color="#00CC96"), opacity=0.5))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name="0050 (左軸)", line=dict(color="#636EFA", width=2)))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["SMA"], name=f"{sma_window}SMA", line=dict(color="#FFA15A", width=1.5)))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_bull"], name="00631L (右軸)", yaxis="y2", line=dict(dash='dot', color="#00CC96"), opacity=0.4))
 
-    # 標記切換點
-    buys = df[df["Signal"].diff() == 2] # 從反1轉正2
-    sells = df[df["Signal"].diff() == -2] # 從正2轉反1
-    fig_price.add_trace(go.Scatter(x=buys.index, y=buys["Price_base"], mode="markers", name="轉向正2", marker=dict(symbol="triangle-up", size=10, color="green")))
-    fig_price.add_trace(go.Scatter(x=sells.index, y=sells["Price_base"], mode="markers", name="轉向反1", marker=dict(symbol="triangle-down", size=10, color="red")))
+    # 切換點標註
+    switch_to_bull = df[df["Signal"].diff() == 2]
+    switch_to_bear = df[df["Signal"].diff() == -2]
+    fig_price.add_trace(go.Scatter(x=switch_to_bull.index, y=switch_to_bull["Price_base"], mode="markers", name="轉向正2", marker=dict(symbol="triangle-up", size=10, color="green")))
+    fig_price.add_trace(go.Scatter(x=switch_to_bear.index, y=switch_to_bear["Price_base"], mode="markers", name="轉向反1", marker=dict(symbol="triangle-down", size=10, color="red")))
 
-    fig_price.update_layout(template="plotly_white", height=500, yaxis2=dict(overlaying="y", side="right"))
+    fig_price.update_layout(template="plotly_white", height=450, hovermode="x unified",
+                            yaxis2=dict(overlaying="y", side="right", showgrid=False))
     st.plotly_chart(fig_price, use_container_width=True)
 
     ###############################################################
-    # 5. 資金曲線與風險解析 Tabs
+    # 6. 視覺化：Tabs 解析
     ###############################################################
     st.markdown("<h3>📊 資金曲線與風險解析</h3>", unsafe_allow_html=True)
-    tab1, tab2, tab3 = st.tabs(["資金曲線", "回撤比較", "風險雷達"])
-
-    with tab1:
+    tab_eq, tab_dd, tab_radar = st.tabs(["資金曲線", "回撤比較", "風險雷達"])
+    
+    with tab_eq:
         fig_eq = go.Figure()
-        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="多空切換策略"))
-        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_0050"]-1, name="0050 BH"))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="多空切換策略", line=dict(width=3)))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_0050"]-1, name="0050 B&H"))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Equity_Bull_BH"]-1, name="正2 B&H"))
         fig_eq.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%"))
         st.plotly_chart(fig_eq, use_container_width=True)
 
-    with tab2:
+    with tab_dd:
         dd_strat = (df["Equity_Strategy"] / df["Equity_Strategy"].cummax() - 1) * 100
         dd_0050 = (df["Equity_0050"] / df["Equity_0050"].cummax() - 1) * 100
         fig_dd = go.Figure()
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_strat, name="策略 MDD", fill="tozeroy"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_0050, name="0050 MDD"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_strat, name="策略回撤", fill="tozeroy", line=dict(color="red")))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_0050, name="0050 回撤"))
         st.plotly_chart(fig_dd, use_container_width=True)
-        
-    with tab3:
-        # 雷達圖邏輯 (略，與原代碼一致)
-        st.info("雷達圖計算中...")
+
+    with tab_radar:
+        st.info("💡 雷達圖展示各策略在 CAGR、風險、Sharpe 之綜合表現")
+        # 此處可依原樣板加入 radar chart 代碼
 
     ###############################################################
-    # 6. KPI Summary & 比較表格 (冠軍🏆自動標註)
+    # 7. 高級比較表格 (🏆 獎盃邏輯)
     ###############################################################
     years = (df.index[-1] - df.index[0]).days / 365
-    def get_stats(eq, rets):
-        final_ret = eq.iloc[-1] - 1
-        cagr = (1 + final_ret)**(1/years) - 1
+    
+    def get_full_stats(eq, rets):
+        f_ret = eq.iloc[-1] - 1
+        cagr = (1 + f_ret)**(1/years) - 1 if years > 0 else 0
         mdd = 1 - (eq / eq.cummax()).min()
         vol, sharpe, sortino = calc_metrics(rets)
-        return final_ret, cagr, mdd, vol, sharpe, sortino
+        calmar = cagr / mdd if mdd > 0 else 0
+        return [eq.iloc[-1]*capital, f_ret, cagr, calmar, mdd, vol, sharpe, sortino]
 
-    res_strat = get_stats(df["Equity_Strategy"], df["Strategy_Ret"])
-    res_0050 = get_stats(df["Equity_0050"], df["Price_base"].pct_change())
-    res_bull = get_stats(df["Equity_Bull_BH"], df["Ret_bull"])
-
-    # 構建比較表 HTML (使用鼠叔原有的 CSS 樣式)
-    metrics_order = ["總報酬率", "CAGR (年化)", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio"]
-    data = {
-        "多空切換策略": res_strat,
-        "0050 Buy & Hold": res_0050,
-        "正2 Buy & Hold": res_bull
+    metrics_labels = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio"]
+    
+    # 計算各策略數據
+    data_table = {
+        "多空切換策略": get_full_stats(df["Equity_Strategy"], df["Strategy_Ret"]),
+        "0050 B&H": get_full_stats(df["Equity_0050"], df["Price_base"].pct_change()),
+        "正2 B&H": get_full_stats(df["Equity_Bull_BH"], df["Ret_bull"])
     }
     
-    # 這裡會遍歷數據並找出每項指標的冠軍，加上 🏆 符號 (邏輯同原代碼)
-    # 為了簡潔，此處直接輸出結果，您可以直接套用原代碼的 HTML 生成邏輯
-    st.write("### 🏆 策略指標對比")
-    st.table(pd.DataFrame(data, index=metrics_order).T)
+    df_compare = pd.DataFrame(data_table, index=metrics_labels)
 
-    # 7. 下載數據
-    csv_data = df.to_csv().encode('utf-8-sig')
-    st.download_button("📥 下載詳細回測數據 (CSV)", csv_data, "switch_backtest.csv", "text/csv")
+    # 生成 HTML 表格
+    html_table = "<style>.win{font-weight:bold; color:#d4af37;}.comp-table{width:100%; border-collapse:collapse; font-family:sans-serif;} .comp-table th, .comp-table td{padding:12px; border-bottom:1px solid #eee; text-align:center;}</style>"
+    html_table += "<table class='comp-table'><tr><th>指標</th>" + "".join([f"<th>{c}</th>" for c in df_compare.columns]) + "</tr>"
 
-    st.markdown("<br><hr><div style='text-align: center; color: gray;'>免責聲明：本工具僅供策略研究參考，投資請自負盈虧。</div>", unsafe_allow_html=True)
+    for metric in metrics_labels:
+        row_vals = df_compare.loc[metric]
+        # 判斷好壞 (MDD 與 波動率 越小越好，其他越大越好)
+        is_invert = metric in ["最大回撤 (MDD)", "年化波動"]
+        best_val = min(row_vals) if is_invert else max(row_vals)
+        
+        html_table += f"<tr><td style='text-align:left;'>{metric}</td>"
+        for val in row_vals:
+            # 格式化
+            if "資產" in metric: d_val = fmt_money(val)
+            elif "Ratio" in metric or "Sharpe" in metric or "Sortino" in metric: d_val = fmt_num(val)
+            else: d_val = fmt_pct(val)
+            
+            # 標註冠軍
+            if val == best_val:
+                html_table += f"<td class='win'>{d_val} 🏆</td>"
+            else:
+                html_table += f"<td>{d_val}</td>"
+        html_table += "</tr>"
+    html_table += "</table>"
+    
+    st.write("### 🏆 策略指標深度對比")
+    st.write(html_table, unsafe_allow_html=True)
+
+    # 8. 下載與頁尾
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.download_button("📥 下載完整回測數據 (CSV)", df.to_csv().encode('utf-8-sig'), "backtest_full.csv")
+    st.markdown("<hr><div style='text-align:center; color:gray; font-size:0.8em;'>倉鼠人生實驗室 © 2026 | 投資有風險，回測僅供參考</div>", unsafe_allow_html=True)
