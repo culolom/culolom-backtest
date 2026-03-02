@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050LRS 趨勢保護版 (專業戰情室 UI + 絕對獲利邏輯)
+# app.py — 單一標的趨勢保護版 (專業戰情室 UI + 絕對獲利邏輯)
 ###############################################################
 
 import os
@@ -24,7 +24,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-st.set_page_config(page_title="0050LRS 趨勢保護版", page_icon="📈", layout="wide")
+st.set_page_config(page_title="趨勢保護策略", page_icon="📈", layout="wide")
 
 # 🔒 驗證守門員
 try:
@@ -44,21 +44,25 @@ with st.sidebar:
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050LRS 趨勢保護版</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>📊 趨勢保護與絕對獲利策略</h1>", unsafe_allow_html=True)
 st.markdown("""
-<b>本工具比較三種策略：</b><br>
-1️⃣ 原型 ETF Buy & Hold<br>
-2️⃣ 槓桿 ETF Buy & Hold<br>
-3️⃣ <b>LRS 趨勢保護策略</b>：結合 SMA 均線停損與「絕對獲利才停利」的波段策略。
+<b>本工具比較三種績效：</b><br>
+1️⃣ <b>趨勢保護策略</b>：直接以交易標的計算 SMA 與反彈幅度，結合「跌破均線停損」與「絕對獲利才停利」的波段策略。<br>
+2️⃣ 交易標的 Buy & Hold<br>
+3️⃣ 對照標的 Buy & Hold（僅供大盤比較參考）
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------
 # 資料與工具函式
 # ------------------------------------------------------
-BASE_ETFS = {"0050 元大台灣50": "0050.TW", "006208 富邦台50": "006208.TW"}
-LEV_ETFS = {
-    "00631L 元大台灣50正2": "00631L.TW", "00663L 國泰台灣加權正2": "00663L.TW",
-    "00675L 富邦台灣加權正2": "00675L.TW", "00685L 群益台灣加權正2": "00685L.TW",
+ALL_ETFS = {
+    "0050 元大台灣50": "0050.TW", 
+    "006208 富邦台50": "006208.TW",
+    "00631L 元大台灣50正2": "00631L.TW", 
+    "00663L 國泰台灣加權正2": "00663L.TW",
+    "00675L 富邦台灣加權正2": "00675L.TW", 
+    "00685L 群益台灣加權正2": "00685L.TW",
+    "BTC-USD 比特幣": "BTC-USD"
 }
 DATA_DIR = Path("data")
 
@@ -83,24 +87,23 @@ def fmt_money(v): return f"{v:,.0f} 元" if pd.notnull(v) else "—"
 def fmt_pct(v, d=2): return f"{v:.{d}%}" if pd.notnull(v) else "—"
 def fmt_num(v, d=2): return f"{v:.{d}f}" if pd.notnull(v) else "—"
 def fmt_int(v): return f"{int(v):,}" if pd.notnull(v) else "—"
-def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
 
 # ------------------------------------------------------
 # 主頁面：參數設定區
 # ------------------------------------------------------
 col1, col2 = st.columns(2)
-base_label = col1.selectbox("原型 ETF（訊號來源）", list(BASE_ETFS.keys()))
-lev_label = col2.selectbox("槓桿 ETF（實際進出場標的）", list(LEV_ETFS.keys()))
-base_symbol, lev_symbol = BASE_ETFS[base_label], LEV_ETFS[lev_label]
+target_label = col1.selectbox("🎯 交易標的 (計算 SMA 與進出場)", list(ALL_ETFS.keys()), index=2) # 預設正2
+bench_label = col2.selectbox("📊 對照標的 (僅供績效比較)", list(ALL_ETFS.keys()), index=0) # 預設0050
+target_symbol, bench_symbol = ALL_ETFS[target_label], ALL_ETFS[bench_label]
 
-df_base_raw = load_csv(base_symbol)
-df_lev_raw = load_csv(lev_symbol)
-if df_base_raw.empty or df_lev_raw.empty:
+df_target_raw = load_csv(target_symbol)
+df_bench_raw = load_csv(bench_symbol)
+if df_target_raw.empty or df_bench_raw.empty:
     st.error("⚠️ 資料讀取失敗")
     st.stop()
 
-s_min = max(df_base_raw.index.min().date(), df_lev_raw.index.min().date())
-s_max = min(df_base_raw.index.max().date(), df_lev_raw.index.max().date())
+s_min = max(df_target_raw.index.min().date(), df_bench_raw.index.min().date())
+s_max = min(df_target_raw.index.max().date(), df_bench_raw.index.max().date())
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
 col3, col4, col5, col6 = st.columns(4)
@@ -112,78 +115,78 @@ sma_window = col6.number_input("均線週期 (SMA)", 10, 300, 200, step=10)
 st.write("---")
 st.markdown("### ⚙️ 進出場閾值設定")
 col_set1, col_set2 = st.columns(2)
-# 改回你喜歡的 st.number_input
 buy_pct = col_set1.number_input("進場：低點反彈 (%)", 0.5, 30.0, 9.0, step=0.5)
 sell_pct = col_set2.number_input("出場：高點回落 (%)", 0.5, 30.0, 15.0, step=0.5)
 
 # ------------------------------------------------------
-# 回測核心引擎 (趨勢保護 + 絕對獲利邏輯)
+# 回測核心引擎 (全權由交易標的驅動)
 # ------------------------------------------------------
 if st.button("開始回測 🚀", use_container_width=True):
     start_early = start - dt.timedelta(days=int(sma_window * 1.5) + 60)
     
-    df = pd.DataFrame(index=df_base_raw.loc[start_early:end].index)
-    df["Price_base"] = df_base_raw["Price"]
-    df = df.join(df_lev_raw["Price"].rename("Price_lev"), how="inner").sort_index()
+    df = pd.DataFrame(index=df_target_raw.loc[start_early:end].index)
+    df["Price_target"] = df_target_raw["Price"]
+    df = df.join(df_bench_raw["Price"].rename("Price_bench"), how="inner").sort_index()
     
-    df["MA_Signal"] = df["Price_base"].rolling(sma_window).mean()
+    # 🌟 關鍵修改：MA 訊號直接由「交易標的」計算
+    df["MA_Signal"] = df["Price_target"].rolling(sma_window).mean()
     df = df.dropna(subset=["MA_Signal"]).loc[start:end]
 
-    df["Return_base"] = df["Price_base"].pct_change().fillna(0)
-    df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
+    df["Return_target"] = df["Price_target"].pct_change().fillna(0)
+    df["Return_bench"] = df["Price_bench"].pct_change().fillna(0)
 
     # --- 策略狀態變數 ---
     in_position = False
-    entry_price_lev = 0.0
-    trailing_low_base = df["Price_base"].iloc[0]
-    trailing_high_lev = 0.0
+    entry_price = 0.0
+    trailing_low = df["Price_target"].iloc[0]
+    trailing_high = 0.0
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
 
+    # 🌟 關鍵修改：進出場判斷全部看 p (Price_target)
     for i in range(1, len(df)):
-        pb = df["Price_base"].iloc[i]
-        pl = df["Price_lev"].iloc[i]
+        p = df["Price_target"].iloc[i]
         sma = df["MA_Signal"].iloc[i]
 
         if not in_position:
-            trailing_low_base = min(trailing_low_base, pb)
+            trailing_low = min(trailing_low, p)
             # 進場條件：均線之上 + 從低點反彈
-            if pb > sma and pb >= trailing_low_base * (1 + buy_pct / 100.0):
+            if p > sma and p >= trailing_low * (1 + buy_pct / 100.0):
                 in_position = True
-                entry_price_lev = pl
-                trailing_high_lev = pl
+                entry_price = p
+                trailing_high = p
                 sigs[i] = 1
         else:
-            trailing_high_lev = max(trailing_high_lev, pl)
+            trailing_high = max(trailing_high, p)
             # 出場條件 1：破 SMA 強制停損
-            if pb < sma:
+            if p < sma:
                 in_position = False
                 sigs[i] = -1
-                trailing_low_base = pb
+                trailing_low = p
             # 出場條件 2：絕對獲利賣出 (高點回落 + 沒賠錢)
-            elif pl <= trailing_high_lev * (1 - sell_pct / 100.0) and pl > entry_price_lev:
+            elif p <= trailing_high * (1 - sell_pct / 100.0) and p > entry_price:
                 in_position = False
                 sigs[i] = -1
-                trailing_low_base = pb
+                trailing_low = p
 
         pos[i] = 1.0 if in_position else 0.0
 
     df["Signal"], df["Position"] = sigs, pos
 
     # --- 資金曲線計算 ---
-    equity_lrs = [1.0]
+    equity_strategy = [1.0]
     for i in range(1, len(df)):
-        lev_ret = df["Return_lev"].iloc[i]
-        equity_lrs.append(equity_lrs[-1] * (1 + lev_ret * df["Position"].iloc[i-1]))
+        ret = df["Return_target"].iloc[i]
+        equity_strategy.append(equity_strategy[-1] * (1 + ret * df["Position"].iloc[i-1]))
 
-    df["Equity_LRS"] = equity_lrs
-    df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
-    df["Equity_BH_Base"] = (1 + df["Return_base"]).cumprod()
-    df["Equity_BH_Lev"] = (1 + df["Return_lev"]).cumprod()
+    df["Equity_Strategy"] = equity_strategy
+    df["Return_Strategy"] = df["Equity_Strategy"].pct_change().fillna(0)
+    df["Equity_BH_Target"] = (1 + df["Return_target"]).cumprod()
+    df["Equity_BH_Bench"] = (1 + df["Return_bench"]).cumprod()
 
-    df["Pct_Base"] = df["Equity_BH_Base"] - 1
-    df["Pct_Lev"] = df["Equity_BH_Lev"] - 1
-    df["Pct_LRS"] = df["Equity_LRS"] - 1
+    df["Pct_Strategy"] = df["Equity_Strategy"] - 1
+    df["Pct_Target"] = df["Equity_BH_Target"] - 1
+    df["Pct_Bench"] = df["Equity_BH_Bench"] - 1
 
     # ------------------------------------------------------
     # 指標與 KPI 計算
@@ -198,33 +201,32 @@ if st.button("開始回測 🚀", use_container_width=True):
         calmar = cagr / mdd if mdd > 0 else np.nan
         return final_eq, cagr, mdd, vol, sharpe, sortino, calmar
 
-    eq_lrs, cagr_lrs, mdd_lrs, vol_lrs, sh_lrs, so_lrs, cal_lrs = calc_core(df["Equity_LRS"], df["Return_LRS"])
-    eq_lev, cagr_lev, mdd_lev, vol_lev, sh_lev, so_lev, cal_lev = calc_core(df["Equity_BH_Lev"], df["Return_lev"])
-    eq_base, cagr_base, mdd_base, vol_base, sh_base, so_base, cal_base = calc_core(df["Equity_BH_Base"], df["Return_base"])
+    eq_str, cagr_str, mdd_str, vol_str, sh_str, so_str, cal_str = calc_core(df["Equity_Strategy"], df["Return_Strategy"])
+    eq_tgt, cagr_tgt, mdd_tgt, vol_tgt, sh_tgt, so_tgt, cal_tgt = calc_core(df["Equity_BH_Target"], df["Return_target"])
+    eq_ben, cagr_ben, mdd_ben, vol_ben, sh_ben, so_ben, cal_ben = calc_core(df["Equity_BH_Bench"], df["Return_bench"])
 
     trades = (df["Signal"] != 0).sum()
 
     # ------------------------------------------------------
-    # 1. 策略訊號與執行價格 (雙軸對照)
+    # 1. 策略訊號與執行價格 (單軸清晰版)
     # ------------------------------------------------------
-    st.markdown("<h3>📌 策略訊號與執行價格 (雙軸對照)</h3>", unsafe_allow_html=True)
+    st.markdown("<h3>📌 策略訊號與執行價格</h3>", unsafe_allow_html=True)
     fig_price = go.Figure()
     
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label} (左軸)", mode="lines", line=dict(width=2, color="#636EFA")))
+    # 🌟 因為訊號和標的都是同一個，不需要雙Y軸了，圖表會變得非常乾淨！
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_target"], name=f"{target_label} 價格", mode="lines", line=dict(width=2, color="#636EFA")))
     fig_price.add_trace(go.Scatter(x=df.index, y=df["MA_Signal"], name=f"{sma_window} 日 SMA", mode="lines", line=dict(width=1.5, color="#FFA15A")))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_lev"], name=f"{lev_label} (右軸)", mode="lines", line=dict(width=1, color="#00CC96", dash='dot'), opacity=0.6, yaxis="y2"))
 
     buys = df[df["Signal"] == 1]
     sells = df[df["Signal"] == -1]
     if not buys.empty:
-        fig_price.add_trace(go.Scatter(x=buys.index, y=buys["Price_base"], mode="markers", name="買進點", marker=dict(color="#00C853", size=12, symbol="triangle-up", line=dict(width=1, color="white"))))
+        fig_price.add_trace(go.Scatter(x=buys.index, y=buys["Price_target"], mode="markers", name="買進點", marker=dict(color="#00C853", size=12, symbol="triangle-up", line=dict(width=1, color="white"))))
     if not sells.empty:
-        fig_price.add_trace(go.Scatter(x=sells.index, y=sells["Price_base"], mode="markers", name="賣出點", marker=dict(color="#D50000", size=12, symbol="triangle-down", line=dict(width=1, color="white"))))
+        fig_price.add_trace(go.Scatter(x=sells.index, y=sells["Price_target"], mode="markers", name="賣出點", marker=dict(color="#D50000", size=12, symbol="triangle-down", line=dict(width=1, color="white"))))
 
     fig_price.update_layout(
         template="plotly_white", height=450, hovermode="x unified",
-        yaxis=dict(title=f"{base_label} 價格", showgrid=True),
-        yaxis2=dict(title=f"{lev_label} 價格", overlaying="y", side="right", showgrid=False),
+        yaxis=dict(title=f"{target_label} 價格", showgrid=True),
         legend=dict(orientation="h", y=1.02, x=1, xanchor="right"), margin=dict(l=10, r=10, t=30, b=10)
     )
     st.plotly_chart(fig_price, use_container_width=True)
@@ -237,62 +239,62 @@ if st.button("開始回測 🚀", use_container_width=True):
 
     with tab_equity:
         fig_eq = go.Figure()
-        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name="原型BH"))
-        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name="槓桿BH"))
-        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Pct_LRS"], mode="lines", name="LRS 趨勢保護", line=dict(width=2.5)))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Pct_Bench"], mode="lines", name="對照標的 B&H"))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Pct_Target"], mode="lines", name="交易標的 B&H"))
+        fig_eq.add_trace(go.Scatter(x=df.index, y=df["Pct_Strategy"], mode="lines", name="策略趨勢保護", line=dict(width=2.5)))
         fig_eq.update_layout(template="plotly_white", height=420, yaxis=dict(tickformat=".0%"))
         st.plotly_chart(fig_eq, use_container_width=True)
 
     with tab_dd:
-        dd_base = (df["Equity_BH_Base"] / df["Equity_BH_Base"].cummax() - 1) * 100
-        dd_lev = (df["Equity_BH_Lev"] / df["Equity_BH_Lev"].cummax() - 1) * 100
-        dd_lrs = (df["Equity_LRS"] / df["Equity_LRS"].cummax() - 1) * 100
+        dd_bench = (df["Equity_BH_Bench"] / df["Equity_BH_Bench"].cummax() - 1) * 100
+        dd_target = (df["Equity_BH_Target"] / df["Equity_BH_Target"].cummax() - 1) * 100
+        dd_str = (df["Equity_Strategy"] / df["Equity_Strategy"].cummax() - 1) * 100
         fig_dd = go.Figure()
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_base, name="原型BH"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lev, name="槓桿BH"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lrs, name="LRS 趨勢保護", fill="tozeroy"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_bench, name="對照標的 B&H"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_target, name="交易標的 B&H"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_str, name="策略趨勢保護", fill="tozeroy"))
         fig_dd.update_layout(template="plotly_white", height=420)
         st.plotly_chart(fig_dd, use_container_width=True)
 
     with tab_radar:
         radar_categories = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反轉)"]
-        radar_lrs  = [nz(cagr_lrs), nz(sh_lrs), nz(so_lrs), nz(-mdd_lrs), nz(-vol_lrs)]
-        radar_lev  = [nz(cagr_lev), nz(sh_lev), nz(so_lev), nz(-mdd_lev), nz(-vol_lev)]
+        radar_str = [nz(cagr_str), nz(sh_str), nz(so_str), nz(-mdd_str), nz(-vol_str)]
+        radar_tgt = [nz(cagr_tgt), nz(sh_tgt), nz(so_tgt), nz(-mdd_tgt), nz(-vol_tgt)]
         fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(r=radar_lrs, theta=radar_categories, fill='toself', name='LRS 趨勢保護', line=dict(color='#00CC96')))
-        fig_radar.add_trace(go.Scatterpolar(r=radar_lev, theta=radar_categories, fill='toself', name='槓桿 BH', line=dict(color='#EF553B')))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_str, theta=radar_categories, fill='toself', name='策略趨勢保護', line=dict(color='#00CC96')))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_tgt, theta=radar_categories, fill='toself', name='交易標的 B&H', line=dict(color='#EF553B')))
         fig_radar.update_layout(height=480, polar=dict(radialaxis=dict(visible=True, ticks='')))
         st.plotly_chart(fig_radar, use_container_width=True)
 
     with tab_hist:
         fig_hist = go.Figure()
-        fig_hist.add_trace(go.Histogram(x=df["Return_lev"] * 100, name="槓桿BH", opacity=0.6))
-        fig_hist.add_trace(go.Histogram(x=df["Return_LRS"] * 100, name="LRS 趨勢保護", opacity=0.7))
+        fig_hist.add_trace(go.Histogram(x=df["Return_target"] * 100, name="交易標的 B&H", opacity=0.6))
+        fig_hist.add_trace(go.Histogram(x=df["Return_Strategy"] * 100, name="策略趨勢保護", opacity=0.7))
         fig_hist.update_layout(barmode="overlay", template="plotly_white", height=480)
         st.plotly_chart(fig_hist, use_container_width=True)
 
     # ------------------------------------------------------
-    # 3. KPI 總表 (恢復原本的高級 HTML 表格)
+    # 3. KPI 總表
     # ------------------------------------------------------
     st.markdown("<br>", unsafe_allow_html=True)
     
     metrics_order = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "Sortino Ratio", "交易次數"]
     
     data_dict = {
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>LRS 趨勢保護</span>": {
-            "期末資產": eq_lrs * capital, "總報酬率": eq_lrs - 1, "CAGR (年化)": cagr_lrs,
-            "Calmar Ratio": cal_lrs, "最大回撤 (MDD)": mdd_lrs, "年化波動": vol_lrs,
-            "Sharpe Ratio": sh_lrs, "Sortino Ratio": so_lrs, "交易次數": trades,
+        f"<b>{target_label}</b><br><span style='font-size:0.8em; opacity:0.7'>策略趨勢保護</span>": {
+            "期末資產": eq_str * capital, "總報酬率": eq_str - 1, "CAGR (年化)": cagr_str,
+            "Calmar Ratio": cal_str, "最大回撤 (MDD)": mdd_str, "年化波動": vol_str,
+            "Sharpe Ratio": sh_str, "Sortino Ratio": so_str, "交易次數": trades,
         },
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
-            "期末資產": eq_lev * capital, "總報酬率": eq_lev - 1, "CAGR (年化)": cagr_lev,
-            "Calmar Ratio": cal_lev, "最大回撤 (MDD)": mdd_lev, "年化波動": vol_lev,
-            "Sharpe Ratio": sh_lev, "Sortino Ratio": so_lev, "交易次數": -1, 
+        f"<b>{target_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
+            "期末資產": eq_tgt * capital, "總報酬率": eq_tgt - 1, "CAGR (年化)": cagr_tgt,
+            "Calmar Ratio": cal_tgt, "最大回撤 (MDD)": mdd_tgt, "年化波動": vol_tgt,
+            "Sharpe Ratio": sh_tgt, "Sortino Ratio": so_tgt, "交易次數": -1, 
         },
-        f"<b>{base_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
-            "期末資產": eq_base * capital, "總報酬率": eq_base - 1, "CAGR (年化)": cagr_base,
-            "Calmar Ratio": cal_base, "最大回撤 (MDD)": mdd_base, "年化波動": vol_base,
-            "Sharpe Ratio": sh_base, "Sortino Ratio": so_base, "交易次數": -1,
+        f"<b>{bench_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold (對照)</span>": {
+            "期末資產": eq_ben * capital, "總報酬率": eq_ben - 1, "CAGR (年化)": cagr_ben,
+            "Calmar Ratio": cal_ben, "最大回撤 (MDD)": mdd_ben, "年化波動": vol_ben,
+            "Sharpe Ratio": sh_ben, "Sortino Ratio": so_ben, "交易次數": -1,
         }
     }
 
@@ -316,7 +318,7 @@ if st.button("開始回測 🚀", use_container_width=True):
         .comparison-table th { background-color: #f8f9fa; color: #1a1a1a; padding: 14px; text-align: center; font-weight: 600; border-bottom: 1px solid rgba(128,128,128, 0.1); }
         .comparison-table td.metric-name { background-color: transparent; color: #1a1a1a; font-weight: 500; text-align: left; padding: 12px 16px; width: 25%; font-size: 0.9rem; border-bottom: 1px solid rgba(128,128,128, 0.1); }
         .comparison-table td.data-cell { text-align: center; padding: 12px; color: #1a1a1a; border-bottom: 1px solid rgba(128,128,128, 0.1); }
-        .comparison-table td.lrs-col { background-color: rgba(128, 128, 128, 0.03); }
+        .comparison-table td.str-col { background-color: rgba(128, 128, 128, 0.03); }
         .trophy-icon { margin-left: 6px; font-size: 1.1em; text-shadow: 0 0 5px rgba(255, 215, 0, 0.4); }
     </style>
     <table class="comparison-table"><thead><tr><th style="text-align:left; padding-left:16px;">指標</th>
@@ -341,9 +343,9 @@ if st.button("開始回測 🚀", use_container_width=True):
             is_winner = (target_val is not None and val == target_val)
             if is_winner: display_text += " <span class='trophy-icon'>🏆</span>"
             
-            lrs_class = "lrs-col" if i == 0 else ""
+            str_class = "str-col" if i == 0 else ""
             font_weight = "bold" if i == 0 else "normal"
-            html_code += f"<td class='data-cell {lrs_class}' style='font-weight:{font_weight};'>{display_text}</td>"
+            html_code += f"<td class='data-cell {str_class}' style='font-weight:{font_weight};'>{display_text}</td>"
         html_code += "</tr>"
 
     html_code += "</tbody></table>"
@@ -353,14 +355,14 @@ if st.button("開始回測 🚀", use_container_width=True):
     # 4. 下載 CSV 按鈕
     # ------------------------------------------------------
     st.markdown("<br>", unsafe_allow_html=True)
-    export_cols = ["Price_base", "Price_lev", "MA_Signal", "Signal", "Position", "Equity_BH_Base", "Equity_BH_Lev", "Equity_LRS"]
+    export_cols = ["Price_target", "MA_Signal", "Signal", "Position", "Equity_BH_Target", "Equity_Strategy", "Equity_BH_Bench"]
     valid_cols = [c for c in export_cols if c in df.columns]
     csv_data = df[valid_cols].to_csv(index=True).encode('utf-8-sig')
     
     st.download_button(
         label="📥 下載詳細回測數據 (CSV)",
         data=csv_data,
-        file_name=f"LRS_Backtest_{base_symbol}_{start}_{end}.csv",
+        file_name=f"Strategy_Backtest_{target_symbol}_{start}_{end}.csv",
         mime="text/csv"
     )
 
