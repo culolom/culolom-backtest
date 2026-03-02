@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 0050 區間極值反轉策略 (可切換 SMA 濾網)
+# app.py — 0050 區間極值反轉策略 (趨勢濾網強化版)
 ###############################################################
 
 import os
@@ -44,12 +44,12 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 st.set_page_config(page_title="區間極值反轉策略", page_icon="📈", layout="wide")
 
-# 🔒 驗證守門員
-try:
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-    import auth 
-    if not auth.check_password(): st.stop()
-except: pass 
+# 🔒 驗證守門員 (如有需要可取消註釋)
+# try:
+#     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+#     import auth 
+#     if not auth.check_password(): st.stop()
+# except: pass 
 
 ###############################################################
 # 2. 核心計算函數
@@ -103,7 +103,7 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
 
-st.markdown("<h1 style='margin-bottom:0.1em;'>📈 區間極值反轉策略 (動態濾網版)</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.1em;'>📈 區間極值反轉策略 (趨勢過濾版)</h1>", unsafe_allow_html=True)
 
 available_ids = get_csv_list()
 if not available_ids:
@@ -120,6 +120,9 @@ target_id = st.selectbox(
 
 ch_name = TICKER_NAMES.get(target_id, target_id)
 df_preview = load_csv(target_id)
+if df_preview.empty:
+    st.error(f"無法載入 {target_id} 的數據"); st.stop()
+
 s_min, s_max = df_preview.index.min().date(), df_preview.index.max().date()
 st.info(f"📌 可回測區間：{s_min} ~ {s_max}")
 
@@ -134,37 +137,37 @@ st.markdown("### ⚙️ 策略參數設定")
 col_set1, col_set2, col_set3, col_set4 = st.columns(4)
 
 with col_set1:
-    enable_sma = st.toggle("啟用 SMA 趨勢濾網", value=True)
-    sma_window = st.number_input("長線趨勢濾網 (SMA)", 10, 300, 200, step=10, disabled=not enable_sma)
+    enable_sma = st.toggle("啟用 SMA 趨勢濾網", value=True, help="開啟後，股價低於 SMA 將強制清倉不進場")
+    sma_window = st.number_input("趨勢濾網天數 (SMA)", 10, 300, 200, step=10, disabled=not enable_sma)
 with col_set2:
-    lookback_window = st.number_input("基準區間 (尋找最高/低點天數)", 5, 240, 20, step=1)
+    lookback_window = st.number_input("基準區間 (尋找前高低點)", 5, 240, 20, step=1)
 with col_set3:
-    buy_pct = st.number_input("提早買進：自最低點上漲 (%)", 1.0, 50.0, 5.0, step=0.5)
+    buy_pct = st.number_input("進場：自低點反彈 (%)", 1.0, 50.0, 5.0, step=0.5)
 with col_set4:
-    sell_pct = st.number_input("提早賣出：自最高點下跌 (%)", 1.0, 50.0, 5.0, step=0.5)
+    sell_pct = st.number_input("出場：自高點回落 (%)", 1.0, 50.0, 5.0, step=0.5)
 
 ###############################################################
 # 4. 回測執行邏輯
 ###############################################################
 
 if st.button("啟動回測引擎 🚀"):
-    # 預留足夠天數計算指標 (若未啟用 SMA 則以 lookback_window 為準)
+    # 預留足夠天數計算指標
     max_lookback = max(sma_window if enable_sma else 0, lookback_window)
     start_buf = start - dt.timedelta(days=int(max_lookback * 2))
     df = load_csv(target_id).loc[start_buf:end]
     
     if df.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
 
-    # 計算技術指標 (shift避免未來函數)
+    # 計算技術指標
     if enable_sma:
         df["SMA"] = df["Price"].rolling(sma_window).mean()
     else:
-        df["SMA"] = np.nan # 補空值避免報錯
+        df["SMA"] = np.nan
         
     df["Period_Min"] = df["Price"].rolling(lookback_window).min().shift(1)
     df["Period_Max"] = df["Price"].rolling(lookback_window).max().shift(1)
     
-    # 計算提早買賣的觸發線
+    # 計算買賣觸發線
     df["Buy_Line"] = df["Period_Min"] * (1 + buy_pct / 100.0)
     df["Sell_Line"] = df["Period_Max"] * (1 - sell_pct / 100.0)
     
@@ -175,50 +178,44 @@ if st.button("啟動回測引擎 🚀"):
         df = df.dropna(subset=["Period_Min", "Period_Max"]).loc[start:end]
     
     sigs, pos = [0] * len(df), [0.0] * len(df)
-    
-    # 狀態機變數
     in_position = False
     
+    # 核心策略循環
     for i in range(1, len(df)):
         p = df["Price"].iloc[i]
         p0 = df["Price"].iloc[i-1]
-        
         p_max = df["Period_Max"].iloc[i]
-        p_min = df["Period_Min"].iloc[i]
         early_sell = df["Sell_Line"].iloc[i]
         early_buy = df["Buy_Line"].iloc[i]
-        
         sig = 0
         
         if enable_sma:
-            # === 有 SMA 濾網邏輯 ===
             sma = df["SMA"].iloc[i]
             sma0 = df["SMA"].iloc[i-1]
-            cross_up_sma = (p > sma) and (p0 <= sma0)
-            cross_dn_sma = (p < sma) and (p0 >= sma0)
-
-            # 狀態 1：多頭趨勢 (股價 > 200 SMA)
+            
+            # --- 情況 A: 股價在 SMA 之上 (多頭環境) ---
             if p > sma:
                 if not in_position:
-                    if cross_up_sma or p >= p_max:
+                    # 買入條件：1. 剛站回 SMA 或 2. 突破區間最高點
+                    if (p0 <= sma0) or (p >= p_max):
                         in_position = True
                         sig = 1
                 else:
+                    # 出場條件：自區間高點回落設定比例
                     if p < early_sell:
                         in_position = False
                         sig = -1
-            # 狀態 2：空頭趨勢 (股價 <= 200 SMA)
+            
+            # --- 情況 B: 股價在 SMA 之下 (空頭環境) ---
             else:
                 if in_position:
-                    if cross_dn_sma or p <= p_min:
-                        in_position = False
-                        sig = -1
-                else:
-                    if p > early_buy:
-                        in_position = True
-                        sig = 1
+                    # 只要收盤價跌破 SMA，立即清倉出場
+                    in_position = False
+                    sig = -1
+                # 即使出現反彈訊號也「不進場」，直到股價站回 SMA
+        
         else:
-            # === 無 SMA 濾網邏輯 (純粹依靠區間百分比反轉) ===
+            # === 無濾網邏輯 (純區間反轉) ===
             if not in_position:
                 if p > early_buy:
                     in_position = True
@@ -248,13 +245,14 @@ if st.button("啟動回測引擎 🚀"):
     sl = get_stats(df["Equity_Strategy"], df["Return_Strategy"], y_len)
     sb = get_stats(df["Equity_BH"], df["Return_BH"], y_len)
 
-    # KPI 卡片與績效總表
+    # KPI 卡片
     st.markdown("""<style>.kpi-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; text-align: left; } .kpi-label { color: #8c8c8c; font-size: 1rem; margin-bottom: 12px; font-weight: 500; } .kpi-val { font-size: 2.3rem; font-weight: 900; color: #1a1a1a; margin-bottom: 15px; } .delta-tag { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.9rem; font-weight: 700; } .delta-pos { background: #e6f7ed; color: #21c354; } .delta-neg { background: #fff1f0; color: #ff4d4f; } </style> """, unsafe_allow_html=True)
     k_cols = st.columns(4)
     def render_kpi(col, label, val, delta, is_better_if_higher=True):
         is_good = (delta >= 0) if is_better_if_higher else (delta <= 0)
         style = "delta-pos" if is_good else "delta-neg"
         col.markdown(f'<div class="kpi-card"><div class="kpi-label">{label}</div><div class="kpi-val">{val}</div><div class="delta-tag {style}">{delta:+.2%} (vs 標的)</div></div>', unsafe_allow_html=True)
+    
     render_kpi(k_cols[0], "期末資產", fmt_money(sl[0]*capital), (sl[0]/sb[0]-1))
     render_kpi(k_cols[1], "CAGR", fmt_pct(sl[2]), (sl[2]-sb[2]))
     render_kpi(k_cols[2], "波動率", fmt_pct(sl[4]), (sl[4]-sb[4]), is_better_if_higher=False)
@@ -262,8 +260,9 @@ if st.button("啟動回測引擎 🚀"):
 
     st.markdown(f"### 🏆 策略績效總表：{ch_name}")
     metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    filter_label = "有濾網" if enable_sma else "無濾網"
-    data_map = { f"<b>{ch_name}</b><br><small>極值反轉 ({filter_label})</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
+    filter_label = f"{sma_window}SMA 趨勢過濾" if enable_sma else "無濾網"
+    data_map = { f"<b>{ch_name}</b><br><small>{filter_label}</small>": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()], f"<b>{ch_name}</b><br><small>Buy & Hold</small>": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0] }
+    
     html = '<style>.ctable { width: 100%; border-collapse: collapse; border: 1px solid #f0f0f0; margin-top:10px; } .ctable th { background: #ffffff; padding: 20px; border-bottom: 1px solid #f0f0f0; color: #595959; } .ctable td { padding: 18px; text-align: center; border-bottom: 1px solid #f0f0f0; } .m-name { text-align: left !important; font-weight: 500; }</style>'
     html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
     for col in data_map.keys(): html += f"<th>{col}</th>"
@@ -283,55 +282,37 @@ if st.button("啟動回測引擎 🚀"):
     st.write(html + "</tbody></table>", unsafe_allow_html=True)
 
     # ------------------------------------------------------
-    # 7. 整合圖表：動態切換視覺化
+    # 7. 圖表視覺化
     # ------------------------------------------------------
     st.markdown("### 📈 趨勢狀態與動態觸發線")
-    
-    title_suffix = f" ({sma_window}SMA 濾網)" if enable_sma else " (無濾網)"
     fig_master = make_subplots(
         rows=2, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.08,
-        subplot_titles=("資金曲線比較", f"價格走勢與動態買賣觸發線{title_suffix}"),
+        subplot_titles=("資金曲線比較", f"價格走勢與 {filter_label}"),
         row_heights=[0.3, 0.7]
     )
 
-    # --- 第一列：資金曲線 ---
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_Strategy"]-1, name="策略報酬", line=dict(width=2.5, color="#00D494")), row=1, col=1)
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Equity_BH"]-1, name="Buy & Hold", line=dict(color="#FF4D4F", dash='dash')), row=1, col=1)
 
-    # --- 第二列：觸發線與訊號 ---
     if enable_sma:
-        # 1. 核心趨勢線：SMA
-        fig_master.add_trace(go.Scatter(x=df.index, y=df["SMA"], name=f"{sma_window} SMA 趨勢線", line=dict(color="#FFA15A", width=2.5)), row=2, col=1)
-
-        # 2. 為了讓圖表乾淨，只在對應的狀態下畫出觸發線
+        fig_master.add_trace(go.Scatter(x=df.index, y=df["SMA"], name=f"{sma_window} SMA 濾網", line=dict(color="#FFA15A", width=2.5)), row=2, col=1)
+        # 僅在多頭區域顯示賣出線
         df_bull = df[df["Price"] > df["SMA"]]
-        df_bear = df[df["Price"] <= df["SMA"]]
-
-        # 多頭狀態才顯示「提早賣出線」與「區間最高點」
-        fig_master.add_trace(go.Scatter(x=df_bull.index, y=df_bull["Period_Max"], mode="markers", name=f"多頭防守: 前高點", marker=dict(color="rgba(255, 77, 79, 0.4)", size=3)), row=2, col=1)
-        fig_master.add_trace(go.Scatter(x=df_bull.index, y=df_bull["Sell_Line"], mode="markers", name=f"提早賣出觸發線 (-{sell_pct}%)", marker=dict(color="#FF4D4F", size=4, symbol="line-ew")), row=2, col=1)
-
-        # 空頭狀態才顯示「提早買進線」與「區間最低點」
-        fig_master.add_trace(go.Scatter(x=df_bear.index, y=df_bear["Period_Min"], mode="markers", name=f"空頭防守: 前低點", marker=dict(color="rgba(24, 144, 255, 0.4)", size=3)), row=2, col=1)
-        fig_master.add_trace(go.Scatter(x=df_bear.index, y=df_bear["Buy_Line"], mode="markers", name=f"提早買進觸發線 (+{buy_pct}%)", marker=dict(color="#1890FF", size=4, symbol="line-ew")), row=2, col=1)
+        fig_master.add_trace(go.Scatter(x=df_bull.index, y=df_bull["Sell_Line"], mode="markers", name=f"回落賣出線 (-{sell_pct}%)", marker=dict(color="#FF4D4F", size=4, symbol="line-ew")), row=2, col=1)
     else:
-        # 無濾網狀態下，直接畫出所有的買進與賣出觸發線
         fig_master.add_trace(go.Scatter(x=df.index, y=df["Buy_Line"], name=f"買進線 (+{buy_pct}%)", line=dict(color="#1890FF", width=2, dash='dash')), row=2, col=1)
         fig_master.add_trace(go.Scatter(x=df.index, y=df["Sell_Line"], name=f"賣出線 (-{sell_pct}%)", line=dict(color="#FF4D4F", width=2, dash='dash')), row=2, col=1)
 
-    # 3. 股價
     fig_master.add_trace(go.Scatter(x=df.index, y=df["Price"], name=f"{ch_name} 股價", line=dict(color="#1F2937", width=1.5)), row=2, col=1)
     
-    # 4. 交易訊號點
     colors = {1: ("觸發買進", "#00C853", "triangle-up"), -1: ("觸發賣出", "#D50000", "triangle-down")}
     for v, (l, c, s) in colors.items():
         pts = df[df["Signal"] == v]
         if not pts.empty:
             fig_master.add_trace(go.Scatter(x=pts.index, y=pts["Price"], mode="markers", name=l, marker=dict(color=c, size=12, symbol=s), showlegend=True), row=2, col=1)
 
-    # 全域佈局
     fig_master.update_layout(height=800, template="plotly_white", hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     fig_master.update_yaxes(title_text="累積報酬率", tickformat=".0%", row=1, col=1)
     fig_master.update_yaxes(title_text="價格", row=2, col=1)
