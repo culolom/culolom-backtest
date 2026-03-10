@@ -1,5 +1,5 @@
 ###############################################################
-# app.py — 50/50 比例再平衡策略 (戰情室配置版)
+# app.py — 50/50 策略：比例觸發 vs 定期時間 (戰情室配置版)
 ###############################################################
 
 import os
@@ -15,23 +15,15 @@ from pathlib import Path
 ###############################################################
 
 st.set_page_config(
-    page_title="50/50 比例再平衡 | 倉鼠量化戰情室",
+    page_title="50/50 策略綜合回測 | 倉鼠量化戰情室",
     page_icon="⚖️",
     layout="wide",
 )
 
-# 高級 CSS 樣式 (K-PI 與 表格)
+# 高級 CSS 樣式
 st.markdown("""
 <style>
     .reportview-container { background: #fdfdfd; }
-    .kpi-card {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        border: 1px solid #eee;
-        text-align: center;
-    }
     .comp-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-family: 'Noto Sans TC', sans-serif; }
     .comp-table th { background: #f8f9fa; padding: 15px; text-align: center; border-bottom: 2px solid #dee2e6; color: #495057; }
     .comp-table td { padding: 12px; border-bottom: 1px solid #eee; text-align: center; color: #212529; }
@@ -41,7 +33,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 ###############################################################
-# 2. Sidebar 側邊欄導覽 (完全照要求設定)
+# 2. Sidebar 側邊欄導覽
 ###############################################################
 
 with st.sidebar:
@@ -53,17 +45,17 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 ###############################################################
-# 3. 主頁面標題與策略參數 (移至中間)
+# 3. 主頁面標題與策略參數
 ###############################################################
 
-st.markdown("<h1 style='margin-bottom:0.5em;'>⚖️ 50/50 比例觸發再平衡回測</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>⚖️ 50/50 策略：比例觸發與定期再平衡</h1>", unsafe_allow_html=True)
 
 # ----------------- 策略參數開始 -----------------
 st.write("### ⚙️ 策略參數設定")
 p_col1, p_col2, p_col3 = st.columns(3)
 
 with p_col1:
-    base_ticker = st.selectbox("原型 ETF (0050)", ["0050.TW", "006208.TW"], index=0)
+    base_ticker = st.selectbox("原型 ETF (基準)", ["0050.TW", "006208.TW"], index=0)
     capital = st.number_input("初始總投入本金", 100000, 10000000, 1000000, step=100000)
 
 with p_col2:
@@ -71,20 +63,26 @@ with p_col2:
     start_d = st.date_input("回測開始日期", dt.date(2015, 1, 1))
 
 with p_col3:
-    rebalance_mode = st.radio("運作模式", ["比例觸發再平衡", "不進行再平衡"], horizontal=True)
+    rebalance_mode = st.radio("運作模式", ["不進行再平衡", "比例觸發再平衡", "定期時間再平衡"], horizontal=True)
     end_d = st.date_input("回測結束日期", dt.date.today())
 
 st.write("---")
-st.write("### 📈 比例再平衡區間設定")
-s_col1, s_col2 = st.columns(2)
 
-with s_col1:
-    upper_limit = st.slider("正2 比例上限 (%)", 51, 95, 70, disabled=(rebalance_mode == "不進行再平衡"))
-    st.caption("當正2價值超過總資產此比例時，賣出並收回現金。")
-
-with s_col2:
-    lower_limit = st.slider("正2 比例下限 (%)", 5, 49, 30, disabled=(rebalance_mode == "不進行再平衡"))
-    st.caption("當正2價值低於總資產此比例時，動用現金買入正2。")
+# 根據模式動態顯示進階參數
+if rebalance_mode == "比例觸發再平衡":
+    st.write("### 📈 比例再平衡區間設定")
+    s_col1, s_col2 = st.columns(2)
+    with s_col1:
+        upper_limit = st.slider("正2 比例上限 (%)", 51, 95, 70)
+    with s_col2:
+        lower_limit = st.slider("正2 比例下限 (%)", 5, 49, 30)
+    time_freq = None
+elif rebalance_mode == "定期時間再平衡":
+    st.write("### 📅 定期再平衡時間設定")
+    time_freq = st.selectbox("請選擇再平衡頻率", ["每月再平衡", "每季再平衡", "每半年再平衡", "每年再平衡"], index=0)
+    upper_limit, lower_limit = 100, 0 # 時間模式下比例不生效
+else:
+    upper_limit, lower_limit, time_freq = 100, 0, None
 
 # ----------------- 策略參數結束 -----------------
 
@@ -111,9 +109,19 @@ def calc_metrics(series: pd.Series):
     mdd = (series / rolling_max - 1).min()
     return vol, sharpe, mdd
 
-def run_5050_logic(df, initial_capital, up_pct, low_pct, mode):
+def run_5050_logic(df, initial_capital, up_pct, low_pct, mode, freq_str):
     cash = initial_capital * 0.5
     shares = (initial_capital * 0.5) / df["Price_lev"].iloc[0]
+    
+    # 時間頻率對照表
+    freq_map = {"每月再平衡": "M", "每季再平衡": "Q", "每半年再平衡": "6M", "每年再平衡": "A"}
+    f_code = freq_map.get(freq_str)
+    
+    # 預先找出所有時間觸發日
+    time_triggers = []
+    if mode == "定期時間再平衡" and f_code:
+        time_triggers = df.resample(f_code).last().index
+
     up_th = up_pct / 100.0
     low_th = low_pct / 100.0
     history = []
@@ -126,13 +134,23 @@ def run_5050_logic(df, initial_capital, up_pct, low_pct, mode):
         current_ratio = stock_val / total_val
         
         triggered = False
+        
+        # 模式1: 比例觸發
         if mode == "比例觸發再平衡":
             if current_ratio >= up_th or current_ratio <= low_th:
-                cash = total_val * 0.5
-                shares = (total_val * 0.5) / p_lev
                 triggered = True
-                stock_val = shares * p_lev
-                current_ratio = 0.5
+        
+        # 模式2: 定期時間觸發
+        elif mode == "定期時間再平衡":
+            if date in time_triggers and i < len(df) - 1:
+                triggered = True
+        
+        # 執行再平衡
+        if triggered:
+            cash = total_val * 0.5
+            shares = (total_val * 0.5) / p_lev
+            stock_val = shares * p_lev
+            current_ratio = 0.5
             
         history.append({
             "Date": date, "Total_Equity": total_val, "Cash": cash, "Stock": stock_val,
@@ -141,10 +159,10 @@ def run_5050_logic(df, initial_capital, up_pct, low_pct, mode):
     return pd.DataFrame(history).set_index("Date")
 
 ###############################################################
-# 5. 回測啟動
+# 5. 回測啟動與呈現
 ###############################################################
 
-if st.button("開始回測 🚀", use_container_width=True):
+if st.button("啟動回測 🚀", use_container_width=True):
     df_base = load_csv(base_ticker)
     df_lev = load_csv(lev_ticker)
 
@@ -156,7 +174,7 @@ if st.button("開始回測 🚀", use_container_width=True):
                   df_lev.rename(columns={"Price": "Price_lev"}),
                   left_index=True, right_index=True).loc[start_d:end_d]
 
-    res = run_5050_logic(df, capital, upper_limit, lower_limit, rebalance_mode)
+    res = run_5050_logic(df, capital, upper_limit, lower_limit, rebalance_mode, time_freq)
     df = pd.concat([df, res], axis=1)
     df["Equity_Base"] = (capital / df["Price_base"].iloc[0]) * df["Price_base"]
 
@@ -168,8 +186,8 @@ if st.button("開始回測 🚀", use_container_width=True):
     
     reb_pts = df[df["Triggered"] == 1]
     if not reb_pts.empty:
-        fig_sig.add_trace(go.Scatter(x=reb_pts.index, y=reb_pts["Price_base"], mode="markers", 
-                                     name="觸發再平衡", marker=dict(symbol="star", size=12, color="gold", line=dict(width=1, color="black"))))
+        fig_sig.add_trace(go.Scatter(x=reb_pts.index, y=df.loc[reb_pts.index, "Price_base"], mode="markers", 
+                                     name="再平衡點", marker=dict(symbol="star", size=12, color="gold", line=dict(width=1, color="black"))))
 
     fig_sig.update_layout(template="plotly_white", hovermode="x unified",
                           yaxis=dict(title="原型價格"), yaxis2=dict(title="槓桿價格", overlaying="y", side="right", showgrid=False),
@@ -187,7 +205,6 @@ if st.button("開始回測 🚀", use_container_width=True):
         st.plotly_chart(fig_eq, use_container_width=True)
 
     with t2:
-        # 總曝險視角回撤
         dd_strat = (df["Total_Equity"] / df["Total_Equity"].cummax() - 1) * 100
         dd_base = (df["Equity_Base"] / df["Equity_Base"].cummax() - 1) * 100
         fig_dd = go.Figure()
@@ -196,15 +213,15 @@ if st.button("開始回測 🚀", use_container_width=True):
         st.plotly_chart(fig_dd, use_container_width=True)
         
     with t3:
-        # 
         fig_ratio = go.Figure()
         fig_ratio.add_trace(go.Scatter(x=df.index, y=df["Ratio"]*100, name="目前正2 佔比", line=dict(color='#FFA15A', width=2)))
-        fig_ratio.add_hline(y=upper_limit, line_dash="dash", line_color="red", annotation_text=f"上限 {upper_limit}%")
-        fig_ratio.add_hline(y=lower_limit, line_dash="dash", line_color="green", annotation_text=f"下限 {lower_limit}%")
+        if rebalance_mode == "比例觸發再平衡":
+            fig_ratio.add_hline(y=upper_limit, line_dash="dash", line_color="red", annotation_text=f"上限 {upper_limit}%")
+            fig_ratio.add_hline(y=lower_limit, line_dash="dash", line_color="green", annotation_text=f"下限 {lower_limit}%")
         fig_ratio.update_layout(template="plotly_white", yaxis_title="佔比 (%)", yaxis_range=[0, 100])
         st.plotly_chart(fig_ratio, use_container_width=True)
 
-    # --- C. 績效比較表格 ---
+    # --- C. 績效表格 ---
     vol_s, shp_s, mdd_s = calc_metrics(df["Total_Equity"])
     vol_b, shp_b, mdd_b = calc_metrics(df["Equity_Base"])
     years = max((df.index[-1] - df.index[0]).days / 365, 0.1)
@@ -217,6 +234,7 @@ if st.button("開始回測 🚀", use_container_width=True):
 
     metrics_map = [
         ("期末資產", df["Total_Equity"].iloc[-1], df["Equity_Base"].iloc[-1], fmt_money),
+        ("累積報酬率", (df["Total_Equity"].iloc[-1]/capital)-1, (df["Equity_Base"].iloc[-1]/capital)-1, fmt_pct),
         ("年化報酬 (CAGR)", cagr_s, cagr_b, fmt_pct),
         ("最大回撤 (MDD)", mdd_s, mdd_b, fmt_pct),
         ("年化波動率", vol_s, vol_b, fmt_pct),
@@ -225,11 +243,11 @@ if st.button("開始回測 🚀", use_container_width=True):
 
     html_table = f"""
     <table class="comp-table">
-        <thead><tr><th class="metric-name">比較指標</th><th>50/50 策略 ({rebalance_mode})</th><th>{base_ticker} 買進持有</th></tr></thead>
+        <thead><tr><th class="metric-name">比較指標 (總曝險基準)</th><th>50/50 策略 ({rebalance_mode})</th><th>{base_ticker} 買進持有</th></tr></thead>
         <tbody>
     """
     for label, v1, v2, func in metrics_map:
-        win = v1 > v2 # 對 MDD 和 波動率來說，大於代表跌幅小/波動小，語意正確
+        win = v1 > v2 
         w_class = "class='win-cell'" if win else ""
         html_table += f"<tr><td class='metric-name'>{label}</td><td {w_class}>{func(v1)}</td><td>{func(v2)}</td></tr>"
     html_table += f"<tr><td class='metric-name'>再平衡執行總次數</td><td colspan='2' style='font-weight:bold;'>{int(df['Triggered'].sum())} 次</td></tr></tbody></table>"
