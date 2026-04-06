@@ -17,15 +17,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        # 從 v3 升級到 v4 以支援 Node.js 24
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        # 從 v4 升級到 v5 以支援 Node.js 24
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
       - name: Install dependencies
-        run: pip install pandas
+        run: |
+          pip install pandas yfinance  # 確保有安裝 yfinance 才能跑你的新代號 ^GSPC
 
       - name: Run calculation script
         # 指向您放置 Python 腳本的路徑
