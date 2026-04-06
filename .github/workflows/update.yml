@@ -11,10 +11,12 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        # 從 v3 升級到 v4 以支援 Node.js 24
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        # 從 v4 升級到 v5 以支援 Node.js 24
+        uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
