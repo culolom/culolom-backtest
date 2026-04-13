@@ -14,10 +14,11 @@ st.markdown("""
     .mdd-card {
         border-radius: 10px; padding: 15px; margin-top: 10px; border: 1px solid #30363d;
         background-color: rgba(151, 166, 195, 0.05); text-align: center;
-        min-height: 120px;
+        min-height: 160px; /* 增加高度以容納總報酬 */
     }
-    .mdd-value { font-size: 1.6em; font-weight: bold; margin: 5px 0; }
-    .mdd-label { color: #8b949e; font-size: 0.75em; line-height: 1.2; }
+    .mdd-value { font-size: 1.6em; font-weight: bold; margin: 2px 0; }
+    .ret-value { font-size: 1.2em; font-weight: bold; margin: 2px 0; }
+    .mdd-label { color: #8b949e; font-size: 0.75em; line-height: 1.2; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -63,7 +64,6 @@ annual_fee = 0.015
 # --- 5. 資料抓取 ---
 @st.cache_data(ttl=3600)
 def get_backtest_data(symbol, start, end):
-    # LRS 需多抓資料計算 SMA
     fetch_start = start - timedelta(days=400)
     try:
         df = yf.download(symbol, start=fetch_start, end=end, progress=False)
@@ -91,7 +91,6 @@ if raw_df is not None and len(raw_df) > 0:
     # D. 計算累積倍數
     comp_1x = (1 + df['Ret_1x']).cumprod()
     comp_2x = (1 + df['Ret_2x']).cumprod()
-    # LRS 邏輯：有訊號參與 2x 報酬，無訊號則持有現金(0)
     comp_lrs = (1 + np.where(df['Signal'], df['Ret_2x'], 0.0)).cumprod()
     comp_cash = 1.0
 
@@ -102,9 +101,14 @@ if raw_df is not None and len(raw_df) > 0:
     df['V_433'] = (comp_1x * 0.4 + comp_2x * 0.3 + comp_cash * 0.3) * 100
     df['V_LRS'] = comp_lrs * 100
     
-    # F. 回撤計算
-    for col in ['Bench', '100', '5050', '433', 'LRS']:
-        df[f'DD_{col}'] = (df[f'V_{col}'] - df[f'V_{col}'].cummax()) / df[f'V_{col}'].cummax()
+    # F. 回撤與總報酬計算
+    results = {}
+    for key, col in [('Bench', 'V_Bench'), ('100', 'V_100'), ('5050', 'V_5050'), ('433', 'V_433'), ('LRS', 'V_LRS')]:
+        # MDD
+        df[f'DD_{key}'] = (df[col] - df[col].cummax()) / df[col].cummax()
+        # 總報酬 = (最終價值 / 初始價值) - 1
+        results[f'Ret_{key}'] = (df[col].iloc[-1] / 100) - 1
+        results[f'MDD_{key}'] = df[f'DD_{key}'].min()
 
     # G. 視覺化縮放
     scale_factor = 100 / df['Price'].iloc[0]
@@ -131,7 +135,6 @@ if raw_df is not None and len(raw_df) > 0:
     
     if enable_lrs:
         fig.add_trace(go.Scatter(x=df.index, y=df['V_LRS'], name='LRS 擇時 (2x+SMA)', line=dict(color='#FFA500', width=3)))
-        # 加入 SMA 參考線
         fig.add_trace(go.Scatter(x=df.index, y=df['SMA200_Scaled'], name='200SMA (防禦線)', line=dict(dash='dot', color='rgba(255, 165, 0, 0.4)')))
         
     fig.add_trace(go.Scatter(x=df.index, y=df['V_5050'], name='5050 配置', line=dict(color='#00D1B2', width=2.5)))
@@ -151,29 +154,35 @@ if raw_df is not None and len(raw_df) > 0:
     fig_dd.update_layout(hovermode="x unified", height=300, yaxis_tickformat=".1%")
     st.plotly_chart(fig_dd, use_container_width=True)
 
-    # --- 9. 風控卡片 ---
-    st.subheader("🛡️ 策略風險數據對比")
+    # --- 9. 風控卡片 (含總報酬) ---
+    st.subheader("🛡️ 策略風險與收益數據對比")
     card_cols = st.columns(5 if enable_lrs else 4)
-    def mdd_card(col_obj, title, val, color):
+    
+    def mdd_card(col_obj, title, mdd, ret, color):
+        # 報酬顏色判斷
+        ret_color = "#FF4B4B" if ret < 0 else "#00D1B2"
         col_obj.markdown(f"""<div class="mdd-card" style="border-color: {color};">
-            <div class="mdd-label">{title}</div>
-            <div class="mdd-value" style="color: {color};">{val*100:.2f}%</div>
+            <div class="mdd-label" style="color: {color}; text-transform: uppercase;">{title}</div>
+            <hr style="margin: 10px 0; border: 0; border-top: 1px solid rgba(255,255,255,0.1);">
+            <div class="mdd-label">最大回撤 (MDD)</div>
+            <div class="mdd-value" style="color: {color};">{mdd*100:.2f}%</div>
+            <div class="mdd-label" style="margin-top:10px;">總報酬率</div>
+            <div class="ret-value" style="color: {ret_color};">{ret*100:.2f}%</div>
         </div>""", unsafe_allow_html=True)
     
-    mdd_card(card_cols[0], "原型 (1x)", df['DD_Bench'].min(), "#8b949e")
-    mdd_card(card_cols[1], "全倉正2", df['DD_100'].min(), "#FF4B4B")
+    mdd_card(card_cols[0], "原型 (1x)", results['MDD_Bench'], results['Ret_Bench'], "#8b949e")
+    mdd_card(card_cols[1], "全倉正2", results['MDD_100'], results['Ret_100'], "#FF4B4B")
     if enable_lrs:
-        mdd_card(card_cols[2], "LRS 擇時", df['DD_LRS'].min(), "#FFA500")
-        mdd_card(card_cols[3], "5050 配置", df['DD_5050'].min(), "#00D1B2")
-        mdd_card(card_cols[4], "433 配置", df['DD_433'].min(), "#1C83E1")
+        mdd_card(card_cols[2], "LRS 擇時", results['MDD_LRS'], results['Ret_LRS'], "#FFA500")
+        mdd_card(card_cols[3], "5050 配置", results['MDD_5050'], results['Ret_5050'], "#00D1B2")
+        mdd_card(card_cols[4], "433 配置", results['MDD_433'], results['Ret_433'], "#1C83E1")
     else:
-        mdd_card(card_cols[2], "5050 配置", df['DD_5050'].min(), "#00D1B2")
-        mdd_card(card_cols[3], "433 配置", df['DD_433'].min(), "#1C83E1")
+        mdd_card(card_cols[2], "5050 配置", results['MDD_5050'], results['Ret_5050'], "#00D1B2")
+        mdd_card(card_cols[3], "433 配置", results['MDD_433'], results['Ret_433'], "#1C83E1")
 
     # --- 10. 專業說明 ---
     st.divider()
     st.subheader("💡 策略定義與 1.5% 損耗說明")
-    
     col_info1, col_info2 = st.columns(2)
     with col_info1:
         st.markdown(f"""
@@ -184,15 +193,14 @@ if raw_df is not None and len(raw_df) > 0:
         
         **關於 1.5% 年度費用計算：**
         * **精確扣費**：1.5% 的損耗(經理費、轉倉損耗)僅作用於「槓桿部位」。
-        * **實質影響**：例如 5050 策略，因為只有一半資金在正2，所以總資產每年的實質費用損耗僅為 **0.75%** ($1.5\% \\times 50\%$)。
+        * **實質影響**：例如 5050 策略，每年的實質費用損耗僅為 **0.75%**。
         """)
-    
     with col_info2:
         st.markdown(f"""
-        **靜態持有 (Static Allocation) 的數據意義：**
-        * **回撤減半效應**：當 100% 正2 跌掉約 90% 時，由於 **5050 策略** 有一半的資產是現金且「不參與再平衡」，現金部位發揮了最強的緩衝作用，總資產回撤會精確收斂至約 **45%~46%**。
-        * **生存優先**：這展示了現金是極端行情下的救命錢。即便正2跌到深處，你的總資產依然能維持在 50 萬以上，提供極高的心理安全感。
-        * **不攤平、不操作**：本模擬不進行每日平衡。資產佔比會隨市場漲跌自然變動，真實體現「放任不管」下的最差保護狀態。
+        **數據觀察重點：**
+        * **風控效率**：注意 **5050 策略** 在崩盤時的 MDD 通常僅為 **全倉正2** 的一半，這就是「現金防火牆」的效果。
+        * **LRS 的優勢**：在極端多頭轉空頭的年份，LRS 能透過避開主跌段，在維持高報酬的同時大幅降低 MDD。
+        * **心理安全感**：配置策略的核心不在於「賺最多」，而在於讓你在 MDD 發生時還能睡得著覺，從而拿得住部位。
         """)
 
 else:
