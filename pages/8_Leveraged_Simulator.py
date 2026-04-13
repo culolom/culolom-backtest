@@ -115,7 +115,7 @@ if raw_df is not None and len(raw_df) > 0:
     df['SMA200_Scaled'] = df['SMA200'] * scale_factor
 
     # --- 6. 指標面板 ---
-    st.subheader(f"📊 {st.session_state.scenario_name}：策略最終價值比較")
+    st.subheader(f"📊 {st.session_state.scenario_name}：初始投入100萬最終價值比較")
     cols = st.columns(5 if enable_lrs else 4)
     cols[0].metric("原型 (1x)", f"{df['V_Bench'].iloc[-1]:.1f} 萬")
     cols[1].metric("全倉正2", f"{df['V_100'].iloc[-1]:.1f} 萬")
