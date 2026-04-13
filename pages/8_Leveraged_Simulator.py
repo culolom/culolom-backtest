@@ -32,8 +32,8 @@ with st.sidebar:
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
 # --- 3. 頂部快速切換按鈕 ---
-st.title("🐹 配置 vs 擇時：五大策略極端對決")
-st.caption("本模擬比較「靜態配置」與「LRS 趨勢擇時」，體現不同風控手段在崩盤下的生存力。")
+st.title("🐹 歷史極端行情模擬器")
+st.caption("本模擬歷史極端行情，體現在崩盤下的最大回撤。")
 
 col_btn1, col_btn2 = st.columns(2)
 
