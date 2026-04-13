@@ -62,7 +62,8 @@ st.info(f"當前情境：**{st.session_state.scenario_name}** | 參數：**{leve
 # --- 5. 資料抓取 ---
 @st.cache_data(ttl=3600)
 def get_backtest_data(symbol, start, end):
-    fetch_start = start - timedelta(days=400) # 多抓一點確保 SMA200 準確
+    # 為了計算 SMA200，多抓 400 天確保緩衝
+    fetch_start = start - timedelta(days=400)
     try:
         df = yf.download(symbol, start=fetch_start, end=end, progress=False)
         if df.empty: return None
@@ -78,36 +79,35 @@ def get_backtest_data(symbol, start, end):
 raw_df = get_backtest_data(target_symbol, st.session_state.start_date, st.session_state.end_date)
 
 if raw_df is not None and len(raw_df) > 0:
-    # A. 計算 SMA
+    # A. 計算指標
     raw_df['SMA200'] = raw_df['Price'].rolling(window=200).mean()
     
     # B. 裁切時段
     df = raw_df[raw_df.index >= pd.to_datetime(st.session_state.start_date)].copy()
     
-    # C. 計算報酬 (這部分是程式邏輯)
+    # C. 計算報酬
     df['Daily_Ret'] = df['Price'].pct_change()
     daily_fee = annual_fee / 252
     
     if use_sma_defense:
-        # 訊號：股價 > SMA 則參與槓桿
+        # 防禦邏輯：收盤價 > SMA200 則參與槓桿，否則空手 (0)
         df['Signal'] = (df['Price'] > df['SMA200']).shift(1).fillna(False)
         df['Strategy_Ret'] = np.where(df['Signal'], df['Daily_Ret'] * leverage - daily_fee, 0.0)
     else:
         df['Strategy_Ret'] = df['Daily_Ret'] * leverage - daily_fee
 
-    # D. 計算累積淨值 (100 為基準)
+    # D. 計算累積淨值
     df['Index_Cum'] = (1 + df['Daily_Ret'].fillna(0)).cumprod() * 100
     df['Strategy_Cum'] = (1 + df['Strategy_Ret'].fillna(0)).cumprod() * 100
     
-    # --- 重要：視覺化縮放修正 ---
-    # 讓 SMA200 的畫線比例與 Index_Cum 一致
+    # E. 視覺化縮放修正 (讓圖表交叉點與邏輯一致)
     scale_factor = 100 / df['Price'].iloc[0]
     df['SMA200_Scaled'] = df['SMA200'] * scale_factor
 
     # --- 6. 指標面板 ---
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("基準指數最終價值", f"{df['Index_Cum'].iloc[-1]:.1f} 萬")
-    m2.metric("正2策略最終價值", f"{df['Strategy_Cum'].iloc[-1]:.1f} 萬")
+    m2.metric("正2策略最終價值", f"{df['Strategy_Cum'].iloc[-1]:.1f} 萬", delta=f"{((df['Strategy_Cum'].iloc[-1]/100)-1)*100:.1f}%")
     m3.metric("指數最大回撤", f"{((df['Index_Cum'] / df['Index_Cum'].cummax()) - 1).min()*100:.1f}%")
     m4.metric("策略最大回撤", f"{((df['Strategy_Cum'] / df['Strategy_Cum'].cummax()) - 1).min()*100:.1f}%", delta_color="inverse")
 
@@ -143,9 +143,23 @@ if raw_df is not None and len(raw_df) > 0:
     }
     st.dataframe(pd.DataFrame(mdd_compare_data), use_container_width=True, hide_index=True)
 
-    # --- 9. 說明說明 ---
+    # --- 9. 專業說明區塊 (重新補上) ---
     st.divider()
-    st.info("💡 **小筆記：** 如果你發現 2000 年 4 月沒賣，是因為當時原始股價還在均線之上（1999 年漲太兇，均線追不上）。改用此版本後，圖表上的交叉點將與程式賣出時機完全同步。")
+    st.subheader("💡 模擬參數與防禦機制說明")
+    col_info1, col_info2 = st.columns(2)
+    with col_info1:
+        st.markdown(f"""
+        **為什麼需要 200SMA 防禦？**
+        * **避開主跌段**：在 2000 年或 2008 年，股市一旦跌破 200SMA 往往代表長期空頭。透過防禦開關，你可以看到「避開空頭」對正2淨值的巨大貢獻。
+        * **減少曝險**：槓桿工具在空頭市場的「每日平衡」會導致資產迅速縮水，防禦機制能讓你在市場極度危險時退場觀望。
+        * **視覺修正**：本圖表已對 200SMA 進行同步縮放，確保你看到的交叉點與策略賣出時間點完全一致。
+        """)
+    with col_info2:
+        st.markdown(f"""
+        **1.5% 年度損耗與波動損耗說明**
+        * **1.5% 損耗**：包含經理費、保管費與期貨轉倉成本。這是一個保守的壓力測試值。
+        * **波動損耗**：本程式採用「每日平衡」計算，自動還原了震盪盤整時的「路徑依賴損耗」。當你看到圖中正2的回升速度不對稱時，那就是波動損耗的體現。
+        """)
 
 else:
-    st.warning("⚠️ 無法獲取該時段資料。")
+    st.warning("⚠️ 無法獲取該時段資料，請檢查代碼或網路。")
