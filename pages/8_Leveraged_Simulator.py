@@ -51,7 +51,7 @@ col_ctrl1, col_ctrl2 = st.columns([1, 2])
 with col_ctrl1:
     use_sma_defense = st.checkbox("🛡️ 啟動 200SMA 趨勢防禦", value=False)
 
-# 寫死參數
+# 參數寫死
 target_symbol = "^TWII"
 leverage = 2.0
 annual_fee = 0.015 
@@ -62,7 +62,6 @@ st.info(f"當前情境：**{st.session_state.scenario_name}** | 參數：**{leve
 # --- 5. 資料抓取 ---
 @st.cache_data(ttl=3600)
 def get_backtest_data(symbol, start, end):
-    # 為了計算 SMA200，多抓 400 天確保緩衝
     fetch_start = start - timedelta(days=400)
     try:
         df = yf.download(symbol, start=fetch_start, end=end, progress=False)
@@ -79,28 +78,27 @@ def get_backtest_data(symbol, start, end):
 raw_df = get_backtest_data(target_symbol, st.session_state.start_date, st.session_state.end_date)
 
 if raw_df is not None and len(raw_df) > 0:
-    # A. 計算指標
+    # A. 指標計算
     raw_df['SMA200'] = raw_df['Price'].rolling(window=200).mean()
-    
-    # B. 裁切時段
     df = raw_df[raw_df.index >= pd.to_datetime(st.session_state.start_date)].copy()
     
-    # C. 計算報酬
+    # B. 報酬計算
     df['Daily_Ret'] = df['Price'].pct_change()
     daily_fee = annual_fee / 252
     
     if use_sma_defense:
-        # 防禦邏輯：收盤價 > SMA200 則參與槓桿，否則空手 (0)
         df['Signal'] = (df['Price'] > df['SMA200']).shift(1).fillna(False)
         df['Strategy_Ret'] = np.where(df['Signal'], df['Daily_Ret'] * leverage - daily_fee, 0.0)
     else:
         df['Strategy_Ret'] = df['Daily_Ret'] * leverage - daily_fee
 
-    # D. 計算累積淨值
+    # C. 淨值與回撤計算
     df['Index_Cum'] = (1 + df['Daily_Ret'].fillna(0)).cumprod() * 100
     df['Strategy_Cum'] = (1 + df['Strategy_Ret'].fillna(0)).cumprod() * 100
+    df['Index_DD'] = (df['Index_Cum'] - df['Index_Cum'].cummax()) / df['Index_Cum'].cummax()
+    df['Strategy_DD'] = (df['Strategy_Cum'] - df['Strategy_Cum'].cummax()) / df['Strategy_Cum'].cummax()
     
-    # E. 視覺化縮放修正 (讓圖表交叉點與邏輯一致)
+    # D. 視覺化縮放修正
     scale_factor = 100 / df['Price'].iloc[0]
     df['SMA200_Scaled'] = df['SMA200'] * scale_factor
 
@@ -108,42 +106,52 @@ if raw_df is not None and len(raw_df) > 0:
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("基準指數最終價值", f"{df['Index_Cum'].iloc[-1]:.1f} 萬")
     m2.metric("正2策略最終價值", f"{df['Strategy_Cum'].iloc[-1]:.1f} 萬", delta=f"{((df['Strategy_Cum'].iloc[-1]/100)-1)*100:.1f}%")
-    m3.metric("指數最大回撤", f"{((df['Index_Cum'] / df['Index_Cum'].cummax()) - 1).min()*100:.1f}%")
-    m4.metric("策略最大回撤", f"{((df['Strategy_Cum'] / df['Strategy_Cum'].cummax()) - 1).min()*100:.1f}%", delta_color="inverse")
+    m3.metric("指數最大回撤", f"{df['Index_DD'].min()*100:.1f}%")
+    m4.metric("策略最大回撤", f"{df['Strategy_DD'].min()*100:.1f}%", delta_color="inverse")
 
     # --- 7. 走勢圖表 ---
     st.subheader("📈 資產淨值走勢")
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df['Index_Cum'], name='原始指數 (1x)', line=dict(color='rgba(150, 150, 150, 0.5)')))
     fig.add_trace(go.Scatter(x=df.index, y=df['Strategy_Cum'], name=f'模擬正2 (2x)', line=dict(color='#00D1B2', width=2.5)))
-    
-    # 畫出修正後的 SMA200
-    fig.add_trace(go.Scatter(x=df.index, y=df['SMA200_Scaled'], 
-                             name='200SMA (同步縮放)', line=dict(dash='dot', color='rgba(255, 165, 0, 0.6)')))
-    
-    fig.update_layout(hovermode="x unified", height=450, margin=dict(l=20, r=20, t=30, b=20))
+    fig.add_trace(go.Scatter(x=df.index, y=df['SMA200_Scaled'], name='200SMA (同步縮放)', line=dict(dash='dot', color='rgba(255, 165, 0, 0.6)')))
+    fig.update_layout(hovermode="x unified", height=400, margin=dict(l=20, r=20, t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- 8. MDD 表格 ---
+    # --- 8. 回撤圖表 (新增回來的區塊) ---
+    st.subheader("📉 歷史回撤深度比較")
+    fig_dd = go.Figure()
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df['Index_DD'], name='指數回撤', fill='tozeroy', line=dict(width=1, color='rgba(150, 150, 150, 0.3)')))
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df['Strategy_DD'], name='策略回撤', fill='tozeroy', line=dict(width=1, color='rgba(0, 209, 178, 0.3)')))
+    
+    fig_dd.update_layout(
+        hovermode="x unified",
+        height=300,
+        margin=dict(l=20, r=20, t=30, b=20),
+        yaxis_tickformat=".1%",
+        yaxis_title="回撤百分比"
+    )
+    st.plotly_chart(fig_dd, use_container_width=True)
+
+    # --- 9. MDD 表格 ---
     st.subheader("📊 最大回撤 (MDD) 深度分析")
-    def get_mdd_stats(cum_series):
-        dd = (cum_series - cum_series.cummax()) / cum_series.cummax()
-        mdd_val = dd.min()
-        valley_date = dd.idxmin()
+    def get_mdd_stats(cum_series, dd_series):
+        mdd_val = dd_series.min()
+        valley_date = dd_series.idxmin()
         peak_date = cum_series[:valley_date].idxmax()
         return f"{mdd_val*100:.2f}%", str(peak_date.date()), str(valley_date.date()), (valley_date - peak_date).days
 
-    idx_mdd = get_mdd_stats(df['Index_Cum'])
-    str_mdd = get_mdd_stats(df['Strategy_Cum'])
+    idx_stats = get_mdd_stats(df['Index_Cum'], df['Index_DD'])
+    str_stats = get_mdd_stats(df['Strategy_Cum'], df['Strategy_DD'])
 
     mdd_compare_data = {
         "分析指標": ["最大回撤 (MDD)", "起點 (歷史高點)", "終點 (最慘低點)", "回撤歷時 (天)"],
-        "基準指數 (1x)": idx_mdd,
-        f"模擬正2 ({leverage}x)": str_mdd
+        "基準指數 (1x)": idx_stats,
+        f"模擬正2 ({leverage}x)": str_stats
     }
     st.dataframe(pd.DataFrame(mdd_compare_data), use_container_width=True, hide_index=True)
 
-    # --- 9. 專業說明區塊 (重新補上) ---
+    # --- 10. 專業說明區塊 ---
     st.divider()
     st.subheader("💡 模擬參數與防禦機制說明")
     col_info1, col_info2 = st.columns(2)
@@ -152,7 +160,6 @@ if raw_df is not None and len(raw_df) > 0:
         **為什麼需要 200SMA 防禦？**
         * **避開主跌段**：在 2000 年或 2008 年，股市一旦跌破 200SMA 往往代表長期空頭。透過防禦開關，你可以看到「避開空頭」對正2淨值的巨大貢獻。
         * **減少曝險**：槓桿工具在空頭市場的「每日平衡」會導致資產迅速縮水，防禦機制能讓你在市場極度危險時退場觀望。
-        * **視覺修正**：本圖表已對 200SMA 進行同步縮放，確保你看到的交叉點與策略賣出時間點完全一致。
         """)
     with col_info2:
         st.markdown(f"""
