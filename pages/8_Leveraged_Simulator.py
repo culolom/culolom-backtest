@@ -1,3 +1,4 @@
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -8,9 +9,19 @@ from datetime import datetime, timedelta
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="正2歷史模擬 - 倉鼠量化戰情室", layout="wide")
 
+# 自定義 CSS：按鈕樣式與卡片設計
 st.markdown("""
     <style>
     div.stButton > button { width: 100%; height: 3em; font-size: 1.2em; font-weight: bold; border-radius: 10px; }
+    .mdd-card {
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 10px;
+        border: 1px solid #30363d;
+        background-color: rgba(151, 166, 195, 0.05);
+    }
+    .mdd-value { font-size: 2.2em; font-weight: bold; margin: 10px 0; }
+    .mdd-label { color: #8b949e; font-size: 0.9em; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -51,7 +62,7 @@ col_ctrl1, col_ctrl2 = st.columns([1, 2])
 with col_ctrl1:
     use_sma_defense = st.checkbox("🛡️ 啟動 200SMA 趨勢防禦", value=False)
 
-# 參數寫死
+# 參數設定
 target_symbol = "^TWII"
 leverage = 2.0
 annual_fee = 0.015 
@@ -102,7 +113,7 @@ if raw_df is not None and len(raw_df) > 0:
     scale_factor = 100 / df['Price'].iloc[0]
     df['SMA200_Scaled'] = df['SMA200'] * scale_factor
 
-    # --- 6. 指標面板 ---
+    # --- 6. 指標面板 (頂部總覽) ---
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("基準指數最終價值", f"{df['Index_Cum'].iloc[-1]:.1f} 萬")
     m2.metric("正2策略最終價值", f"{df['Strategy_Cum'].iloc[-1]:.1f} 萬", delta=f"{((df['Strategy_Cum'].iloc[-1]/100)-1)*100:.1f}%")
@@ -118,54 +129,66 @@ if raw_df is not None and len(raw_df) > 0:
     fig.update_layout(hovermode="x unified", height=400, margin=dict(l=20, r=20, t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- 8. 回撤圖表 (新增回來的區塊) ---
+    # --- 8. 回撤圖表 ---
     st.subheader("📉 歷史回撤深度比較")
     fig_dd = go.Figure()
     fig_dd.add_trace(go.Scatter(x=df.index, y=df['Index_DD'], name='指數回撤', fill='tozeroy', line=dict(width=1, color='rgba(150, 150, 150, 0.3)')))
     fig_dd.add_trace(go.Scatter(x=df.index, y=df['Strategy_DD'], name='策略回撤', fill='tozeroy', line=dict(width=1, color='rgba(0, 209, 178, 0.3)')))
-    
-    fig_dd.update_layout(
-        hovermode="x unified",
-        height=300,
-        margin=dict(l=20, r=20, t=30, b=20),
-        yaxis_tickformat=".1%",
-        yaxis_title="回撤百分比"
-    )
+    fig_dd.update_layout(hovermode="x unified", height=250, margin=dict(l=20, r=20, t=30, b=20), yaxis_tickformat=".1%")
     st.plotly_chart(fig_dd, use_container_width=True)
 
-    # --- 9. MDD 表格 ---
+    # --- 9. MDD 比較卡片 (新增區塊) ---
     st.subheader("📊 最大回撤 (MDD) 深度分析")
+    
     def get_mdd_stats(cum_series, dd_series):
         mdd_val = dd_series.min()
         valley_date = dd_series.idxmin()
         peak_date = cum_series[:valley_date].idxmax()
-        return f"{mdd_val*100:.2f}%", str(peak_date.date()), str(valley_date.date()), (valley_date - peak_date).days
+        duration = (valley_date - peak_date).days
+        return mdd_val, peak_date.date(), valley_date.date(), duration
 
-    idx_stats = get_mdd_stats(df['Index_Cum'], df['Index_DD'])
-    str_stats = get_mdd_stats(df['Strategy_Cum'], df['Strategy_DD'])
+    idx_mdd, idx_peak, idx_valley, idx_dur = get_mdd_stats(df['Index_Cum'], df['Index_DD'])
+    str_mdd, str_peak, str_valley, str_dur = get_mdd_stats(df['Strategy_Cum'], df['Strategy_DD'])
 
-    mdd_compare_data = {
-        "分析指標": ["最大回撤 (MDD)", "起點 (歷史高點)", "終點 (最慘低點)", "回撤歷時 (天)"],
-        "基準指數 (1x)": idx_stats,
-        f"模擬正2 ({leverage}x)": str_stats
-    }
-    st.dataframe(pd.DataFrame(mdd_compare_data), use_container_width=True, hide_index=True)
+    col_card1, col_card2 = st.columns(2)
+    
+    with col_card1:
+        st.markdown(f"""
+        <div class="mdd-card">
+            <div style="color: #8b949e; font-weight: bold;">📉 基準指數 (1.0x)</div>
+            <div class="mdd-value" style="color: #8b949e;">{idx_mdd*100:.2f}%</div>
+            <div class="mdd-label">歷史高點：{idx_peak}</div>
+            <div class="mdd-label">最慘低點：{idx_valley}</div>
+            <div class="mdd-label">回撤歷時：{idx_dur} 天</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_card2:
+        st.markdown(f"""
+        <div class="mdd-card" style="border-color: #00D1B2; background-color: rgba(0, 209, 178, 0.05);">
+            <div style="color: #00D1B2; font-weight: bold;">🚀 模擬正2 (2.0x)</div>
+            <div class="mdd-value" style="color: #00D1B2;">{str_mdd*100:.2f}%</div>
+            <div class="mdd-label">歷史高點：{str_peak}</div>
+            <div class="mdd-label">最慘低點：{str_valley}</div>
+            <div class="mdd-label">回撤歷時：{str_dur} 天</div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # --- 10. 專業說明區塊 ---
     st.divider()
     st.subheader("💡 模擬參數與防禦機制說明")
     col_info1, col_info2 = st.columns(2)
     with col_info1:
-        st.markdown(f"""
+        st.markdown("""
         **為什麼需要 200SMA 防禦？**
-        * **避開主跌段**：在 2000 年或 2008 年，股市一旦跌破 200SMA 往往代表長期空頭。透過防禦開關，你可以看到「避開空頭」對正2淨值的巨大貢獻。
-        * **減少曝險**：槓桿工具在空頭市場的「每日平衡」會導致資產迅速縮水，防禦機制能讓你在市場極度危險時退場觀望。
+        * **避開主跌段**：在空頭市場破線時退場，能顯著保護淨值。
+        * **視覺修正**：本圖表已對 200SMA 進行同步縮放，交叉點與策略賣點完全一致。
         """)
     with col_info2:
-        st.markdown(f"""
+        st.markdown("""
         **1.5% 年度損耗與波動損耗說明**
-        * **1.5% 損耗**：包含經理費、保管費與期貨轉倉成本。這是一個保守的壓力測試值。
-        * **波動損耗**：本程式採用「每日平衡」計算，自動還原了震盪盤整時的「路徑依賴損耗」。當你看到圖中正2的回升速度不對稱時，那就是波動損耗的體現。
+        * **1.5% 損耗**：包含經理費、保管費與期貨轉倉成本。
+        * **波動損耗**：採用「每日平衡」計算，已自動包含震盪盤整時的路徑依賴損耗。
         """)
 
 else:
