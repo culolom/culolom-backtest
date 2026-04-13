@@ -16,9 +16,17 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🐹 正2 歷史極端行情模擬器")
+# --- 2. 側邊欄配置 (Sidebar) ---
+with st.sidebar:
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
 
-# --- 2. 頂部快速切換按鈕 (取代側邊欄) ---
+# --- 3. 頂部快速切換按鈕 ---
+st.title("🐹 正2 歷史極端行情模擬器")
 st.subheader("📌 選擇模擬情境")
 col_btn1, col_btn2 = st.columns(2)
 
@@ -40,21 +48,19 @@ with col_btn2:
         st.session_state.end_date = datetime(2009, 7, 1)
         st.session_state.scenario_name = "2008 金融海嘯"
 
-# --- 3. 寫死參數設定 ---
+# --- 4. 寫死參數設定 ---
 target_symbol = "^TWII"
 leverage = 2.0
 annual_fee = 0.015  # 寫死 1.5%
-use_sma = False     # 依你需求預設關閉，若需要可自行在代碼改 True
 
 st.info(f"當前模擬：**{st.session_state.scenario_name}** | 標的：**{target_symbol}** | 槓桿：**{leverage}x** | 年度損耗：**1.5%**")
 
-# --- 4. 資料抓取與計算 ---
+# --- 5. 資料抓取與計算 ---
 @st.cache_data(ttl=3600)
 def get_backtest_data(symbol, start, end):
     try:
         df = yf.download(symbol, start=start, end=end, progress=False)
         if df.empty: return None
-        # 處理 Multi-index
         if isinstance(df.columns, pd.MultiIndex):
             df = df['Close']
         else:
@@ -80,7 +86,7 @@ if df is not None and len(df) > 0:
     df['Index_DD'] = (df['Index_Cum'] - df['Index_Cum'].cummax()) / df['Index_Cum'].cummax()
     df['Strategy_DD'] = (df['Strategy_Cum'] - df['Strategy_Cum'].cummax()) / df['Strategy_Cum'].cummax()
 
-    # --- 5. 指標面板 ---
+    # --- 6. 指標面板 ---
     m1, m2, m3, m4 = st.columns(4)
     final_idx = df['Index_Cum'].iloc[-1]
     final_strat = df['Strategy_Cum'].iloc[-1]
@@ -89,7 +95,7 @@ if df is not None and len(df) > 0:
     m3.metric("指數最大回撤", f"{df['Index_DD'].min()*100:.1f}%")
     m4.metric("策略最大回撤", f"{df['Strategy_DD'].min()*100:.1f}%", delta_color="inverse")
 
-    # --- 6. MDD 比較表格 ---
+    # --- 7. MDD 比較表格 ---
     st.subheader("📊 最大回撤 (MDD) 深度分析")
     def get_mdd_stats(cum_series, dd_series):
         mdd_val = dd_series.min()
@@ -108,14 +114,14 @@ if df is not None and len(df) > 0:
     }
     st.table(pd.DataFrame(mdd_compare_data))
 
-    # --- 7. 走勢圖表 ---
+    # --- 8. 走勢圖表 ---
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df.index, y=df['Index_Cum'], name='原始指數 (1x)', line=dict(color='rgba(200, 200, 200, 0.5)')))
     fig.add_trace(go.Scatter(x=df.index, y=df['Strategy_Cum'], name=f'模擬正2 (2x)', line=dict(color='#00D1B2', width=2.5)))
     fig.update_layout(template="plotly_dark", hovermode="x unified", height=400, margin=dict(l=20, r=20, t=30, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- 8. 專業說明區塊 (新增) ---
+    # --- 9. 專業說明區塊 ---
     st.divider()
     st.subheader("💡 模擬參數細節說明")
     
