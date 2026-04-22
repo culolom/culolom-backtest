@@ -1,5 +1,4 @@
 import os
-import datetime as dt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -8,161 +7,177 @@ import plotly.graph_objects as go
 from pathlib import Path
 
 # ------------------------------------------------------
-# 1. 基本設定與 CSS 美化
+# 1. 頁面配置與 CSS 鼠叔風格美化
 # ------------------------------------------------------
-st.set_page_config(page_title="LRS 均線深度統計", page_icon="🔭", layout="wide")
+st.set_page_config(page_title="LRS 策略深度研究", page_icon="🔭", layout="wide")
 
 st.markdown("""
 <style>
+    /* 橘色按鈕 */
     div.stButton > button:first-child {
         background-color: #FF6F00; color: white; border-radius: 10px;
         font-weight: bold; font-size: 16px; padding: 0.5rem 2rem;
         transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border: none;
     }
     div.stButton > button:first-child:hover { background-color: #E65100; transform: translateY(-2px); }
+    
+    /* 資訊卡片 */
     .info-card {
         background-color: #f9f9f9; padding: 20px; border-radius: 12px;
         border-left: 6px solid #FF6F00; margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
+    
+    /* 標題與副標題 */
+    h1, h2, h3 { font-family: 'Noto Sans TC', sans-serif; }
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------
-# 2. 數據載入
+# 2. 數據處理核心函數
 # ------------------------------------------------------
 DATA_DIR = Path("data")
 
-def load_data(symbol: str) -> pd.DataFrame:
+@st.cache_data
+def load_and_preprocess(symbol: str, start_year: int):
     path = DATA_DIR / f"{symbol}.csv"
-    if not path.exists(): return pd.DataFrame()
+    if not path.exists():
+        return None
+    
+    # 載入數據，確保日期格式正確
     df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
     price_col = "Adj Close" if "Adj Close" in df.columns else "Close"
-    return df[[price_col]].rename(columns={price_col: "Price"})
-
-# ------------------------------------------------------
-# 3. 標題與說明
-# ------------------------------------------------------
-st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 策略：均線與波動率統計研究</h1>", unsafe_allow_html=True)
-st.markdown("""
-<div class="info-card">
-    <h4 style="margin-top:0;">📖 核心研究指標</h4>
-    <p>參考 Michael Gayed 論文，本回測將分析：<br>
-    1. 不同週期均線（10~200日）對於<b>波動率</b>的區分能力。<br>
-    2. 以 <b>200SMA</b> 為基準，量化台股的<b>動能持續性（連漲天數）</b>與<b>股災避險能力</b>。</p>
-</div>
-""", unsafe_allow_html=True)
-
-with st.container():
-    c1, c2 = st.columns([1.5, 1])
-    with c1:
-        target_symbol = st.selectbox("選擇回測標的", ["^TWII", "0050.TW", "SPY", "QQQ"], index=0)
-    with c2:
-        start_year = st.slider("統計起始年份", 2000, 2026, 2000)
-
-# ------------------------------------------------------
-# 4. 運算與繪圖邏輯
-# ------------------------------------------------------
-if st.button("開始執行台股 LRS 統計 🚀"):
-    df_raw = load_data(target_symbol)
-    if df_raw.empty:
-        st.error(f"❌ 找不到 {target_symbol}.csv")
-        st.stop()
-        
-    df = df_raw[df_raw.index.year >= start_year].copy()
+    df = df[[price_col]].rename(columns={price_col: "Price"})
+    
+    # 篩選年份
+    df = df[df.index.year >= start_year].copy()
+    
+    # 計算基礎回報
     df['Return'] = df['Price'].pct_change()
-
-    # --- A. 多重均線波動率統計 (還原 Chart 3) ---
-    st.divider()
-    st.subheader("📊 不同均線環境下的年化波動率對比")
     
-    ma_periods = [10, 20, 50, 100, 200]
-    vol_data = []
-    
-    for p in ma_periods:
-        ma = df['Price'].rolling(window=p).mean()
-        above_mask = df['Price'] > ma
-        
-        vol_above = df[above_mask]['Return'].std() * np.sqrt(252)
-        vol_below = df[~above_mask]['Return'].std() * np.sqrt(252)
-        
-        vol_data.append({"MA": f"{p}-day", "Volatility": vol_above, "Environment": "Volatility Above"})
-        vol_data.append({"MA": f"{p}-day", "Volatility": vol_below, "Environment": "Volatility Below"})
-        
-    df_vol = pd.DataFrame(vol_data)
-    fig_vol = px.bar(
-        df_vol, x="MA", y="Volatility", color="Environment",
-        barmode="group", text_auto='.1%',
-        color_discrete_map={"Volatility Above": "#6699CC", "Volatility Below": "#EE7733"},
-        height=500
-    )
-    fig_vol.update_layout(yaxis_tickformat='.0%')
-    st.plotly_chart(fig_vol, use_container_width=True)
-    st.caption("💡 觀察：隨著均線週期拉長，『之上』與『之下』的波動率差異通常會更明顯。")
-
-    # --- 固定使用 200SMA 進行後續分析 ---
-    main_ma_p = 200
-    df['MA200'] = df['Price'].rolling(window=main_ma_p).mean()
+    # 計算 200SMA 核心指標 (用於大部分圖表)
+    df['MA200'] = df['Price'].rolling(window=200).mean()
     df['Above200'] = df['Price'] > df['MA200']
     
-    # --- B. 200SMA 連漲天數統計 (Chart 7) ---
-    st.divider()
-    st.subheader("🔥 200SMA 環境下的連漲機率 (動能持續性)")
-    
-    # 計算連漲
+    # 計算連漲天數 (Consecutive Streaks)
     is_up = df['Return'] > 0
     df['Streak'] = is_up.groupby((is_up != is_up.shift()).cumsum()).cumcount() + 1
     df.loc[~is_up, 'Streak'] = 0
     
-    def get_probs(subset):
-        total = len(subset)
-        return {f"{s} Up": (subset['Streak'] >= s).sum() / total for s in [2, 3, 4, 5]}
+    return df
 
-    streak_probs = []
-    for env, mask in [("Above 200-day", df['Above200']), ("Below 200-day", ~df['Above200'])]:
-        probs = get_probs(df[mask])
-        for k, v in probs.items():
-            streak_probs.append({"Streak": k, "Probability": v, "Environment": env})
-            
-    fig_streak = px.bar(
-        streak_probs, x="Streak", y="Probability", color="Environment",
-        barmode="group", text_auto='.0%',
-        color_discrete_map={"Above 200-day": "#6699CC", "Below 200-day": "#EE7733"}
-    )
-    fig_streak.update_layout(yaxis_tickformat='.0%')
-    st.plotly_chart(fig_streak, use_container_width=True)
+# ------------------------------------------------------
+# 3. 儀表板 Header 與側邊欄
+# ------------------------------------------------------
+st.markdown("<h1 style='margin-bottom:0.1em;'>🔭 LRS 策略：台股全維度量化戰情室</h1>", unsafe_allow_html=True)
+st.markdown(f"<p style='color:gray;'>數據更新至：{pd.Timestamp.now().strftime('%Y-%m-%d')}</p>", unsafe_allow_html=True)
 
-    # --- C. 週期比例與股災 MDD ---
-    col_left, col_right = st.columns(2)
+st.markdown("""
+<div class="info-card">
+    <h4 style="margin-top:0;">📖 鼠叔量化筆記</h4>
+    <p style="margin-bottom:0;">本儀表板還原了 Michael Gayed 經典論文中的四項關鍵統計。我們不只看績效，更要看<b>「波動率壓制」</b>與<b>「連漲動能」</b>在台股的實戰表現。這才是長期持有正二而不被震出場的科學依據。</p>
+</div>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.header("⚙️ 全域參數")
+    target_symbol = st.selectbox("選擇回測標的", ["^TWII", "0050.TW", "SPY", "QQQ"], index=0)
+    start_year = st.slider("統計起始年份", 2000, 2026, 2000)
+    st.divider()
+    st.caption("🐹 倉鼠人生實驗室製作")
+
+# ------------------------------------------------------
+# 4. 主執行區域
+# ------------------------------------------------------
+if st.button("更新統計報告 🚀"):
+    df = load_and_preprocess(target_symbol, start_year)
     
-    with col_left:
-        st.subheader("⚖️ 200SMA 市場週期佔比")
-        counts = df['Above200'].value_counts(normalize=True)
-        fig_pie = px.pie(
-            values=counts.values, names=["Expansion (>200MA)", "Recession (<200MA)"],
-            color_discrete_sequence=["#6699CC", "#EE7733"], hole=0.4
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
+    if df is None:
+        st.error(f"❌ 找不到 `data/{target_symbol}.csv`。請確保檔案已上傳至正確目錄。")
+    else:
+        # --- 區塊 A: 不同均線波動率對比 (Chart 3) ---
+        st.subheader("📊 不同均線週期之波動率壓制對比")
+        ma_periods = [10, 20, 50, 100, 200]
+        vol_results = []
+        for p in ma_periods:
+            ma_temp = df['Price'].rolling(window=p).mean()
+            above = df['Price'] > ma_temp
+            vol_above = df[above]['Return'].std() * np.sqrt(252)
+            vol_below = df[~above]['Return'].std() * np.sqrt(252)
+            vol_results.append({"MA": f"{p}-day", "Volatility": vol_above, "Environment": "Volatility Above"})
+            vol_results.append({"MA": f"{p}-day", "Volatility": vol_below, "Environment": "Volatility Below"})
+        
+        fig_vol = px.bar(pd.DataFrame(vol_results), x="MA", y="Volatility", color="Environment",
+                         barmode="group", text_auto='.1%', 
+                         color_discrete_map={"Volatility Above": "#6699CC", "Volatility Below": "#EE7733"})
+        st.plotly_chart(fig_vol, use_container_width=True)
 
-    with col_right:
-        st.subheader("🛡️ 歷史股災避險對比 (MDD)")
+        # --- 區塊 B: 連漲天數與市場佔比 ---
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            st.subheader("🔥 200SMA 環境下的連漲機率 (動能持續性)")
+            def get_streak_stats(subset):
+                total = len(subset)
+                return {f"{s}天": (subset['Streak'] >= s).sum() / total for s in [2, 3, 4, 5]}
+            
+            s_above = get_streak_stats(df[df['Above200']])
+            s_below = get_streak_stats(df[~df['Above200']])
+            streak_df = pd.DataFrame([
+                {"連漲": k, "機率": v, "環境": "Above 200-day"} for k, v in s_above.items()
+            ] + [
+                {"連漲": k, "機率": v, "環境": "Below 200-day"} for k, v in s_below.items()
+            ])
+            fig_streak = px.bar(streak_df, x="連漲", y="機率", color="環境", barmode="group", text_auto='.0%',
+                                color_discrete_map={"Above 200-day": "#6699CC", "Below 200-day": "#EE7733"})
+            st.plotly_chart(fig_streak, use_container_width=True)
+
+        with col2:
+            st.subheader("⚖️ 市場週期佔比")
+            counts = df['Above200'].value_counts(normalize=True)
+            fig_pie = px.pie(values=counts.values, names=["Expansion (>200MA)", "Recession (<200MA)"],
+                             color_discrete_sequence=["#6699CC", "#EE7733"], hole=0.5)
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        # --- 區塊 C: 滾動回撤對比 (Chart 8) ---
+        st.subheader("🛡️ Chart 8: 歷史滾動回撤對比 (Rolling Drawdown)")
+        # 策略淨值計算 (考慮 1 天訊號延遲)
+        df['Bench_NAV'] = (1 + df['Return'].fillna(0)).cumprod()
+        df['LRS_Ret'] = np.where(df['Above200'].shift(1), df['Return'], 0)
+        df['LRS_NAV'] = (1 + df['LRS_Ret'].fillna(0)).cumprod()
+        
+        def calc_dd(nav): return (nav / nav.cummax()) - 1
+        df['Bench_DD'] = calc_dd(df['Bench_NAV'])
+        df['LRS_DD'] = calc_dd(df['LRS_NAV'])
+        
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(x=df.index, y=df['Bench_DD'], name="大盤 (Buy & Hold)",
+                                    line=dict(color='#EE7733', width=1), fill='tozeroy', fillcolor='rgba(238,119,51,0.1)'))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=df['LRS_DD'], name="LRS 策略 (200SMA)",
+                                    line=dict(color='#6699CC', width=2)))
+        fig_dd.update_layout(yaxis_tickformat='.0%', hovermode="x unified", height=500, margin=dict(l=0,r=0,t=30,b=0))
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+        # --- 區塊 D: 股災 MDD 數據表 ---
+        st.subheader("📋 重大股災避險能力統計")
         crashes = [
-            ("2008 金融海嘯", "2008-01-01", "2009-06-01"),
-            ("2020 新冠疫情", "2020-01-01", "2020-05-01"),
+            ("2000 科技泡沫", "2000-01-01", "2002-12-31"),
+            ("2008 金融海嘯", "2008-01-01", "2009-06-30"),
+            ("2020 新冠疫情", "2020-01-01", "2020-04-30"),
             ("2022 升息縮表", "2022-01-01", "2022-12-31")
         ]
-        mdd_data = []
+        mdd_summary = []
         for name, s, e in crashes:
             mask = (df.index >= s) & (df.index <= e)
-            c_data = df.loc[mask].copy()
-            if c_data.empty: continue
-            # B&H
-            bh_nav = (1 + c_data['Return']).cumprod()
-            bh_mdd = (bh_nav / bh_nav.cummax() - 1).min()
-            # LRS (昨天在均線上才持有)
-            c_data['LRS_Ret'] = np.where(c_data['Above200'].shift(1), c_data['Return'], 0)
-            lrs_nav = (1 + c_data['LRS_Ret']).cumprod()
-            lrs_mdd = (lrs_nav / lrs_nav.cummax() - 1).min()
-            mdd_data.append({"事件": name, "大盤 MDD": f"{bh_mdd:.1%}", "LRS MDD": f"{lrs_mdd:.1%}"})
-        st.table(pd.DataFrame(mdd_results := mdd_data))
-
-    st.success("✅ 統計完成！均線濾網在台股的『低波動』與『動能持續』效果顯著。")
+            if mask.any():
+                sub = df.loc[mask]
+                b_mdd = (sub['Bench_NAV'] / sub['Bench_NAV'].cummax() - 1).min()
+                l_mdd = (sub['LRS_NAV'] / sub['LRS_NAV'].cummax() - 1).min()
+                mdd_summary.append({"股災區間": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", 
+                                    "避險效果": f"減少 {(b_mdd - l_mdd)*-1:.1%} 跌幅"})
+        st.table(pd.DataFrame(mdd_summary))
+        
+        st.success(f"🐹 {target_symbol} 統計報告生成完畢！")
+else:
+    st.info("💡 點擊上方按鈕開始分析。請確保 `data/` 資料夾中包含標的的 CSV 檔案。")
