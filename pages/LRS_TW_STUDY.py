@@ -204,9 +204,9 @@ if st.button("開始執行量化分析 🚀"):
         fig_cycle.update_layout(yaxis_tickformat='.0%', showlegend=False, height=400)
         st.plotly_chart(fig_cycle, use_container_width=True)
 
-    # --- 區塊 3: 滾動回撤對比 (Chart 8) ---
+    # --- 區塊 3: 滾動回撤對比 ---
     st.divider()
-    st.subheader("🛡️ Chart 8: 歷史滾動回撤對比 (Rolling Drawdown)")
+    st.subheader("🛡️歷史滾動回撤對比 (Rolling Drawdown)")
     df['Bench_NAV'] = (1 + df['Return'].fillna(0)).cumprod()
     df['LRS_Ret'] = np.where(df['Above200'].shift(1), df['Return'], 0)
     df['LRS_NAV'] = (1 + df['LRS_Ret'].fillna(0)).cumprod()
@@ -229,7 +229,7 @@ if st.button("開始執行量化分析 🚀"):
         ("2008 金融海嘯", "2008-01-01", "2009-06-30"), 
         ("2020 新冠疫情", "2020-01-01", "2020-04-30"), 
         ("2022 升息縮表", "2022-01-01", "2022-12-31"),
-        ("2025 對等關稅股災", "2025-01-01", "2025-12-31") # <--- 新增
+        ("2025 對等關稅", "2025-01-01", "2025-12-31") # <--- 新增
     ]
     mdd_sum = []
     for name, s, e in crashes:
