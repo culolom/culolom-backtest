@@ -223,13 +223,13 @@ if st.button("開始執行量化分析 🚀"):
     fig_dd.update_yaxes(range=[-1, 0.05])
     st.plotly_chart(fig_dd, use_container_width=True)
 
-    # --- 區塊 4: 股災統計表 ---
-    st.subheader("📋 重大股災避險效果實測")
+# --- 區塊 4: 股災統計 (新增 2025 事件) ---
+    st.subheader("📋 重大股災避險效果實測 (含 2025 對等關稅股災)")
     crashes = [
         ("2008 金融海嘯", "2008-01-01", "2009-06-30"), 
         ("2020 新冠疫情", "2020-01-01", "2020-04-30"), 
-        ("2022 升息縮表", "2022-01-01", "2022-12-31")
-        ("2025 對等關稅股災", "2025-04-01", "2025-06-30")
+        ("2022 升息縮表", "2022-01-01", "2022-12-31"),
+        ("2025 對等關稅股災", "2025-04-01", "2025-06-30") # <--- 新增
     ]
     mdd_sum = []
     for name, s, e in crashes:
@@ -238,11 +238,8 @@ if st.button("開始執行量化分析 🚀"):
             sub = df.loc[mask]
             b_mdd = (sub['Bench_NAV'] / sub['Bench_NAV'].cummax() - 1).min()
             l_mdd = (sub['LRS_NAV'] / sub['LRS_NAV'].cummax() - 1).min()
-            mdd_sum.append({"歷史股災": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", 
-                            "避險效果": f"減少 {(b_mdd-l_mdd)*-1:.1%} 跌幅"})
-    
-    if mdd_sum:
-        st.table(pd.DataFrame(mdd_sum))
+            mdd_sum.append({"歷史股災": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", "避險效果": f"減少 {(b_mdd-l_mdd)*-1:.1%} 跌幅"})
+    st.table(pd.DataFrame(mdd_sum))
     
     st.success(f"✨ {selected_name} 全維度量化報告生成完畢！")
 else:
