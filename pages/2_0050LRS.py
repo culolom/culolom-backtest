@@ -1,17 +1,15 @@
-###############################################################
-# app.py — 0050 雙向乖離動態槓桿 (新增乖離率監控分頁)
-###############################################################
-
 import os
+import sys
 import datetime as dt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib
-import matplotlib.font_manager as fm
+import plotly.express as px
 import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+import matplotlib
 from pathlib import Path
-import sys
 
 ###############################################################
 # 1. 環境設定與字型
@@ -25,6 +23,7 @@ else:
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
+# ★ st.set_page_config 必須是第一個 Streamlit 命令
 st.set_page_config(page_title="0050 雙向乖離動態槓桿", page_icon="📈", layout="wide")
 
 # 🔒 驗證守門員
@@ -32,288 +31,170 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
     import auth 
     if not auth.check_password(): st.stop()
-except ImportError: pass 
+except ImportError:
+    pass 
+
+# ★★★ CSS 注入區域：定義鼠叔風格 ★★★
+st.markdown("""
+<style>
+    /* 橘色按鈕 */
+    div.stButton > button:first-child {
+        background-color: #FF6F00; color: white; border-radius: 10px;
+        font-weight: bold; font-size: 16px; padding: 0.5rem 2rem;
+        transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border: none;
+    }
+    div.stButton > button:first-child:hover { background-color: #E65100; transform: translateY(-2px); }
+    
+    /* 資訊卡片 */
+    .info-card {
+        background-color: #f9f9f9; padding: 20px; border-radius: 12px;
+        border-left: 6px solid #FF6F00; margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+</style>
+""", unsafe_allow_html=True)
 
 ###############################################################
-# 2. 核心計算函數
+# 2. 數據載入邏輯
 ###############################################################
+DATA_DIR = Path("data")
 
-def calc_metrics(series: pd.Series):
-    daily = series.dropna()
-    if len(daily) <= 1: return np.nan, np.nan, np.nan
-    avg, std, downside = daily.mean(), daily.std(), daily[daily < 0].std()
-    vol = std * np.sqrt(252)
-    sharpe = (avg / std) * np.sqrt(252) if std > 0 else np.nan
-    sortino = (avg / downside) * np.sqrt(252) if downside > 0 else np.nan
-    return vol, sharpe, sortino
-
-def get_stats(eq, rets, y):
-    f_eq = eq.iloc[-1]
-    f_ret = f_eq - 1
-    cagr = (1 + f_ret)**(1/y) - 1 if y > 0 else 0
-    mdd = 1 - (eq / eq.cummax()).min()
-    v, sh, so = calc_metrics(rets)
-    calmar = cagr / mdd if mdd > 0 else 0
-    return f_eq, f_ret, cagr, mdd, v, sh, so, calmar
-
-def nz(x, default=0.0): return float(np.nan_to_num(x, nan=default))
-def fmt_money(v): return f"{v:,.0f} 元"
-def fmt_pct(v, d=2): return f"{v:.{d}%}"
-def fmt_num(v, d=2): return f"{v:.{d}f}"
-def fmt_int(v): return f"{int(v):,}"
+@st.cache_data
+def load_data(symbol: str) -> pd.DataFrame:
+    path = DATA_DIR / f"{symbol}.csv"
+    if not path.exists(): return pd.DataFrame()
+    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date").sort_index()
+    price_col = "Adj Close" if "Adj Close" in df.columns else "Close"
+    return df[[price_col]].rename(columns={price_col: "Price"})
 
 ###############################################################
-# 3. UI 與 Sidebar
+# 3. UI 與 Sidebar (整合快速連結與參數設定)
 ###############################################################
 
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
+
+    # --- 全域參數設定 (根據截圖位置) ---
+    st.markdown("### ⚙️ 全域參數")
+    target_symbol = st.selectbox("選擇回測標的", ["^TWII", "0050.TW", "SPY", "QQQ"], index=0)
+    start_year = st.slider("統計起始年份", 2000, 2026, 2000)
+    
+    st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
     st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
     st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
-
-st.markdown("<h1 style='margin-bottom:0.5em;'>📊 0050 雙向乖離動態槓桿系統</h1>", unsafe_allow_html=True)
-
-BASE_ETFS = {"0050 元大台灣50": "0050.TW", "006208 富邦台50": "006208.TW"}
-LEV_ETFS = {
-    "00631L 元大台灣50正2": "00631L.TW", "00663L 國泰台灣加權正2": "00663L.TW",
-    "00675L 富邦台灣加權正2": "00675L.TW", "00685L 群益台灣加權正2": "00685L.TW",
-}
-
-def load_csv(symbol: str) -> pd.DataFrame:
-    path = Path("data") / f"{symbol}.csv"
-    if not path.exists(): return pd.DataFrame()
-    df = pd.read_csv(path, parse_dates=["Date"], index_col="Date")
-    df = df.sort_index(); df["Price"] = df["Close"]
-    return df[["Price"]]
-
-col1, col2 = st.columns(2)
-base_label = col1.selectbox("原型 ETF (趨勢訊號源)", list(BASE_ETFS.keys()))
-lev_label = col2.selectbox("槓桿 ETF (實際交易標的)", list(LEV_ETFS.keys()))
-
-df1_tmp, df2_tmp = load_csv(BASE_ETFS[base_label]), load_csv(LEV_ETFS[lev_label])
-s_min, s_max = max(df1_tmp.index.min().date(), df2_tmp.index.min().date()), min(df1_tmp.index.max().date(), df2_tmp.index.max().date())
-
-col_p1, col_p2, col_p3, col_p4 = st.columns(4)
-start = col_p1.date_input("開始日期", value=max(s_min, s_max - dt.timedelta(days=5*365)))
-end = col_p2.date_input("結束日期", value=s_max)
-capital = col_p3.number_input("投入本金", 1000, 5000000, 100000, step=10000)
-sma_window = col_p4.number_input("均線週期 (SMA)", 10, 240, 200, step=10)
-
-st.write("---")
-position_mode = st.radio("初始狀態選擇", ["一開局就全倉槓桿 ETF", "空手起跑 (等待下次金叉)"], index=0)
-
-col_set1, col_set2 = st.columns(2)
-with col_set1:
-    with st.expander("📉 均線下：負乖離 DCA 加碼設定", expanded=True):
-        enable_dca = st.toggle("啟用 DCA 加碼", value=True)
-        dca_bias_trigger = st.number_input("加碼觸發乖離率 (%)", max_value=0.0, value=-15.0)
-        dca_pct = st.number_input("每次加碼資金比例 (%)", 1, 100, 20)
-        dca_cooldown = st.slider("加碼冷卻天數 (CD)", 1, 60, 10)
-with col_set2:
-    with st.expander("🚀 均線上：高位乖離套利減碼設定", expanded=True):
-        enable_arb = st.toggle("啟用套利減碼", value=False)
-        arb_bias_trigger = st.number_input("減碼觸發乖離率 (%)", min_value=0.0, value=35.0)
-        arb_reduce_pct = st.number_input("每次減碼資金比例 (%)", 1, 100, 100)
-        arb_cooldown = st.slider("套利冷卻天數 (CD)", 1, 60, 10)
+    st.divider()
+    st.caption("🐹 倉鼠人生實驗室製作")
 
 ###############################################################
-# 4. 回測執行
+# 4. 主畫面內容
 ###############################################################
 
-if st.button("啟動回測引擎 🚀"):
-    start_buf = start - dt.timedelta(days=int(sma_window * 2))
-    df_base = load_csv(BASE_ETFS[base_label]).loc[start_buf:end]
-    df_lev = load_csv(LEV_ETFS[lev_label]).loc[start_buf:end]
-    
-    if df_base.empty or df_lev.empty: st.error("⚠️ 數據讀取失敗"); st.stop()
+st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 策略：均線與波動率深度統計研究</h1>", unsafe_allow_html=True)
 
-    df = pd.DataFrame(index=df_base.index)
-    df["Price_base"] = df_base["Price"]
-    df = df.join(df_lev["Price"].rename("Price_lev"), how="inner").sort_index()
-    df["MA"] = df["Price_base"].rolling(sma_window).mean()
-    df["Bias"] = (df["Price_base"] - df["MA"]) / df["MA"]
-    df = df.dropna(subset=["MA"]).loc[start:end]
-    
-    # 策略核心循環 (修正對齊與套利 Bug)
-    sigs, pos = [0] * len(df), [0.0] * len(df)
-    curr_pos, can_buy = (1.0, True) if "一開局" in position_mode else (0.0, False)
-    pos[0], dca_cd, arb_cd = curr_pos, 0, 0
+st.markdown("""
+<div class="info-card">
+    <h4 style="margin-top:0;">📖 鼠叔量化研究筆記</h4>
+    <p>本模組旨在驗證 LRS 策略的核心假設：<b>「均線之上為低波動、高動能環境」</b>。<br>
+    透過統計不同週期均線對波動率的區隔能力，以及 200SMA 環境下的連漲勝率與滾動回撤，科學化地評估長期持有槓桿 ETF 的合理環境。</p>
+</div>
+""", unsafe_allow_html=True)
 
-    for i in range(1, len(df)):
-        p, m, bias_pct = df["Price_base"].iloc[i], df["MA"].iloc[i], df["Bias"].iloc[i] * 100
-        p0, m0 = df["Price_base"].iloc[i-1], df["MA"].iloc[i-1]
-        if dca_cd > 0: dca_cd -= 1
-        if arb_cd > 0: arb_cd -= 1
-        sig = 0
-
-        if p > m:
-            if can_buy:
-                if p0 <= m0: 
-                    curr_pos = 1.0 
-                    sig = 1
-                if enable_arb and bias_pct >= arb_bias_trigger and arb_cd == 0 and curr_pos > 0:
-                    curr_pos = max(0.0, curr_pos - (arb_reduce_pct / 100.0))
-                    sig, arb_cd = 3, arb_cooldown
-            else: curr_pos = 0.0
-            dca_cd = 0
-        else:
-            can_buy = True 
-            if p0 > m0: curr_pos, sig, arb_cd = 0.0, -1, 0
-            elif enable_dca and curr_pos < 1.0:
-                if bias_pct <= dca_bias_trigger and dca_cd == 0:
-                    curr_pos = min(1.0, curr_pos + (dca_pct / 100.0))
-                    sig, dca_cd = 2, dca_cooldown
-        pos[i], sigs[i] = round(curr_pos, 4), sig
-
-    df["Signal"], df["Position"] = sigs, pos
-
-    # 計算資金曲線與日報酬
-    equity_lrs = [1.0]
-    for i in range(1, len(df)):
-        ret = (df["Price_lev"].iloc[i] / df["Price_lev"].iloc[i-1]) - 1
-        equity_lrs.append(equity_lrs[-1] * (1 + (ret * df["Position"].iloc[i-1])))
-    
-    df["Equity_LRS"] = equity_lrs
-    df["Return_LRS"] = df["Equity_LRS"].pct_change().fillna(0)
-    df["Equity_BH_Base"] = (df["Price_base"] / df["Price_base"].iloc[0])
-    df["Equity_BH_Lev"] = (df["Price_lev"] / df["Price_lev"].iloc[0])
-    df["Return_lev"] = df["Price_lev"].pct_change().fillna(0)
-    
-    y_len = (df.index[-1] - df.index[0]).days / 365
-    sl, sv, sb = get_stats(df["Equity_LRS"], df["Return_LRS"], y_len), \
-                 get_stats(df["Equity_BH_Lev"], df["Return_lev"], y_len), \
-                 get_stats(df["Equity_BH_Base"], df["Price_base"].pct_change().fillna(0), y_len)
-
-    # ------------------------------------------------------
-    # 5. 視覺化：KPI、信號圖
-    # ------------------------------------------------------
-    st.markdown("""<style>.kpi-card {background: var(--secondary-background-color); border-radius: 16px; padding: 24px; border: 1px solid rgba(128,128,128,0.1); text-align:center;} .kpi-val {font-size:2.2rem; font-weight:900; margin:10px 0;} .delta {color:#21c354; background:#21c3541a; padding:4px 12px; border-radius:12px; font-weight:700;}</style>""", unsafe_allow_html=True)
-    kc = st.columns(4)
-    kc[0].markdown(f'<div class="kpi-card">期末資產<div class="kpi-val">{fmt_money(sl[0]*capital)}</div><span class="delta">+{ (sl[0]/sv[0]-1):.2%} (vs 槓桿)</span></div>', unsafe_allow_html=True)
-    kc[1].markdown(f'<div class="kpi-card">CAGR<div class="kpi-val">{sl[2]:.2%}</div><span class="delta">+{ (sl[2]-sv[2]):.2%}</span></div>', unsafe_allow_html=True)
-    kc[2].markdown(f'<div class="kpi-card">年化波動<div class="kpi-val">{sl[4]:.2%}</div></div>', unsafe_allow_html=True)
-    kc[3].markdown(f'<div class="kpi-card">最大回撤<div class="kpi-val">{sl[3]:.2%}</div></div>', unsafe_allow_html=True)
-
-    st.markdown("### 📌 策略訊號與執行價格 (雙軸對照)")
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label}(左軸)", line=dict(color="#636EFA")))
-    fig.add_trace(go.Scatter(x=df.index, y=df["MA"], name=f"{sma_window} 日 SMA", line=dict(color="#FFA15A")))
-    fig.add_trace(go.Scatter(x=df.index, y=df["Price_lev"], name=f"{lev_label}(右軸)", yaxis="y2", line=dict(dash='dot', color="#00CC96"), opacity=0.3))
-    
-    colors = {1: ("全倉買進", "#00C853", "triangle-up", 12), -1: ("清倉賣出", "#D50000", "triangle-down", 12), 
-              2: ("負加碼 DCA", "#2E7D32", "circle", 8), 3: ("套利減碼", "#FF9800", "diamond", 10)}
-    for v, (l, c, s, sz) in colors.items():
-        pts = df[df["Signal"] == v]
-        if not pts.empty: fig.add_trace(go.Scatter(x=pts.index, y=pts["Price_base"], mode="markers", name=l, marker=dict(color=c, size=sz, symbol=s)))
-    fig.update_layout(template="plotly_white", height=500, yaxis2=dict(overlaying="y", side="right"), hovermode="x unified")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # ------------------------------------------------------
-    # 6. 分析分頁 (新增乖離率監控分頁)
-    # ------------------------------------------------------
-    st.markdown("### 📊 深度解析")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["資金曲線", "回撤比較", "風險雷達", "日報酬分佈", "乖離率與股價"])
-    
-    with tab1:
-        fe = go.Figure()
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Base"]-1, name="原型BH"))
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_BH_Lev"]-1, name="槓桿BH"))
-        fe.add_trace(go.Scatter(x=df.index, y=df["Equity_LRS"]-1, name="雙向乖離槓桿", line=dict(width=3, color="#00D494")))
-        fe.update_layout(template="plotly_white", yaxis=dict(tickformat=".0%"), height=450); st.plotly_chart(fe, use_container_width=True)
-    
-    with tab2:
-        fd = go.Figure()
-        fd.add_trace(go.Scatter(x=df.index, y=(df["Equity_LRS"]/df["Equity_LRS"].cummax()-1)*100, name="本策略", fill='tozeroy', line=dict(color='red')))
-        fd.update_layout(template="plotly_white", height=450, title="最大回撤曲線 (%)"); st.plotly_chart(fd, use_container_width=True)
-    
-    with tab3:
-        cat = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反)"]
-        r_l = [nz(sl[2]), nz(sl[5]), nz(sl[6]), nz(-sl[3]), nz(-sl[4])]
-        fr = go.Figure(); fr.add_trace(go.Scatterpolar(r=r_l, theta=cat, fill='toself', name='動態槓桿', marker_color="#00D494"))
-        fr.update_layout(polar=dict(radialaxis=dict(visible=True)), height=450); st.plotly_chart(fr, use_container_width=True)
-    
-    with tab4:
-        fh = go.Figure()
-        fh.add_trace(go.Histogram(x=df["Return_LRS"]*100, name="本策略", marker_color="#00D494", opacity=0.7))
-        fh.add_trace(go.Histogram(x=df["Return_lev"]*100, name="槓桿BH", opacity=0.4))
-        fh.update_layout(barmode="overlay", template="plotly_white", height=450, title="日報酬率分佈 (%)"); st.plotly_chart(fh, use_container_width=True)
-
-    # --- 新增分頁內容 ---
-    with tab5:
-        st.markdown("#### 🔍 乖離率監控走勢圖")
-        fb = go.Figure()
+if st.button("開始執行量化分析 🚀"):
+    df_raw = load_data(target_symbol)
+    if df_raw.empty:
+        st.error(f"❌ 找不到 `data/{target_symbol}.csv` 檔案，請確認檔案名稱是否正確。")
+        st.stop()
         
-        # 1. 繪製乖離率走勢 (左軸)
-        fb.add_trace(go.Scatter(
-            x=df.index, y=df["Bias"]*100, name="乖離率 (%)", 
-            line=dict(color="#AB63FA", width=2), fill='tozeroy', fillcolor='rgba(171, 99, 250, 0.1)'
-        ))
+    df = df_raw[df_raw.index.year >= start_year].copy()
+    df['Return'] = df['Price'].pct_change()
+
+    # --- 區塊 1: 多重均線波動率對比 (Chart 3) ---
+    st.subheader("📊 不同均線環境下的年化波動率對比")
+    ma_periods = [10, 20, 50, 100, 200]
+    vol_results = []
+    for p in ma_periods:
+        ma = df['Price'].rolling(window=p).mean()
+        above = df['Price'] > ma
+        vol_above = df[above]['Return'].std() * np.sqrt(252)
+        vol_below = df[~above]['Return'].std() * np.sqrt(252)
+        vol_results.append({"MA": f"{p}-day", "Volatility": vol_above, "Env": "Volatility Above"})
+        vol_results.append({"MA": f"{p}-day", "Volatility": vol_below, "Env": "Volatility Below"})
         
-        # 2. 繪製參考橫線 (左軸)
-        if enable_dca:
-            fb.add_hline(y=dca_bias_trigger, line_dash="dash", line_color="green", annotation_text=f"加碼觸發 ({dca_bias_trigger}%)")
-        if enable_arb:
-            fb.add_hline(y=arb_bias_trigger, line_dash="dash", line_color="orange", annotation_text=f"套利觸發 ({arb_bias_trigger}%)")
-        fb.add_hline(y=0, line_color="gray", opacity=0.5)
+    fig_vol = px.bar(pd.DataFrame(vol_results), x="MA", y="Volatility", color="Env",
+                     barmode="group", text_auto='.1%',
+                     color_discrete_map={"Volatility Above": "#6699CC", "Volatility Below": "#EE7733"})
+    fig_vol.update_layout(yaxis_tickformat='.0%')
+    st.plotly_chart(fig_vol, use_container_width=True)
 
-        # 3. 繪製股價走勢 (右軸)
-        fb.add_trace(go.Scatter(
-            x=df.index, y=df["Price_lev"], name=f"{lev_label} 股價 (右軸)", 
-            yaxis="y2", line=dict(color="#00CC96", width=1.5)
-        ))
-
-        fb.update_layout(
-            template="plotly_white", height=500,
-            hovermode="x unified",
-            yaxis=dict(title="乖離率 (%)", side="left", showgrid=True),
-            yaxis2=dict(title=f"{lev_label} 股價", side="right", overlaying="y", showgrid=False),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fb, use_container_width=True)
-
-    # ------------------------------------------------------
-    # 7. 策略績效總表
-    # ------------------------------------------------------
-    st.markdown("### 🏆 策略績效總表")
-    metrics = ["期末資產", "總報酬率", "CAGR (年化)", "Calmar Ratio", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "交易次數"]
-    dt_table = {
-        f"<b>{lev_label}</b><br>雙向乖離": [sl[0]*capital, sl[1], sl[2], sl[7], sl[3], sl[4], sl[5], (df["Signal"]!=0).sum()],
-        f"<b>{lev_label}</b><br>Buy & Hold": [sv[0]*capital, sv[1], sv[2], sv[7], sv[3], sv[4], sv[5], 0],
-        f"<b>{base_label}</b><br>Buy & Hold": [sb[0]*capital, sb[1], sb[2], sb[7], sb[3], sb[4], sb[5], 0]
-    }
-    df_v = pd.DataFrame(dt_table, index=metrics)
+    # --- 區塊 2: 200SMA 連漲天數與市場佔比 ---
+    df['MA200'] = df['Price'].rolling(window=200).mean()
+    df['Above200'] = df['Price'] > df['MA200']
     
-    html = '<style>.ctable {width:100%; border-collapse:separate; border-spacing:0; border-radius:12px; border:1px solid rgba(128,128,128,0.1); overflow:hidden;} .ctable th {background:var(--secondary-background-color); padding:15px; text-align:center;} .ctable td {padding:12px; text-align:center; border-bottom:1px solid rgba(128,128,128,0.05);} .mname {text-align:left !important; background:var(--secondary-background-color); font-weight:500;}</style>'
-    html += '<table class="ctable"><thead><tr><th style="text-align:left">指標</th>'
-    for col in df_v.columns: html += f'<th>{col}</th>'
-    html += '</tr></thead><tbody>'
-    for m in metrics:
-        html += f'<tr><td class="mname">{m}</td>'
-        rv = df_v.loc[m].values
-        best = min(rv) if m in ["最大回撤 (MDD)", "年化波動", "交易次數"] else max(rv)
-        for i, v in enumerate(rv):
-            is_win = (v == best and m != "交易次數")
-            if "資產" in m: txt = fmt_money(v)
-            elif any(x in m for x in ["率", "報酬", "波動", "MDD"]): txt = fmt_pct(v)
-            elif "次數" in m: txt = fmt_int(v)
-            else: txt = fmt_num(v)
-            style = 'style="font-weight:bold; color:var(--primary-color);"' if i == 0 else ''
-            html += f'<td {style}>{txt} {"🏆" if is_win else ""}</td>'
-        html += '</tr>'
-    st.write(html + '</tbody></table>', unsafe_allow_html=True)
+    is_up = df['Return'] > 0
+    df['Streak'] = is_up.groupby((is_up != is_up.shift()).cumsum()).cumcount() + 1
+    df.loc[~is_up, 'Streak'] = 0
+    
+    col_l, col_r = st.columns([2, 1])
+    with col_l:
+        st.subheader("🔥 200SMA 環境下的連漲機率 (Chart 7)")
+        def get_probs(subset):
+            total = len(subset)
+            return {f"{s} Up": (subset['Streak'] >= s).sum() / total for s in [2, 3, 4, 5]}
+        
+        s_above = get_probs(df[df['Above200']])
+        s_below = get_probs(df[~df['Above200']])
+        streak_df = pd.DataFrame([{"Streak": k, "Prob": v, "Env": "Above 200-day"} for k, v in s_above.items()] + 
+                                 [{"Streak": k, "Prob": v, "Env": "Below 200-day"} for k, v in s_below.items()])
+        fig_streak = px.bar(streak_df, x="Streak", y="Prob", color="Env", barmode="group", text_auto='.0%',
+                            color_discrete_map={"Above 200-day": "#6699CC", "Below 200-day": "#EE7733"})
+        fig_streak.update_layout(yaxis_tickformat='.0%')
+        st.plotly_chart(fig_streak, use_container_width=True)
 
-    # ------------------------------------------------------
-    # 8. Footer 免責聲明
-    # ------------------------------------------------------
-    st.markdown("<br><hr>", unsafe_allow_html=True)
-    footer_html = """
-    <div style="text-align: center; color: gray; font-size: 0.85rem; line-height: 1.6;">
-        <p><b>策略原創開發：0050 雙向乖離動態槓桿系統 (Dual-Bias Dynamic Leverage System)</b></p>
-        <p>Copyright © 2025 <a href="https://hamr-lab.com" style="color: gray; text-decoration: none;">hamr-lab.com</a>. All rights reserved.</p>
-        <p style="font-style: italic;">免責聲明：本工具僅供策略回測研究參考，不構成任何形式之投資建議。投資必定有風險，過去之績效不保證未來表現，使用者應自行審慎評估風險並自負盈虧。</p>
-    </div>
-    """
-    st.markdown(footer_html, unsafe_allow_html=True)
+    with col_r:
+        st.subheader("⚖️ 市場週期佔比")
+        counts = df['Above200'].value_counts(normalize=True)
+        fig_pie = px.pie(values=counts.values, names=["Expansion (>200MA)", "Recession (<200MA)"],
+                         color_discrete_sequence=["#6699CC", "#EE7733"], hole=0.5)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    # --- 區塊 3: 滾動回撤對比 (Chart 8) ---
+    st.subheader("🛡️ Chart 8: 歷史滾動回撤對比 (Rolling Drawdown)")
+    df['Bench_NAV'] = (1 + df['Return'].fillna(0)).cumprod()
+    df['LRS_Ret'] = np.where(df['Above200'].shift(1), df['Return'], 0)
+    df['LRS_NAV'] = (1 + df['LRS_Ret'].fillna(0)).cumprod()
+    
+    def calc_dd(nav): return (nav / nav.cummax()) - 1
+    df['Bench_DD'] = calc_dd(df['Bench_NAV'])
+    df['LRS_DD'] = calc_dd(df['LRS_NAV'])
+    
+    fig_dd = go.Figure()
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df['Bench_DD'], name="大盤 (Buy & Hold)",
+                                line=dict(color='#EE7733', width=1), fill='tozeroy', fillcolor='rgba(238,119,51,0.1)'))
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df['LRS_DD'], name="LRS 策略 (200SMA)", line=dict(color='#6699CC', width=2)))
+    fig_dd.update_layout(yaxis_tickformat='.0%', hovermode="x unified", height=500, margin=dict(l=0,r=0,t=30,b=0))
+    st.plotly_chart(fig_dd, use_container_width=True)
+
+    # --- 區塊 4: 股災統計表 ---
+    st.subheader("📋 重大股災避險效果統計")
+    crashes = [
+        ("2008 金融海嘯", "2008-01-01", "2009-06-30"), 
+        ("2020 新冠疫情", "2020-01-01", "2020-04-30"), 
+        ("2022 升息縮表", "2022-01-01", "2022-12-31")
+    ]
+    mdd_sum = []
+    for name, s, e in crashes:
+        mask = (df.index >= s) & (df.index <= e)
+        if mask.any():
+            sub = df.loc[mask]
+            # 這裡計算該區間內的 MDD
+            b_mdd = (sub['Bench_NAV'] / sub['Bench_NAV'].cummax() - 1).min()
+            l_mdd = (sub['LRS_NAV'] / sub['LRS_NAV'].cummax() - 1).min()
+            mdd_sum.append({"歷史事件": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", 
+                            "避險效果": f"減少 {(b_mdd-l_mdd)*-1:.1%} 跌幅"})
+    st.table(pd.DataFrame(mdd_sum))
+    
+    st.success("✅ 全維度量化分析完成！")
