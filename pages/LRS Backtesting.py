@@ -80,7 +80,7 @@ with st.sidebar:
 ###############################################################
 # 4. 主畫面內容
 ###############################################################
-st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 槓桿輪換策略：動能勝率統計</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 槓桿輪換策略：全維度量化報告</h1>", unsafe_allow_html=True)
 
 # --- ⚙️ 全域參數設定 ---
 st.markdown("### ⚙️ 全域參數設定")
@@ -108,35 +108,56 @@ if st.button("開始執行量化分析 🚀"):
         
     df = df_raw[df_raw.index.year >= start_year].copy()
     df['Return'] = df['Price'].pct_change()
+
+    # --- 區塊 1: 不同週期均線之波動率對比 (補回這張圖) ---
+    st.divider()
+    st.subheader(f"📊 {selected_name}：不同週期均線之波動率對比")
+    ma_periods = [10, 20, 50, 100, 200]
+    vol_results = []
+    for p in ma_periods:
+        ma_tmp = df['Price'].rolling(window=p).mean()
+        above_mask = df['Price'] > ma_tmp
+        vol_above = df[above_mask]['Return'].std() * np.sqrt(252)
+        vol_below = df[~above_mask]['Return'].std() * np.sqrt(252)
+        vol_results.append({"MA": f"{p}-day", "Volatility": vol_above, "Env": "Volatility Above"})
+        vol_results.append({"MA": f"{p}-day", "Volatility": vol_below, "Env": "Volatility Below"})
+        
+    fig_vol_multi = px.bar(pd.DataFrame(vol_results), x="MA", y="Volatility", color="Env",
+                           barmode="group", text_auto='.1%',
+                           color_discrete_map={"Volatility Above": "#6699CC", "Volatility Below": "#EE7733"})
+    fig_vol_multi.update_layout(yaxis_tickformat='.0%', height=450)
+    st.plotly_chart(fig_vol_multi, use_container_width=True)
+
+    # --- 區塊 2: 市場週期佔比 (左) 與 漲跌機率統計 (右) ---
+    st.divider()
+    col_ratio, col_prob = st.columns([1, 1.2])
+    
     df['MA200'] = df['Price'].rolling(window=200).mean()
     df['Above200'] = df['Price'] > df['MA200']
+    
+    with col_ratio:
+        st.subheader("⚖️ 市場週期時間佔比")
+        counts = df['Above200'].value_counts(normalize=True)
+        period_df = pd.DataFrame({
+            "環境": ["擴張期 (>200MA)", "衰退期 (<200MA)"],
+            "佔比": [counts.get(True, 0), counts.get(False, 0)],
+            "Color": ["Expansion", "Recession"]
+        })
+        fig_cycle = px.bar(period_df, x="環境", y="佔比", color="Color", text_auto='.1%',
+                           color_discrete_map={"Expansion": "#6699CC", "Recession": "#EE7733"})
+        fig_cycle.update_layout(yaxis_tickformat='.0%', showlegend=False, height=400)
+        st.plotly_chart(fig_cycle, use_container_width=True)
 
-    # --- 區塊 1: 波動率與環境勝率 (核心修改處) ---
-    st.divider()
-    col_v, col_p = st.columns([1.2, 1.8])
-
-    with col_v:
-        st.subheader("📊 年化波動率對比")
-        vol_above = df[df['Above200']]['Return'].std() * np.sqrt(252)
-        vol_below = df[~df['Above200']]['Return'].std() * np.sqrt(252)
-        fig_vol = px.bar(x=["均線之上", "均線之下"], y=[vol_above, vol_below], 
-                         color=["Above", "Below"], text_auto='.1%',
-                         color_discrete_map={"Above": "#6699CC", "Below": "#EE7733"})
-        fig_vol.update_layout(showlegend=False, yaxis_tickformat='.0%', height=400)
-        st.plotly_chart(fig_vol, use_container_width=True)
-
-    with col_p:
+    with col_prob:
         st.subheader("⚖️ 均線環境下之漲跌機率統計")
-        
-        # 分別計算兩個環境的上漲與下跌天數比例
         above_data = df[df['Above200']].dropna()
         below_data = df[~df['Above200']].dropna()
         
         def get_up_down_ratio(data):
             total = len(data)
-            up_count = (data['Return'] > 0).sum()
-            down_count = (data['Return'] <= 0).sum()
-            return up_count / total, down_count / total
+            up_c = (data['Return'] > 0).sum()
+            down_c = (data['Return'] <= 0).sum()
+            return up_c / total, down_c / total
 
         up_a, down_a = get_up_down_ratio(above_data)
         up_b, down_b = get_up_down_ratio(below_data)
@@ -147,17 +168,15 @@ if st.button("開始執行量化分析 🚀"):
             {"環境": "衰退期 (<200MA)", "漲跌": "上漲天數", "比例": up_b},
             {"環境": "衰退期 (<200MA)", "漲跌": "下跌天數", "比例": down_b}
         ])
-        
         fig_prob = px.bar(prob_df, x="環境", y="比例", color="漲跌", 
                           barmode="group", text_auto='.1%',
                           color_discrete_map={"上漲天數": "#2962FF", "下跌天數": "#D50000"})
         fig_prob.update_layout(yaxis_tickformat='.0%', height=400)
         st.plotly_chart(fig_prob, use_container_width=True)
 
-    # --- 區塊 2: 連漲與連跌機率 ---
+    # --- 區塊 3: 連漲與連跌機率 ---
     st.divider()
     st.subheader("🔥 動能基因測試：連漲 vs 連跌天數分佈")
-    
     is_up = df['Return'] > 0
     df['Up_Streak'] = is_up.groupby((is_up != is_up.shift()).cumsum()).cumcount() + 1
     df.loc[~is_up, 'Up_Streak'] = 0
@@ -174,19 +193,16 @@ if st.button("開始執行量化分析 🚀"):
         st.markdown("**連漲機率**")
         ua = get_streak_probs(df[df['Above200']], 'Up_Streak')
         ub = get_streak_probs(df[~df['Above200']], 'Up_Streak')
-        fig_u = px.bar(pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上"} for k,v in ua.items()] + [{"天數": k, "機率": v, "環境": "均線之下"} for k,v in ub.items()]), 
-                       x="天數", y="機率", color="環境", barmode="group", text_auto='.1%', color_discrete_map={"均線之上": "#6699CC", "均線之下": "#EE7733"})
-        st.plotly_chart(fig_u, use_container_width=True)
-
+        st.plotly_chart(px.bar(pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上"} for k,v in ua.items()] + [{"天數": k, "機率": v, "環境": "均線之下"} for k,v in ub.items()]), 
+                               x="天數", y="機率", color="環境", barmode="group", text_auto='.1%', color_discrete_map={"均線之上": "#6699CC", "均線之下": "#EE7733"}), use_container_width=True)
     with col_sr:
         st.markdown("**連跌機率**")
         da = get_streak_probs(df[df['Above200']], 'Down_Streak')
         db = get_streak_probs(df[~df['Above200']], 'Down_Streak')
-        fig_d = px.bar(pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上"} for k,v in da.items()] + [{"天數": k, "機率": v, "環境": "均線之下"} for k,v in db.items()]), 
-                       x="天數", y="機率", color="環境", barmode="group", text_auto='.1%', color_discrete_map={"均線之上": "#6699CC", "均線之下": "#EE7733"})
-        st.plotly_chart(fig_d, use_container_width=True)
+        st.plotly_chart(px.bar(pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上"} for k,v in da.items()] + [{"天數": k, "機率": v, "環境": "均線之下"} for k,v in db.items()]), 
+                               x="天數", y="機率", color="環境", barmode="group", text_auto='.1%', color_discrete_map={"均線之上": "#6699CC", "均線之下": "#EE7733"}), use_container_width=True)
 
-    # --- 區塊 3: 滾動回撤與股災統計 ---
+    # --- 區塊 4: 滾動回撤與股災統計 ---
     st.divider()
     st.subheader("🛡️ 歷史滾動回撤對比 (Rolling Drawdown)")
     df['Bench_NAV'] = (1 + df['Return'].fillna(0)).cumprod()
@@ -198,7 +214,7 @@ if st.button("開始執行量化分析 🚀"):
     fig_dd = go.Figure()
     fig_dd.add_trace(go.Scatter(x=df.index, y=df['Bench_DD'], name="大盤 (B&H)", line=dict(color='#EE7733', width=1.2), fill='tozeroy', fillcolor='rgba(238,119,51,0.08)'))
     fig_dd.add_trace(go.Scatter(x=df.index, y=df['LRS_DD'], name="LRS 策略", line=dict(color='#6699CC', width=2.5)))
-    fig_dd.update_layout(yaxis_tickformat='.0%', height=500)
+    fig_dd.update_layout(yaxis_tickformat='.0%', height=500, hovermode="x unified")
     st.plotly_chart(fig_dd, use_container_width=True)
 
     st.subheader("📋 重大股災避險實測")
@@ -213,4 +229,4 @@ if st.button("開始執行量化分析 🚀"):
             mdd_sum.append({"歷史股災": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", "效果": f"減少 {(b_mdd-l_mdd)*-1:.1%} 跌幅"})
     st.table(pd.DataFrame(mdd_sum))
     
-    st.success("✨ 分析完成！圖表已更新為漲跌機率對比。")
+    st.success("✨ 分析完成！所有圖表已還原並補齊多週期波動率對比。")
