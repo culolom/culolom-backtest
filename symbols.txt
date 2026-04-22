@@ -43,3 +43,4 @@ BND
 IYR
 SLV
 ^GSPC
+^TWII
