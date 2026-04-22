@@ -24,7 +24,7 @@ else:
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 # ★ st.set_page_config 必須是第一個 Streamlit 命令
-st.set_page_config(page_title="0050 雙向乖離動態槓桿", page_icon="📈", layout="wide")
+st.set_page_config(page_title="LRS 策略深度統計", page_icon="📈", layout="wide")
 
 # 🔒 驗證守門員
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -69,18 +69,11 @@ def load_data(symbol: str) -> pd.DataFrame:
     return df[[price_col]].rename(columns={price_col: "Price"})
 
 ###############################################################
-# 3. UI 與 Sidebar (整合快速連結與參數設定)
+# 3. Sidebar (僅保留連結)
 ###############################################################
 
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
-    st.divider()
-
-    # --- 全域參數設定 (根據截圖位置) ---
-    st.markdown("### ⚙️ 全域參數")
-    target_symbol = st.selectbox("選擇回測標的", ["^TWII", "0050.TW", "SPY", "QQQ"], index=0)
-    start_year = st.slider("統計起始年份", 2000, 2026, 2000)
-    
     st.divider()
     st.markdown("### 🔗 快速連結")
     st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
@@ -93,7 +86,7 @@ with st.sidebar:
 # 4. 主畫面內容
 ###############################################################
 
-st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 策略：均線與波動率深度統計研究</h1>", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 策略：台股全維度量化戰情室</h1>", unsafe_allow_html=True)
 
 st.markdown("""
 <div class="info-card">
@@ -103,6 +96,26 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# --- ⚙️ 全域參數設定區 (移至主畫面) ---
+st.subheader("⚙️ 全域參數設定")
+col_params_1, col_params_2 = st.columns([1, 1.5])
+
+# 名稱對照表
+TICKER_MAPPING = {
+    "台灣加權指數": "^TWII",
+    "元大台灣50指數ETF": "0050.TW",
+    "標普500指數ETF": "SPY",
+    "那斯達克100指數ETF": "QQQ"
+}
+
+with col_params_1:
+    selected_display_name = st.selectbox("選擇回測標的", list(TICKER_MAPPING.keys()), index=0)
+    target_symbol = TICKER_MAPPING[selected_display_name]
+
+with col_params_2:
+    start_year = st.slider("統計起始年份", 2000, 2026, 2000)
+
+# --- 按鈕觸發 ---
 if st.button("開始執行量化分析 🚀"):
     df_raw = load_data(target_symbol)
     if df_raw.empty:
@@ -113,7 +126,8 @@ if st.button("開始執行量化分析 🚀"):
     df['Return'] = df['Price'].pct_change()
 
     # --- 區塊 1: 多重均線波動率對比 (Chart 3) ---
-    st.subheader("📊 不同均線環境下的年化波動率對比")
+    st.divider()
+    st.subheader(f"📊 {selected_display_name}：不同均線環境下的年化波動率對比")
     ma_periods = [10, 20, 50, 100, 200]
     vol_results = []
     for p in ma_periods:
@@ -172,7 +186,7 @@ if st.button("開始執行量化分析 🚀"):
     df['LRS_DD'] = calc_dd(df['LRS_NAV'])
     
     fig_dd = go.Figure()
-    fig_dd.add_trace(go.Scatter(x=df.index, y=df['Bench_DD'], name="大盤 (Buy & Hold)",
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df['Bench_DD'], name=f"{selected_display_name} (Buy & Hold)",
                                 line=dict(color='#EE7733', width=1), fill='tozeroy', fillcolor='rgba(238,119,51,0.1)'))
     fig_dd.add_trace(go.Scatter(x=df.index, y=df['LRS_DD'], name="LRS 策略 (200SMA)", line=dict(color='#6699CC', width=2)))
     fig_dd.update_layout(yaxis_tickformat='.0%', hovermode="x unified", height=500, margin=dict(l=0,r=0,t=30,b=0))
@@ -190,7 +204,6 @@ if st.button("開始執行量化分析 🚀"):
         mask = (df.index >= s) & (df.index <= e)
         if mask.any():
             sub = df.loc[mask]
-            # 這裡計算該區間內的 MDD
             b_mdd = (sub['Bench_NAV'] / sub['Bench_NAV'].cummax() - 1).min()
             l_mdd = (sub['LRS_NAV'] / sub['LRS_NAV'].cummax() - 1).min()
             mdd_sum.append({"歷史事件": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", 
