@@ -20,10 +20,9 @@ if os.path.exists(font_path):
     fm.fontManager.addfont(font_path)
     matplotlib.rcParams["font.family"] = "Noto Sans TC"
 else:
-    matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "PingFang TC", "Heiti TC"]
+    matplotlib.rcParams["font.sans-serif"] = ["Microsoft JhengHei", "Heiti TC"]
 matplotlib.rcParams["axes.unicode_minus"] = False
 
-# ★ st.set_page_config 必須是第一個 Streamlit 命令
 st.set_page_config(page_title="LRS 策略深度統計", page_icon="📈", layout="wide")
 
 # 🔒 驗證守門員
@@ -34,7 +33,7 @@ try:
 except ImportError:
     pass 
 
-# ★★★ CSS 注入區域：定義鼠叔橘視覺風格 ★★★
+# ★★★ CSS 注入區域 ★★★
 st.markdown("""
 <style>
     div.stButton > button:first-child {
@@ -43,13 +42,12 @@ st.markdown("""
         transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     div.stButton > button:first-child:hover {
-        background-color: #E65100; box-shadow: 0 6px 8px rgba(0,0,0,0.2); transform: translateY(-2px);
+        background-color: #E65100; transform: translateY(-2px);
     }
     .info-card {
         background-color: #f9f9f9; padding: 20px; border-radius: 12px;
-        border-left: 6px solid #FF6F00; box-shadow: 0 2px 5px rgba(0,0,0,0.05); margin-bottom: 25px;
+        border-left: 6px solid #FF6F00; margin-bottom: 25px;
     }
-    .stSlider > div > div > div > div { background-color: #FF6F00; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -67,9 +65,8 @@ def load_data(symbol: str) -> pd.DataFrame:
     return df[[price_col]].rename(columns={price_col: "Price"})
 
 ###############################################################
-# 3. UI 與 Sidebar (快速連結)
+# 3. UI 與 Sidebar
 ###############################################################
-
 with st.sidebar:
     st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
     st.divider()
@@ -83,19 +80,7 @@ with st.sidebar:
 ###############################################################
 # 4. 主畫面內容
 ###############################################################
-
-st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 槓桿輪換策略：動能對稱性統計</h1>", unsafe_allow_html=True)
-
-st.markdown("""
-<div class="info-card">
-    <h4 style="margin-top:0;">📖 鼠叔量化研究筆記：Regime Discovery Index</h4>
-    <p style="font-size:1.05em; line-height:1.6;">
-        為什麼要在均線之下「空手」？因為數據顯示：<b>環境會改變動能的基因。</b><br>
-        均線之上，市場傾向「連漲而不連跌」；均線之下，市場傾向「連跌而不連漲」。<br>
-        <span style="color:#FF6F00; font-weight:bold;">本統計將揭露：均線是如何作為「動能之盾 (Momentum Aegis)」，保護你不被連續下跌摧毀。</span>
-    </p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("<h1 style='margin-bottom:0.5em;'>🔭 LRS 槓桿輪換策略：動能勝率統計</h1>", unsafe_allow_html=True)
 
 # --- ⚙️ 全域參數設定 ---
 st.markdown("### ⚙️ 全域參數設定")
@@ -123,80 +108,85 @@ if st.button("開始執行量化分析 🚀"):
         
     df = df_raw[df_raw.index.year >= start_year].copy()
     df['Return'] = df['Price'].pct_change()
-
-    # --- 區塊 1: 波動率對比 ---
-    st.divider()
-    st.subheader(f"📊 {selected_name}：不同週期均線之波動率對比")
-    ma_periods = [10, 20, 50, 100, 200]
-    vol_results = []
-    for p in ma_periods:
-        ma = df['Price'].rolling(window=p).mean()
-        above = df['Price'] > ma
-        vol_above = df[above]['Return'].std() * np.sqrt(252)
-        vol_below = df[~above]['Return'].std() * np.sqrt(252)
-        vol_results.append({"MA週期": f"{p}日線", "年化波動率": vol_above, "環境": "均線之上 (Above)"})
-        vol_results.append({"MA週期": f"{p}日線", "年化波動率": vol_below, "環境": "均線之下 (Below)"})
-    
-    fig_vol = px.bar(pd.DataFrame(vol_results), x="MA週期", y="年化波動率", color="環境",
-                     barmode="group", text_auto='.1%', 
-                     color_discrete_map={"均線之上 (Above)": "#6699CC", "均線之下 (Below)": "#EE7733"})
-    fig_vol.update_layout(yaxis_tickformat='.0%', height=400)
-    st.plotly_chart(fig_vol, use_container_width=True)
-
-    # --- 區塊 2: 連漲與連跌機率對比 (核心新增) ---
-    st.divider()
     df['MA200'] = df['Price'].rolling(window=200).mean()
     df['Above200'] = df['Price'] > df['MA200']
+
+    # --- 區塊 1: 波動率與環境勝率 (核心修改處) ---
+    st.divider()
+    col_v, col_p = st.columns([1.2, 1.8])
+
+    with col_v:
+        st.subheader("📊 年化波動率對比")
+        vol_above = df[df['Above200']]['Return'].std() * np.sqrt(252)
+        vol_below = df[~df['Above200']]['Return'].std() * np.sqrt(252)
+        fig_vol = px.bar(x=["均線之上", "均線之下"], y=[vol_above, vol_below], 
+                         color=["Above", "Below"], text_auto='.1%',
+                         color_discrete_map={"Above": "#6699CC", "Below": "#EE7733"})
+        fig_vol.update_layout(showlegend=False, yaxis_tickformat='.0%', height=400)
+        st.plotly_chart(fig_vol, use_container_width=True)
+
+    with col_p:
+        st.subheader("⚖️ 均線環境下之漲跌機率統計")
+        
+        # 分別計算兩個環境的上漲與下跌天數比例
+        above_data = df[df['Above200']].dropna()
+        below_data = df[~df['Above200']].dropna()
+        
+        def get_up_down_ratio(data):
+            total = len(data)
+            up_count = (data['Return'] > 0).sum()
+            down_count = (data['Return'] <= 0).sum()
+            return up_count / total, down_count / total
+
+        up_a, down_a = get_up_down_ratio(above_data)
+        up_b, down_b = get_up_down_ratio(below_data)
+        
+        prob_df = pd.DataFrame([
+            {"環境": "擴張期 (>200MA)", "漲跌": "上漲天數", "比例": up_a},
+            {"環境": "擴張期 (>200MA)", "漲跌": "下跌天數", "比例": down_a},
+            {"環境": "衰退期 (<200MA)", "漲跌": "上漲天數", "比例": up_b},
+            {"環境": "衰退期 (<200MA)", "漲跌": "下跌天數", "比例": down_b}
+        ])
+        
+        fig_prob = px.bar(prob_df, x="環境", y="比例", color="漲跌", 
+                          barmode="group", text_auto='.1%',
+                          color_discrete_map={"上漲天數": "#2962FF", "下跌天數": "#D50000"})
+        fig_prob.update_layout(yaxis_tickformat='.0%', height=400)
+        st.plotly_chart(fig_prob, use_container_width=True)
+
+    # --- 區塊 2: 連漲與連跌機率 ---
+    st.divider()
+    st.subheader("🔥 動能基因測試：連漲 vs 連跌天數分佈")
     
-    # 計算連漲
     is_up = df['Return'] > 0
     df['Up_Streak'] = is_up.groupby((is_up != is_up.shift()).cumsum()).cumcount() + 1
     df.loc[~is_up, 'Up_Streak'] = 0
-    
-    # 計算連跌
     is_down = df['Return'] < 0
     df['Down_Streak'] = is_down.groupby((is_down != is_down.shift()).cumsum()).cumcount() + 1
     df.loc[~is_down, 'Down_Streak'] = 0
 
-    st.subheader("🔥 動能基因測試：200SMA 之連漲與連跌統計")
-    col_streak_l, col_streak_r = st.columns(2)
+    col_sl, col_sr = st.columns(2)
+    def get_streak_probs(subset, col):
+        t = len(subset)
+        return {f"{s}天": (subset[col] >= s).sum() / t for s in [2, 3, 4, 5]}
 
-    def get_streak_probs(subset, streak_col):
-        total = len(subset)
-        return {f"{s}天": (subset[streak_col] >= s).sum() / total for s in [2, 3, 4, 5]}
-
-    with col_streak_l:
-        st.markdown("**[正向動能] 連續上漲機率**")
-        u_above = get_streak_probs(df[df['Above200']], 'Up_Streak')
-        u_below = get_streak_probs(df[~df['Above200']], 'Up_Streak')
-        df_u = pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上 (牛市)"} for k, v in u_above.items()] + 
-                            [{"天數": k, "機率": v, "環境": "均線之下 (熊市)"} for k, v in u_below.items()])
-        fig_u = px.bar(df_u, x="天數", y="機率", color="環境", barmode="group", text_auto='.1%',
-                       color_discrete_map={"均線之上 (牛市)": "#6699CC", "均線之下 (熊市)": "#EE7733"})
-        fig_u.update_layout(yaxis_tickformat='.0%', height=350, showlegend=False)
+    with col_sl:
+        st.markdown("**連漲機率**")
+        ua = get_streak_probs(df[df['Above200']], 'Up_Streak')
+        ub = get_streak_probs(df[~df['Above200']], 'Up_Streak')
+        fig_u = px.bar(pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上"} for k,v in ua.items()] + [{"天數": k, "機率": v, "環境": "均線之下"} for k,v in ub.items()]), 
+                       x="天數", y="機率", color="環境", barmode="group", text_auto='.1%', color_discrete_map={"均線之上": "#6699CC", "均線之下": "#EE7733"})
         st.plotly_chart(fig_u, use_container_width=True)
-        st.caption("💡 觀察：牛市中連漲 4-5 天的機率是否顯著較高？")
 
-    with col_streak_r:
-        st.markdown("**[負向動能] 連續下跌機率**")
-        d_above = get_streak_probs(df[df['Above200']], 'Down_Streak')
-        d_below = get_streak_probs(df[~df['Above200']], 'Down_Streak')
-        df_d = pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上 (牛市)"} for k, v in d_above.items()] + 
-                            [{"天數": k, "機率": v, "環境": "均線之下 (熊市)"} for k, v in d_below.items()])
-        fig_d = px.bar(df_d, x="天數", y="機率", color="環境", barmode="group", text_auto='.1%',
-                       color_discrete_map={"均線之上 (牛市)": "#6699CC", "均線之下 (熊市)": "#EE7733"})
-        fig_d.update_layout(yaxis_tickformat='.0%', height=350)
+    with col_sr:
+        st.markdown("**連跌機率**")
+        da = get_streak_probs(df[df['Above200']], 'Down_Streak')
+        db = get_streak_probs(df[~df['Above200']], 'Down_Streak')
+        fig_d = px.bar(pd.DataFrame([{"天數": k, "機率": v, "環境": "均線之上"} for k,v in da.items()] + [{"天數": k, "機率": v, "環境": "均線之下"} for k,v in db.items()]), 
+                       x="天數", y="機率", color="環境", barmode="group", text_auto='.1%', color_discrete_map={"均線之上": "#6699CC", "均線之下": "#EE7733"})
         st.plotly_chart(fig_d, use_container_width=True)
-        st.caption("💡 警告：熊市中連跌 4-5 天的機率通常會大幅飆升！")
 
-    # --- 區塊 3: 市場週期佔比 ---
-    st.divider()
-    st.subheader("⚖️ 市場週期時間佔比")
-    counts = df['Above200'].value_counts(normalize=True)
-    period_df = pd.DataFrame({"環境": ["擴張期 (>200MA)", "衰退期 (<200MA)"], "佔比": [counts.get(True, 0), counts.get(False, 0)], "Color": ["Exp", "Rec"]})
-    st.plotly_chart(px.bar(period_df, x="環境", y="佔比", color="Color", text_auto='.1%', color_discrete_map={"Exp": "#6699CC", "Rec": "#EE7733"}), use_container_width=True)
-
-    # --- 區塊 4: 滾動回撤 ---
+    # --- 區塊 3: 滾動回撤與股災統計 ---
     st.divider()
     st.subheader("🛡️ 歷史滾動回撤對比 (Rolling Drawdown)")
     df['Bench_NAV'] = (1 + df['Return'].fillna(0)).cumprod()
@@ -206,19 +196,13 @@ if st.button("開始執行量化分析 🚀"):
     df['LRS_DD'] = (df['LRS_NAV'] / df['LRS_NAV'].cummax()) - 1
     
     fig_dd = go.Figure()
-    fig_dd.add_trace(go.Scatter(x=df.index, y=df['Bench_DD'], name="原汁原味 (B&H)", line=dict(color='#EE7733', width=1.2), fill='tozeroy', fillcolor='rgba(238,119,51,0.08)'))
-    fig_dd.add_trace(go.Scatter(x=df.index, y=df['LRS_DD'], name="LRS 200SMA 策略", line=dict(color='#6699CC', width=2.5)))
-    fig_dd.update_layout(yaxis_tickformat='.0%', hovermode="x unified", height=500)
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df['Bench_DD'], name="大盤 (B&H)", line=dict(color='#EE7733', width=1.2), fill='tozeroy', fillcolor='rgba(238,119,51,0.08)'))
+    fig_dd.add_trace(go.Scatter(x=df.index, y=df['LRS_DD'], name="LRS 策略", line=dict(color='#6699CC', width=2.5)))
+    fig_dd.update_layout(yaxis_tickformat='.0%', height=500)
     st.plotly_chart(fig_dd, use_container_width=True)
 
-    # --- 區塊 5: 股災統計 ---
-    st.subheader("📋 重大股災避險效果實測 (含 2025 對等關稅股災)")
-    crashes = [
-        ("2008 金融海嘯", "2008-01-01", "2009-06-30"), 
-        ("2020 新冠疫情", "2020-01-01", "2020-04-30"), 
-        ("2022 升息縮表", "2022-01-01", "2022-12-31"),
-        ("2025 對等關稅", "2025-01-01", "2025-12-31")
-    ]
+    st.subheader("📋 重大股災避險實測")
+    crashes = [("2008 金融海嘯", "2008-01-01", "2009-06-30"), ("2020 新冠疫情", "2020-01-01", "2020-04-30"), ("2022 升息縮表", "2022-01-01", "2022-12-31"), ("2025 對等關稅", "2025-01-01", "2025-12-31")]
     mdd_sum = []
     for name, s, e in crashes:
         mask = (df.index >= s) & (df.index <= e)
@@ -226,6 +210,7 @@ if st.button("開始執行量化分析 🚀"):
             sub = df.loc[mask]
             b_mdd = (sub['Bench_NAV'] / sub['Bench_NAV'].cummax() - 1).min()
             l_mdd = (sub['LRS_NAV'] / sub['LRS_NAV'].cummax() - 1).min()
-            mdd_sum.append({"歷史股災": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", "避險效果": f"減少 {(b_mdd-l_mdd)*-1:.1%} 跌幅"})
+            mdd_sum.append({"歷史股災": name, "大盤 MDD": f"{b_mdd:.1%}", "LRS MDD": f"{l_mdd:.1%}", "效果": f"減少 {(b_mdd-l_mdd)*-1:.1%} 跌幅"})
     st.table(pd.DataFrame(mdd_sum))
-    st.success("✨ 報告已更新，包含『動能對稱性』連漲連跌統計！")
+    
+    st.success("✨ 分析完成！圖表已更新為漲跌機率對比。")
