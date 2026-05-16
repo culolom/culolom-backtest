@@ -204,10 +204,10 @@ with col_strat2:
         help="當原型 ETF 收盤價「穿越」你勾選的線圖時，將會強制觸發資產比例校正。"
     )
 
-# 布林通道自訂參數設定
+# 布林通道自訂參數設定 (放寬 max_value，預設改為 200)
 col_bb1, col_bb2 = st.columns(2)
 with col_bb1:
-    bb_window = st.number_input("布林通道週期 (天)", min_value=10, max_value=100, value=20, step=1)
+    bb_window = st.number_input("布林通道週期 (天)", min_value=10, max_value=500, value=200, step=1)
 with col_bb2:
     bb_sd = st.number_input("布林通道標準差", min_value=1.0, max_value=4.0, value=2.0, step=0.1)
 
@@ -221,8 +221,9 @@ if st.button("開始回測 🚀"):
         st.warning("⚠️ 請至少選擇一種再平衡觸發條件！")
         st.stop()
 
-    # 多抓 250 天來算 200SMA 和 布林通道
-    start_early = start - dt.timedelta(days=300) 
+    # 動態調整資料讀取起點，確保 200SMA 或自訂布林通道有足夠的歷史資料可算
+    max_lookback = max(200, bb_window)
+    start_early = start - dt.timedelta(days=int(max_lookback * 1.5) + 30) 
 
     with st.spinner("計算指標與回測中…"):
         df_base_raw = load_csv(base_symbol)
@@ -243,7 +244,7 @@ if st.button("開始回測 🚀"):
     # 計算技術指標 (以原型 ETF 為準)
     df["SMA_200"] = df["Price_base"].rolling(200).mean()
     
-    # 修正布林通道設定，採用 UI 調整的參數
+    # 布林通道設定，採用 UI 調整的參數
     df["BB_MA"] = df["Price_base"].rolling(bb_window).mean()
     df["BB_STD"] = df["Price_base"].rolling(bb_window).std()
     df["BB_UP"] = df["BB_MA"] + bb_sd * df["BB_STD"]
@@ -295,7 +296,7 @@ if st.button("開始回測 🚀"):
         val_lev = val_lev * (1 + ret_l)
         # 現金價值不變 (無風險利率設為0)
 
-        # 這裡就是包含現金部位的「總資產」
+        # 總資產
         total_equity = val_base + val_lev + val_cash
         equity_curve.append(total_equity)
 
@@ -432,13 +433,12 @@ if st.button("開始回測 🚀"):
         st.plotly_chart(fig_radar, use_container_width=True)
 
     ###############################################################
-    # 表格 (已修正 HTML 顯示問題)
+    # 表格 
     ###############################################################
     st.markdown("<br>", unsafe_allow_html=True)
     
     metrics_order = ["期末資產", "CAGR (年化)", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "總觸發再平衡次數"]
     
-    # 將標題改為乾淨的純文字，Streamlit 會用最漂亮的原生樣式渲染
     data_dict = {
         f"策略再平衡 ({portfolio_mode[:4]})": {
             "期末資產": fmt_money(capital_strat_final),
