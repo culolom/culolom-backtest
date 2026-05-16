@@ -40,7 +40,7 @@ st.set_page_config(
 )
 
 # ------------------------------------------------------
-# 🔒 驗證守門員 (保留你原本的設定)
+# 🔒 驗證守門員
 # ------------------------------------------------------
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 try:
@@ -204,6 +204,13 @@ with col_strat2:
         help="當原型 ETF 收盤價「穿越」你勾選的線圖時，將會強制觸發資產比例校正。"
     )
 
+# 布林通道自訂參數設定
+col_bb1, col_bb2 = st.columns(2)
+with col_bb1:
+    bb_window = st.number_input("布林通道週期 (天)", min_value=10, max_value=100, value=20, step=1)
+with col_bb2:
+    bb_sd = st.number_input("布林通道標準差", min_value=1.0, max_value=4.0, value=2.0, step=0.1)
+
 ###############################################################
 # 主程式開始
 ###############################################################
@@ -235,10 +242,12 @@ if st.button("開始回測 🚀"):
 
     # 計算技術指標 (以原型 ETF 為準)
     df["SMA_200"] = df["Price_base"].rolling(200).mean()
-    df["BB_MA"] = df["Price_base"].rolling(200).mean()
-    df["BB_STD"] = df["Price_base"].rolling(200).std()
-    df["BB_UP"] = df["BB_MA"] + 2 * df["BB_STD"]
-    df["BB_DN"] = df["BB_MA"] - 2 * df["BB_STD"]
+    
+    # 修正布林通道設定，採用 UI 調整的參數
+    df["BB_MA"] = df["Price_base"].rolling(bb_window).mean()
+    df["BB_STD"] = df["Price_base"].rolling(bb_window).std()
+    df["BB_UP"] = df["BB_MA"] + bb_sd * df["BB_STD"]
+    df["BB_DN"] = df["BB_MA"] - bb_sd * df["BB_STD"]
 
     df = df.dropna(subset=["SMA_200", "BB_UP", "BB_DN"])
     df = df.loc[start:end]
@@ -286,6 +295,7 @@ if st.button("開始回測 🚀"):
         val_lev = val_lev * (1 + ret_l)
         # 現金價值不變 (無風險利率設為0)
 
+        # 這裡就是包含現金部位的「總資產」
         total_equity = val_base + val_lev + val_cash
         equity_curve.append(total_equity)
 
@@ -368,8 +378,8 @@ if st.button("開始回測 🚀"):
     # 原型 ETF 與指標
     fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label}", mode="lines", line=dict(width=2, color="#636EFA")))
     fig_price.add_trace(go.Scatter(x=df.index, y=df["SMA_200"], name="200SMA", mode="lines", line=dict(width=1.5, color="#FFA15A")))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_UP"], name="BB +2SD", mode="lines", line=dict(width=1, color="#AB63FA", dash='dot')))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_DN"], name="BB -2SD", mode="lines", line=dict(width=1, color="#AB63FA", dash='dot'), fill='tonexty', fillcolor='rgba(171, 99, 250, 0.05)'))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_UP"], name=f"BB +{bb_sd}SD", mode="lines", line=dict(width=1, color="#AB63FA", dash='dot')))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_DN"], name=f"BB -{bb_sd}SD", mode="lines", line=dict(width=1, color="#AB63FA", dash='dot'), fill='tonexty', fillcolor='rgba(171, 99, 250, 0.05)'))
 
     # 再平衡點
     if not rebalance_dates.empty:
@@ -422,14 +432,15 @@ if st.button("開始回測 🚀"):
         st.plotly_chart(fig_radar, use_container_width=True)
 
     ###############################################################
-    # 表格
+    # 表格 (已修正 HTML 顯示問題)
     ###############################################################
     st.markdown("<br>", unsafe_allow_html=True)
     
     metrics_order = ["期末資產", "CAGR (年化)", "最大回撤 (MDD)", "年化波動", "Sharpe Ratio", "總觸發再平衡次數"]
     
+    # 將標題改為乾淨的純文字，Streamlit 會用最漂亮的原生樣式渲染
     data_dict = {
-        f"<b>策略再平衡</b><br><span style='font-size:0.8em; opacity:0.7'>({portfolio_mode[:4]})</span>": {
+        f"策略再平衡 ({portfolio_mode[:4]})": {
             "期末資產": fmt_money(capital_strat_final),
             "CAGR (年化)": fmt_pct(cagr_strat),
             "最大回撤 (MDD)": fmt_pct(mdd_strat),
@@ -437,7 +448,7 @@ if st.button("開始回測 🚀"):
             "Sharpe Ratio": fmt_num(sharpe_strat),
             "總觸發再平衡次數": fmt_int(trade_count_strat),
         },
-        f"<b>{base_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
+        f"{base_label} (B&H)": {
             "期末資產": fmt_money(capital_base_final),
             "CAGR (年化)": fmt_pct(cagr_base),
             "最大回撤 (MDD)": fmt_pct(mdd_base),
@@ -445,7 +456,7 @@ if st.button("開始回測 🚀"):
             "Sharpe Ratio": fmt_num(sharpe_base),
             "總觸發再平衡次數": "—",
         },
-        f"<b>{lev_label}</b><br><span style='font-size:0.8em; opacity:0.7'>Buy & Hold</span>": {
+        f"{lev_label} (B&H)": {
             "期末資產": fmt_money(capital_lev_final),
             "CAGR (年化)": fmt_pct(cagr_lev),
             "最大回撤 (MDD)": fmt_pct(mdd_lev),
