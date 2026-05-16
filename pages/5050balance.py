@@ -235,8 +235,8 @@ if st.button("開始回測 🚀"):
 
     # 計算技術指標 (以原型 ETF 為準)
     df["SMA_200"] = df["Price_base"].rolling(200).mean()
-    df["BB_MA"] = df["Price_base"].rolling(20).mean()
-    df["BB_STD"] = df["Price_base"].rolling(20).std()
+    df["BB_MA"] = df["Price_base"].rolling(200).mean()
+    df["BB_STD"] = df["Price_base"].rolling(200).std()
     df["BB_UP"] = df["BB_MA"] + 2 * df["BB_STD"]
     df["BB_DN"] = df["BB_MA"] - 2 * df["BB_STD"]
 
