@@ -68,7 +68,7 @@ st.markdown(
     """
 <b>本工具專為新手設計，解決「不知何時再平衡」的痛點：</b><br>
 1️⃣ 選擇你心儀的資產配置 (5050 或 433)<br>
-2️⃣ 設定再平衡的技術觸發條件 (200SMA、布林通道上下軌)<br>
+2️⃣ 設定再平衡的技術觸發條件 (目前採用 200SMA 紀律觸發)<br>
 3️⃣ 程式將自動回測：平時放著不管，<b>只有當價格碰到設定的條件時，才執行一次再平衡 (將比例校正回初始設定)</b>。
 """,
     unsafe_allow_html=True,
@@ -193,23 +193,11 @@ with col_strat1:
     )
 
 with col_strat2:
-    rebalance_triggers = st.multiselect(
-        "選擇再平衡觸發時間點 (可複選)",
-        [
-            "收盤價碰到 200SMA",
-            "收盤價碰到布林通道 +2SD (上軌)",
-            "收盤價碰到布林通道 -2SD (下軌)"
-        ],
-        default=["收盤價碰到 200SMA", "收盤價碰到布林通道 +2SD (上軌)", "收盤價碰到布林通道 -2SD (下軌)"],
-        help="當原型 ETF 收盤價「穿越」你勾選的線圖時，將會強制觸發資產比例校正。"
+    enable_200sma = st.checkbox(
+        "啟用再平衡：收盤價穿越 200SMA", 
+        value=True, 
+        help="當原型 ETF 收盤價「穿越」200日均線時，將強制觸發資產比例校正。"
     )
-
-# 布林通道自訂參數設定
-col_bb1, col_bb2 = st.columns(2)
-with col_bb1:
-    bb_window = st.number_input("布林通道週期 (天)", min_value=10, max_value=500, value=200, step=1)
-with col_bb2:
-    bb_sd = st.number_input("布林通道標準差", min_value=1.0, max_value=4.0, value=2.0, step=0.1)
 
 ###############################################################
 # 主程式開始
@@ -217,12 +205,8 @@ with col_bb2:
 
 if st.button("開始回測 🚀"):
     
-    if not rebalance_triggers:
-        st.warning("⚠️ 請至少選擇一種再平衡觸發條件！")
-        st.stop()
-
-    # 動態調整資料讀取起點，確保 200SMA 或自訂布林通道有足夠的歷史資料可算
-    max_lookback = max(200, bb_window)
+    # 確保 200SMA 有足夠的歷史資料可算
+    max_lookback = 200
     start_early = start - dt.timedelta(days=int(max_lookback * 1.5) + 30) 
 
     with st.spinner("計算指標與回測中…"):
@@ -243,14 +227,9 @@ if st.button("開始回測 🚀"):
 
     # 計算技術指標 (以原型 ETF 為準)
     df["SMA_200"] = df["Price_base"].rolling(200).mean()
-    
-    # 布林通道設定，採用 UI 調整的參數
-    df["BB_MA"] = df["Price_base"].rolling(bb_window).mean()
-    df["BB_STD"] = df["Price_base"].rolling(bb_window).std()
-    df["BB_UP"] = df["BB_MA"] + bb_sd * df["BB_STD"]
-    df["BB_DN"] = df["BB_MA"] - bb_sd * df["BB_STD"]
 
-    df = df.dropna(subset=["SMA_200", "BB_UP", "BB_DN"])
+    # 濾掉 MA 計算期間的空值
+    df = df.dropna(subset=["SMA_200"])
     df = df.loc[start:end]
     
     if df.empty:
@@ -282,11 +261,6 @@ if st.button("開始回測 🚀"):
     equity_curve = [1.0]
     rebalance_signals = [0] * len(df) # 記錄再平衡天數
 
-    # 解析觸發條件
-    check_sma = "200SMA" in "".join(rebalance_triggers)
-    check_bb_up = "+2SD" in "".join(rebalance_triggers)
-    check_bb_dn = "-2SD" in "".join(rebalance_triggers)
-
     for i in range(1, len(df)):
         # 1. 根據昨日持倉更新今日價值
         ret_b = df["Return_base"].iloc[i]
@@ -306,22 +280,11 @@ if st.button("開始回測 🚀"):
         
         trigger_rebalance = False
         
-        if check_sma:
+        if enable_200sma:
             sma = df["SMA_200"].iloc[i]
             sma0 = df["SMA_200"].iloc[i-1]
+            # 判斷黃金交叉或死亡交叉
             if (p0 < sma0 and p >= sma) or (p0 > sma0 and p <= sma):
-                trigger_rebalance = True
-                
-        if check_bb_up:
-            up = df["BB_UP"].iloc[i]
-            up0 = df["BB_UP"].iloc[i-1]
-            if (p0 < up0 and p >= up) or (p0 > up0 and p <= up):
-                trigger_rebalance = True
-                
-        if check_bb_dn:
-            dn = df["BB_DN"].iloc[i]
-            dn0 = df["BB_DN"].iloc[i-1]
-            if (p0 > dn0 and p <= dn) or (p0 < dn0 and p >= dn):
                 trigger_rebalance = True
 
         # 3. 執行再平衡
@@ -379,15 +342,18 @@ if st.button("開始回測 🚀"):
     # 圖表 + KPI + 表格
     ###############################################################
 
+    # --- 統一顏色設定 ---
+    COLOR_BASE = "#FFA15A"    # 橘色 (原型 B&H)
+    COLOR_NO_REBAL = "#00CC96" # 綠色 (策略不再平衡)
+    COLOR_STRAT = "#636EFA"   # 藍色 (策略再平衡)
+
     st.markdown("<h3>📌 技術指標與再平衡觸發點</h3>", unsafe_allow_html=True)
 
     fig_price = go.Figure()
 
     # 原型 ETF 與指標
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label}", mode="lines", line=dict(width=2, color="#636EFA")))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["SMA_200"], name="200SMA", mode="lines", line=dict(width=1.5, color="#FFA15A")))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_UP"], name=f"BB +{bb_sd}SD", mode="lines", line=dict(width=1, color="#AB63FA", dash='dot')))
-    fig_price.add_trace(go.Scatter(x=df.index, y=df["BB_DN"], name=f"BB -{bb_sd}SD", mode="lines", line=dict(width=1, color="#AB63FA", dash='dot'), fill='tonexty', fillcolor='rgba(171, 99, 250, 0.05)'))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["Price_base"], name=f"{base_label}", mode="lines", line=dict(width=2, color=COLOR_BASE)))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df["SMA_200"], name="200SMA", mode="lines", line=dict(width=1.5, color="#1f77b4", dash='dot')))
 
     # 再平衡點
     if not rebalance_dates.empty:
@@ -410,9 +376,9 @@ if st.button("開始回測 🚀"):
 
     with tab_equity:
         fig_equity = go.Figure()
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name="原型 B&H"))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_No_Rebal"], mode="lines", name="策略不再平衡", line=dict(color="#00CC96", dash='dash')))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Strat"], mode="lines", name="策略再平衡", line=dict(color="#636EFA", width=2.5)))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name="原型 B&H", line=dict(color=COLOR_BASE)))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_No_Rebal"], mode="lines", name="策略不再平衡", line=dict(color=COLOR_NO_REBAL, dash='dash')))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Strat"], mode="lines", name="策略再平衡", line=dict(color=COLOR_STRAT, width=2.5)))
         fig_equity.update_layout(template="plotly_white", height=420, yaxis=dict(tickformat=".0%"))
         st.plotly_chart(fig_equity, use_container_width=True)
 
@@ -421,9 +387,9 @@ if st.button("開始回測 🚀"):
         dd_no_rebal = (df["Equity_No_Rebal"] / df["Equity_No_Rebal"].cummax() - 1) * 100
         dd_strat = (df["Equity_Strat"] / df["Equity_Strat"].cummax() - 1) * 100
         fig_dd = go.Figure()
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_base, name="原型 B&H"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_no_rebal, name="策略不再平衡"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_strat, name="策略再平衡", fill="tozeroy"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_base, name="原型 B&H", line=dict(color=COLOR_BASE)))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_no_rebal, name="策略不再平衡", line=dict(color=COLOR_NO_REBAL, dash='dash')))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_strat, name="策略再平衡", fill="tozeroy", line=dict(color=COLOR_STRAT)))
         fig_dd.update_layout(template="plotly_white", height=420)
         st.plotly_chart(fig_dd, use_container_width=True)
 
@@ -434,9 +400,9 @@ if st.button("開始回測 🚀"):
         radar_base = [nz(cagr_base), nz(sharpe_base), nz(sortino_base), nz(-mdd_base), nz(-vol_base)]
 
         fig_radar = go.Figure()
-        fig_radar.add_trace(go.Scatterpolar(r=radar_strat, theta=radar_categories, fill='toself', name='策略再平衡', line=dict(color='#636EFA', width=3)))
-        fig_radar.add_trace(go.Scatterpolar(r=radar_no_rebal, theta=radar_categories, fill='toself', name='策略不再平衡', line=dict(color='#00CC96', width=2)))
-        fig_radar.add_trace(go.Scatterpolar(r=radar_base, theta=radar_categories, fill='toself', name=f'{base_label} BH', line=dict(color='#FFA15A', width=2)))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_strat, theta=radar_categories, fill='toself', name='策略再平衡', line=dict(color=COLOR_STRAT, width=3)))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_no_rebal, theta=radar_categories, fill='toself', name='策略不再平衡', line=dict(color=COLOR_NO_REBAL, width=2)))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_base, theta=radar_categories, fill='toself', name=f'{base_label} B&H', line=dict(color=COLOR_BASE, width=2)))
         
         fig_radar.update_layout(height=480, paper_bgcolor='rgba(0,0,0,0)', polar=dict(radialaxis=dict(visible=True, showticklabels=True, ticks='')))
         st.plotly_chart(fig_radar, use_container_width=True)
@@ -480,7 +446,7 @@ if st.button("開始回測 🚀"):
     
     # 匯出 CSV 區塊
     st.markdown("<br>", unsafe_allow_html=True)
-    export_cols = ["Price_base", "Price_lev", "SMA_200", "BB_UP", "BB_DN", "Signal", "Equity_Strat", "Equity_No_Rebal"]
+    export_cols = ["Price_base", "Price_lev", "SMA_200", "Signal", "Equity_Strat", "Equity_No_Rebal"]
     valid_cols = [c for c in export_cols if c in df.columns]
     csv_data = df[valid_cols].to_csv(index=True).encode('utf-8-sig')
     
