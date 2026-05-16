@@ -204,7 +204,7 @@ with col_strat2:
         help="當原型 ETF 收盤價「穿越」你勾選的線圖時，將會強制觸發資產比例校正。"
     )
 
-# 布林通道自訂參數設定 (放寬 max_value，預設改為 200)
+# 布林通道自訂參數設定
 col_bb1, col_bb2 = st.columns(2)
 with col_bb1:
     bb_window = st.number_input("布林通道週期 (天)", min_value=10, max_value=500, value=200, step=1)
@@ -338,8 +338,15 @@ if st.button("開始回測 🚀"):
     df["Equity_BH_Base"] = (1 + df["Return_base"]).cumprod()
     df["Equity_BH_Lev"] = (1 + df["Return_lev"]).cumprod()
 
+    # 計算「策略不再平衡 (Buy & Hold from Day 1)」的資金曲線
+    df["Equity_No_Rebal"] = (target_w_base * df["Equity_BH_Base"]) + \
+                            (target_w_lev * df["Equity_BH_Lev"]) + \
+                            (target_w_cash * 1.0)
+    df["Return_No_Rebal"] = df["Equity_No_Rebal"].pct_change().fillna(0)
+
+    # 計算繪圖用的累積報酬率 Pct
     df["Pct_Base"] = df["Equity_BH_Base"] - 1
-    df["Pct_Lev"] = df["Equity_BH_Lev"] - 1
+    df["Pct_No_Rebal"] = df["Equity_No_Rebal"] - 1
     df["Pct_Strat"] = df["Equity_Strat"] - 1
 
     rebalance_dates = df[df["Signal"] == 1]
@@ -360,11 +367,11 @@ if st.button("開始回測 🚀"):
         return final_eq, final_ret, cagr, mdd, vol, sharpe, sortino, calmar
 
     eq_strat_final, final_ret_strat, cagr_strat, mdd_strat, vol_strat, sharpe_strat, sortino_strat, calmar_strat = calc_core(df["Equity_Strat"], df["Return_Strat"])
-    eq_lev_final, final_ret_lev, cagr_lev, mdd_lev, vol_lev, sharpe_lev, sortino_lev, calmar_lev = calc_core(df["Equity_BH_Lev"], df["Return_lev"])
+    eq_no_rebal_final, final_ret_no_rebal, cagr_no_rebal, mdd_no_rebal, vol_no_rebal, sharpe_no_rebal, sortino_no_rebal, calmar_no_rebal = calc_core(df["Equity_No_Rebal"], df["Return_No_Rebal"])
     eq_base_final, final_ret_base, cagr_base, mdd_base, vol_base, sharpe_base, sortino_base, calmar_base = calc_core(df["Equity_BH_Base"], df["Return_base"])
 
     capital_strat_final = eq_strat_final * capital
-    capital_lev_final = eq_lev_final * capital
+    capital_no_rebal_final = eq_no_rebal_final * capital
     capital_base_final = eq_base_final * capital
     trade_count_strat = int(df["Signal"].sum())
 
@@ -404,18 +411,18 @@ if st.button("開始回測 🚀"):
     with tab_equity:
         fig_equity = go.Figure()
         fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Base"], mode="lines", name="原型 B&H"))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Lev"], mode="lines", name="槓桿 B&H"))
-        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Strat"], mode="lines", name="策略再平衡", line=dict(width=2.5)))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_No_Rebal"], mode="lines", name="策略不再平衡", line=dict(color="#00CC96", dash='dash')))
+        fig_equity.add_trace(go.Scatter(x=df.index, y=df["Pct_Strat"], mode="lines", name="策略再平衡", line=dict(color="#636EFA", width=2.5)))
         fig_equity.update_layout(template="plotly_white", height=420, yaxis=dict(tickformat=".0%"))
         st.plotly_chart(fig_equity, use_container_width=True)
 
     with tab_dd:
         dd_base = (df["Equity_BH_Base"] / df["Equity_BH_Base"].cummax() - 1) * 100
-        dd_lev = (df["Equity_BH_Lev"] / df["Equity_BH_Lev"].cummax() - 1) * 100
+        dd_no_rebal = (df["Equity_No_Rebal"] / df["Equity_No_Rebal"].cummax() - 1) * 100
         dd_strat = (df["Equity_Strat"] / df["Equity_Strat"].cummax() - 1) * 100
         fig_dd = go.Figure()
         fig_dd.add_trace(go.Scatter(x=df.index, y=dd_base, name="原型 B&H"))
-        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_lev, name="槓桿 B&H"))
+        fig_dd.add_trace(go.Scatter(x=df.index, y=dd_no_rebal, name="策略不再平衡"))
         fig_dd.add_trace(go.Scatter(x=df.index, y=dd_strat, name="策略再平衡", fill="tozeroy"))
         fig_dd.update_layout(template="plotly_white", height=420)
         st.plotly_chart(fig_dd, use_container_width=True)
@@ -423,11 +430,13 @@ if st.button("開始回測 🚀"):
     with tab_radar:
         radar_categories = ["CAGR", "Sharpe", "Sortino", "-MDD", "波動率(反轉)"]
         radar_strat  = [nz(cagr_strat),  nz(sharpe_strat),  nz(sortino_strat),  nz(-mdd_strat),  nz(-vol_strat)]
+        radar_no_rebal = [nz(cagr_no_rebal), nz(sharpe_no_rebal), nz(sortino_no_rebal), nz(-mdd_no_rebal), nz(-vol_no_rebal)]
         radar_base = [nz(cagr_base), nz(sharpe_base), nz(sortino_base), nz(-mdd_base), nz(-vol_base)]
 
         fig_radar = go.Figure()
         fig_radar.add_trace(go.Scatterpolar(r=radar_strat, theta=radar_categories, fill='toself', name='策略再平衡', line=dict(color='#636EFA', width=3)))
-        fig_radar.add_trace(go.Scatterpolar(r=radar_base, theta=radar_categories, fill='toself', name=f'{base_label} BH', line=dict(color='#00CC96', width=2)))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_no_rebal, theta=radar_categories, fill='toself', name='策略不再平衡', line=dict(color='#00CC96', width=2)))
+        fig_radar.add_trace(go.Scatterpolar(r=radar_base, theta=radar_categories, fill='toself', name=f'{base_label} BH', line=dict(color='#FFA15A', width=2)))
         
         fig_radar.update_layout(height=480, paper_bgcolor='rgba(0,0,0,0)', polar=dict(radialaxis=dict(visible=True, showticklabels=True, ticks='')))
         st.plotly_chart(fig_radar, use_container_width=True)
@@ -456,13 +465,13 @@ if st.button("開始回測 🚀"):
             "Sharpe Ratio": fmt_num(sharpe_base),
             "總觸發再平衡次數": "—",
         },
-        f"{lev_label} (B&H)": {
-            "期末資產": fmt_money(capital_lev_final),
-            "CAGR (年化)": fmt_pct(cagr_lev),
-            "最大回撤 (MDD)": fmt_pct(mdd_lev),
-            "年化波動": fmt_pct(vol_lev),
-            "Sharpe Ratio": fmt_num(sharpe_lev),
-            "總觸發再平衡次數": "—", 
+        f"策略不再平衡 ({portfolio_mode[:4]})": {
+            "期末資產": fmt_money(capital_no_rebal_final),
+            "CAGR (年化)": fmt_pct(cagr_no_rebal),
+            "最大回撤 (MDD)": fmt_pct(mdd_no_rebal),
+            "年化波動": fmt_pct(vol_no_rebal),
+            "Sharpe Ratio": fmt_num(sharpe_no_rebal),
+            "總觸發再平衡次數": "0", 
         }
     }
 
@@ -471,7 +480,7 @@ if st.button("開始回測 🚀"):
     
     # 匯出 CSV 區塊
     st.markdown("<br>", unsafe_allow_html=True)
-    export_cols = ["Price_base", "Price_lev", "SMA_200", "BB_UP", "BB_DN", "Signal", "Equity_Strat"]
+    export_cols = ["Price_base", "Price_lev", "SMA_200", "BB_UP", "BB_DN", "Signal", "Equity_Strat", "Equity_No_Rebal"]
     valid_cols = [c for c in export_cols if c in df.columns]
     csv_data = df[valid_cols].to_csv(index=True).encode('utf-8-sig')
     
