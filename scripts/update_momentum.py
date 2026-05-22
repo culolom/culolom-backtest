@@ -17,7 +17,7 @@ TARGET_SYMBOLS = ["0050.TW", "GLD", "QQQ", "SPY", "VT", "ACWI", "VOO",
 
 def load_price_from_csv(file_path):
     """
-    讀取 CSV 並標準化格式
+    讀取 CSV 並標準化格式，並自動剔除假日或異常的空值
     回傳: Series (Index=Date, Value=Price)
     """
     try:
@@ -37,6 +37,10 @@ def load_price_from_csv(file_path):
         if col_price not in df.columns:
             return None
             
+        # === 💡 【核心修復】清洗假日或盤中的空值資料 ===
+        # 移除價格欄位為 NaN 的列，避免 .iloc[-1] 抓到假日的空白格
+        df = df.dropna(subset=[col_price])
+        
         return df[col_price].astype(float)
     except Exception as e:
         print(f"❌ 讀取錯誤 {file_path}: {e}")
@@ -98,7 +102,7 @@ def main():
             price_12m_ago = series.iloc[idx_loc_12m]
             momentum_return_12m = (current_price - price_12m_ago) / price_12m_ago
 
-            # --- 4. 計算 1 個月報酬 (1-Month Return) --- 新增的部分
+            # --- 4. 計算 1 個月報酬 (1-Month Return) ---
             one_month_ago = current_date - pd.DateOffset(months=1)
             idx_loc_1m = series.index.get_indexer([one_month_ago], method='nearest')[0]
             price_1m_ago = series.iloc[idx_loc_1m]
@@ -114,7 +118,7 @@ def main():
             results.append({
                 "代號": symbol,
                 "12月累積報酬": round(momentum_return_12m * 100, 2),
-                "1月累積報酬": round(momentum_return_1m * 100, 2), # 新增
+                "1月累積報酬": round(momentum_return_1m * 100, 2),
                 "收盤價": round(current_price, 2),
                 "200SMA": round(ma200, 2),
                 "乖離率": round(bias_val * 100, 2)
