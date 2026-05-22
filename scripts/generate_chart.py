@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 def calculate_period_returns():
-    # 1. 自動定位專案路徑（支援任何環境執行）
+    # 1. 自動定位專案路徑
     current_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.dirname(current_dir)
     data_dir = os.path.join(base_dir, 'data')
@@ -29,7 +29,7 @@ def calculate_period_returns():
             df.set_index('Date', inplace=True)
             df.sort_index(inplace=True)
             
-            # 【重要修正】剔除重複日期，避免時間序列 AsOf 對齊時發生錯誤
+            # 【修正】剔除重複日期，避免時間序列對齊時發生錯誤
             df = df[~df.index.duplicated(keep='first')]
             
             latest_date = df.index[-1]
@@ -59,7 +59,8 @@ def calculate_period_returns():
                     continue
                     
                 try:
-                    idx_pos = df.index.get_indexer([target_date], method='asof')[0]
+                    # 【修正】將 method 改為 'pad'，精準比對歷史交易日
+                    idx_pos = df.index.get_indexer([target_date], method='pad')[0]
                     if idx_pos == -1:
                         sym_returns[period_name] = "N/A"
                         continue
@@ -109,7 +110,7 @@ def calculate_period_returns():
     
     for col in df_cum_returns.columns:
         display_name = col.replace('.TW', '')
-        plot_df = df_cum_returns[col].dropna()  # 剔除未上市前的空值，避免線條斷裂
+        plot_df = df_cum_returns[col].dropna()  # 剔除未上市前的空值
         fig.add_trace(go.Scatter(
             x=plot_df.index,
             y=plot_df.values,
@@ -158,13 +159,13 @@ def calculate_period_returns():
             if val == "N/A" or pd.isna(val):
                 table_html += '<td style="padding: 11px; color: #95a5a6;">-</td>'
             else:
-                # 台股視覺：正報酬為紅、負報酬為綠
+                # 正報酬為紅、負報酬為綠
                 color_style = "color: #d63031; font-weight: 600;" if val >= 0 else "color: #2ed573; font-weight: 600;"
                 table_html += f'<td style="padding: 11px; {color_style}">{val:+.2f}%</td>'
         table_html += '</tr>'
     table_html += "</tbody></table></div>"
 
-    # 6. 拼裝完整的網頁視窗
+    # 6. 拼裝網頁
     chart_html = fig.to_html(include_plotlyjs='cdn', full_html=False)
     full_page_html = f"""
     <!DOCTYPE html>
@@ -186,12 +187,15 @@ def calculate_period_returns():
     </html>
     """
 
-    # 輸出至根目錄下 dist/index.html
+    # 7. 依照「多主題分類擴充方案」，將這張表儲存為專門的網頁名稱
     dist_path = os.path.join(base_dir, 'dist')
     os.makedirs(dist_path, exist_ok=True)
-    with open(os.path.join(dist_path, 'index.html'), 'w', encoding='utf-8') as f:
+    
+    # 建議儲存成固定檔名，避免蓋掉以後其他國外大盤的回測網頁
+    output_path = os.path.join(dist_path, 'tw_0050_leverage.html')
+    with open(output_path, 'w', encoding='utf-8') as f:
         f.write(full_page_html)
-    print("✨ index.html 整合網頁生成成功！")
+    print("✨ tw_0050_leverage.html 整合網頁生成成功！")
 
 if __name__ == '__main__':
     calculate_period_returns()
