@@ -1,10 +1,10 @@
-name: Auto Generate Strategy Report
+name: Auto Deploy Strategy Report
 
 on:
   push:
     paths:
-      - 'data/**'          # 當 data 資料夾內有任何 CSV 更新時自動觸發
-  workflow_dispatch:       # 允許你在 GitHub 網頁上手動點擊執行
+      - 'data/**'          # 只要 data 資料夾內的檔案有變動就觸發
+  workflow_dispatch:       # 支援在網頁上手動點擊執行
 
 permissions:
   contents: write
@@ -15,24 +15,24 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 複製 GitHub 專案檔案
+      - name: 1. 複製專案原始碼
         uses: actions/checkout@v4
 
-      - name: 2. 初始化 Python 環境
+      - name: 2. 設定 Python 環境
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: 3. 安裝必要套件
+      - name: 3. 安裝輕量必要套件
         run: |
           pip install pandas plotly
 
-      - name: 4. 執行計算腳本
+      - name: 4. 切換至 scripts 執行腳本
         run: |
           cd scripts
           python generate_chart.py
 
-      - name: 5. 將 dist 內容部署到 GitHub Pages 分支
+      - name: 5. 將生成的網頁發佈至 gh-pages 分支
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
