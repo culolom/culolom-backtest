@@ -12,6 +12,7 @@ def calculate_period_returns():
     symbols = ['0050.TW', '00631L.TW', '00675L.TW', '00663L.TW', '00685L.TW']
     
     period_performance = {}
+    all_latest_dates = []  # 用來記錄每檔 ETF 最終採用的最新日期
 
     # 2. 逐一讀取 CSV 並計算各期間報酬率
     for sym in symbols:
@@ -34,8 +35,7 @@ def calculate_period_returns():
                 print(f"警告：{sym} 的資料為空，跳過。")
                 continue
 
-            # --- 【修正】檢查最新報價是否為空值，若是則往前尋找 ---
-            # 找出 'Close' 欄位中最後一個非空值的索引與數值
+            # --- 檢查最新報價是否為空值，若是則往前尋找 ---
             valid_closes = df['Close'].dropna()
             if valid_closes.empty:
                 print(f"警告：{sym} 沒有任何有效的收盤價，跳過。")
@@ -43,15 +43,15 @@ def calculate_period_returns():
                 
             latest_date = valid_closes.index[-1]
             latest_price = valid_closes.iloc[-1]
+            all_latest_dates.append(latest_date) # 記錄此檔 ETF 的最新日期
             
-            # 如果最新日期跟 DataFrame 的最後一筆不一致，說明有往前找
             if latest_date != df.index[-1]:
                 print(f"提示：{sym} 最新日期 {df.index[-1].strftime('%Y-%m-%d')} 報價為空，已自動往前採用 {latest_date.strftime('%Y-%m-%d')} 的報價。")
             # ----------------------------------------------------
 
             first_date = df.index[0] 
             
-            # 定義精準回推的 9 大時間區間（以最終決定的 latest_date 為基準回推）
+            # 定義精準回推的 9 大時間區間
             intervals = {
                 '近一週': latest_date - pd.Timedelta(weeks=1),
                 '近一月': latest_date - pd.DateOffset(months=1),
@@ -66,13 +66,11 @@ def calculate_period_returns():
             
             sym_returns = {}
             for period_name, target_date in intervals.items():
-                # 安全機制：若回推日期比該 ETF 上市日還早，直接歸為 N/A
                 if target_date < first_date:
                     sym_returns[period_name] = "N/A"
                     continue
                     
                 try:
-                    # 將 method 改為 'pad'，精準比對歷史交易日
                     idx_pos = df.index.get_indexer([target_date], method='pad')[0]
                     if idx_pos == -1:
                         sym_returns[period_name] = "N/A"
@@ -84,7 +82,6 @@ def calculate_period_returns():
                     if isinstance(base_price, pd.Series):
                         base_price = base_price.iloc[0]
                         
-                    # 如果基準日價格也是空值，同樣往前找
                     if pd.isna(base_price):
                         valid_base_df = df.loc[:available_date, 'Close'].dropna()
                         if not valid_base_df.empty:
@@ -111,12 +108,15 @@ def calculate_period_returns():
     # 轉化為整合績效 DataFrame
     df_perf = pd.DataFrame(period_performance)
     
+    # 找出所有資料中最晚（最新）的日期作為網頁顯示用
+    global_latest_date_str = max(all_latest_dates).strftime('%Y-%m-%d') if all_latest_dates else "未知"
+    
     # 3. 建立自適應的 HTML 基金績效表格
     columns_order = ['0050', '00631L', '00675L', '00663L', '00685L']
     periods_order = ['近一週', '近一月', '近三月', '今年以來', '近六月', '近一年', '近兩年', '近三年', '近五年']
     
     table_html = f"""
-    <div style="overflow-x:auto; margin-bottom: 25px; -webkit-overflow-scrolling: touch;">
+    <div style="overflow-x:auto; margin-bottom: 10px; -webkit-overflow-scrolling: touch;">
         <table style="width:100%; border-collapse: collapse; text-align: center; background: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-radius: 8px; overflow: hidden; min-width: 620px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
             <thead>
                 <tr style="background-color: #2c3e50; color: #ffffff; font-size: 14px;">
@@ -139,13 +139,12 @@ def calculate_period_returns():
             if val == "N/A" or pd.isna(val):
                 table_html += '<td style="padding: 11px; color: #95a5a6;">-</td>'
             else:
-                # 正報酬為紅、負報酬為綠
                 color_style = "color: #d63031; font-weight: 600;" if val >= 0 else "color: #2ed573; font-weight: 600;"
                 table_html += f'<td style="padding: 11px; {color_style}">{val:+.2f}%</td>'
         table_html += '</tr>'
     table_html += "</tbody></table></div>"
 
-    # 4. 拼裝網頁 (已移除 Plotly 圖表)
+    # 4. 拼裝網頁 (在表格下方加上最新資料日期)
     full_page_html = f"""
     <!DOCTYPE html>
     <html lang="zh-TW">
@@ -156,12 +155,14 @@ def calculate_period_returns():
             body {{ margin: 0; padding: 20px; background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
             .report-box {{ max-width: 980px; margin: 0 auto; }}
             h2 {{ color: #2c3e50; font-size: 18px; margin-bottom: 15px; font-weight: 600; }}
+            .data-note {{ text-align: right; font-size: 12px; color: #7f8c8d; margin-top: 5px; font-style: italic; }}
         </style>
     </head>
     <body>
         <div class="report-box">
             <h2>0050 與四大正2 ETF 期間績效對比表</h2>
             {table_html}
+            <div class="data-note">＊ 報酬率計算基準日（資料最新日期）：{global_latest_date_str}</div>
         </div>
     </body>
     </html>
@@ -174,7 +175,7 @@ def calculate_period_returns():
     output_path = os.path.join(dist_path, 'tw_0050_leverage.html')
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(full_page_html)
-    print("✨ tw_0050_leverage.html 績效表格網頁生成成功！（已移除圖表）")
+    print(f"✨ tw_0050_leverage.html 績效表格網頁生成成功！（最新資料日期：{global_latest_date_str}）")
 
 if __name__ == '__main__':
     calculate_period_returns()
