@@ -8,8 +8,8 @@ def calculate_period_returns():
     base_dir = os.path.dirname(current_dir)
     data_dir = os.path.join(base_dir, 'data')
     
-    # 比較的五檔目標 ETF
-    symbols = ['0050.TW', '00631L.TW', '00675L.TW', '00663L.TW', '00685L.TW']
+    # 比較的五檔目標 ETF（已依指定順序排列）
+    symbols = ['0050.TW', '00631L.TW', '00663L.TW', '00675L.TW', '00685L.TW']
     
     period_performance = {}
     all_latest_dates = []  # 用來記錄每檔 ETF 最終採用的最新日期
@@ -112,18 +112,32 @@ def calculate_period_returns():
     global_latest_date_str = max(all_latest_dates).strftime('%Y-%m-%d') if all_latest_dates else "未知"
     
     # 3. 建立自適應的 HTML 基金績效表格
-    columns_order = ['0050', '00631L', '00675L', '00663L', '00685L']
+    # 定義對應的中文名稱與代號（依指定順序）
+    etf_mapping = {
+        '0050': {'name': '元大台灣50', 'id': '0050'},
+        '00631L': {'name': '元大台灣50正2', 'id': '00631L'},
+        '00663L': {'name': '國泰台灣加權正2', 'id': '00663L'},
+        '00675L': {'name': '富邦台灣加權正2', 'id': '00675L'},
+        '00685L': {'name': '群益台灣加權正2', 'id': '00685L'}
+    }
+    columns_order = ['0050', '00631L', '00663L', '00675L', '00685L']
     periods_order = ['近一週', '近一月', '近三月', '今年以來', '近六月', '近一年', '近兩年', '近三年', '近五年']
     
     table_html = f"""
     <div style="overflow-x:auto; margin-bottom: 10px; -webkit-overflow-scrolling: touch;">
-        <table style="width:100%; border-collapse: collapse; text-align: center; background: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-radius: 8px; overflow: hidden; min-width: 620px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+        <table style="width:100%; border-collapse: collapse; text-align: center; background: #ffffff; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-radius: 8px; overflow: hidden; min-width: 720px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
             <thead>
                 <tr style="background-color: #2c3e50; color: #ffffff; font-size: 14px;">
-                    <th style="padding: 13px; text-align: left; font-weight: 600;">期間 / 績效</th>
+                    <th style="padding: 13px; text-align: left; font-weight: 600; min-width: 110px;">期間 / 績效</th>
     """
     for col in columns_order:
-        table_html += f'<th style="padding: 13px; font-weight: 600;">{col}</th>'
+        etf_info = etf_mapping[col]
+        table_html += f"""
+                    <th style="padding: 13px; font-weight: 600;">
+                        {etf_info['name']}<br>
+                        <span style="font-size: 12px; font-weight: 400; color: #bdc3c7;">{etf_info['id']}</span>
+                    </th>
+        """
     table_html += "</tr></thead><tbody>"
     
     for period in periods_order:
@@ -160,7 +174,7 @@ def calculate_period_returns():
     </head>
     <body>
         <div class="report-box">
-            <h2>0050 與四大正2 ETF 期間績效對比表</h2>
+            <h2>0050 與四大正2">0050 與四大正2 ETF 期間績效對比表</h2>
             {table_html}
             <div class="data-note">＊ 報酬率計算基準日（資料最新日期）：{global_latest_date_str}</div>
         </div>
