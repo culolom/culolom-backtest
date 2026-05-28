@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import plotly.graph_objects as go
 from datetime import datetime
 
 def calculate_period_returns():
@@ -12,7 +11,6 @@ def calculate_period_returns():
     # 比較的五檔目標 ETF
     symbols = ['0050.TW', '00631L.TW', '00675L.TW', '00663L.TW', '00685L.TW']
     
-    close_trends = {}
     period_performance = {}
 
     # 2. 逐一讀取 CSV 並計算各期間報酬率
@@ -29,16 +27,31 @@ def calculate_period_returns():
             df.set_index('Date', inplace=True)
             df.sort_index(inplace=True)
             
-            # 【修正】剔除重複日期，避免時間序列對齊時發生錯誤
+            # 剔除重複日期，避免時間序列對齊時發生錯誤
             df = df[~df.index.duplicated(keep='first')]
             
-            latest_date = df.index[-1]
-            latest_price = df['Close'].iloc[-1]
+            if df.empty:
+                print(f"警告：{sym} 的資料為空，跳過。")
+                continue
+
+            # --- 【修正】檢查最新報價是否為空值，若是則往前尋找 ---
+            # 找出 'Close' 欄位中最後一個非空值的索引與數值
+            valid_closes = df['Close'].dropna()
+            if valid_closes.empty:
+                print(f"警告：{sym} 沒有任何有效的收盤價，跳過。")
+                continue
+                
+            latest_date = valid_closes.index[-1]
+            latest_price = valid_closes.iloc[-1]
+            
+            # 如果最新日期跟 DataFrame 的最後一筆不一致，說明有往前找
+            if latest_date != df.index[-1]:
+                print(f"提示：{sym} 最新日期 {df.index[-1].strftime('%Y-%m-%d')} 報價為空，已自動往前採用 {latest_date.strftime('%Y-%m-%d')} 的報價。")
+            # ----------------------------------------------------
+
             first_date = df.index[0] 
             
-            close_trends[sym] = df['Close']
-            
-            # 定義精準回推的 9 大時間區間
+            # 定義精準回推的 9 大時間區間（以最終決定的 latest_date 為基準回推）
             intervals = {
                 '近一週': latest_date - pd.Timedelta(weeks=1),
                 '近一月': latest_date - pd.DateOffset(months=1),
@@ -59,7 +72,7 @@ def calculate_period_returns():
                     continue
                     
                 try:
-                    # 【修正】將 method 改為 'pad'，精準比對歷史交易日
+                    # 將 method 改為 'pad'，精準比對歷史交易日
                     idx_pos = df.index.get_indexer([target_date], method='pad')[0]
                     if idx_pos == -1:
                         sym_returns[period_name] = "N/A"
@@ -71,6 +84,15 @@ def calculate_period_returns():
                     if isinstance(base_price, pd.Series):
                         base_price = base_price.iloc[0]
                         
+                    # 如果基準日價格也是空值，同樣往前找
+                    if pd.isna(base_price):
+                        valid_base_df = df.loc[:available_date, 'Close'].dropna()
+                        if not valid_base_df.empty:
+                            base_price = valid_base_df.iloc[-1]
+                        else:
+                            sym_returns[period_name] = "N/A"
+                            continue
+                            
                     ret = ((latest_price / base_price) - 1) * 100
                     sym_returns[period_name] = round(ret, 2)
                 except Exception:
@@ -82,56 +104,14 @@ def calculate_period_returns():
             print(f"處理 {sym} 時發生非預期錯誤: {e}")
             continue
 
+    if not period_performance:
+        print("錯誤：沒有任何成功的績效數據可以產出。")
+        return
+
     # 轉化為整合績效 DataFrame
     df_perf = pd.DataFrame(period_performance)
     
-    # 3. 處理 5 年走勢對比數據（歸一化百分比）
-    df_trends = pd.DataFrame(close_trends)
-    latest_date_str = df_trends.index[-1].strftime('%Y-%m-%d')
-    five_years_ago = df_trends.index[-1] - pd.DateOffset(years=5)
-    
-    df_trends_5y = df_trends.loc[five_years_ago:]
-    df_cum_returns = pd.DataFrame(index=df_trends_5y.index)
-    
-    for col in df_trends_5y.columns:
-        first_valid_idx = df_trends_5y[col].first_valid_index()
-        if first_valid_idx is not None:
-            base_p = df_trends_5y.loc[first_valid_idx, col]
-            df_cum_returns[col] = (df_trends_5y[col] / base_p - 1) * 100
-
-    df_cum_returns = df_cum_returns.round(2)
-    
-    # 4. 使用 Plotly 繪製 5 年累積走勢響應式圖表
-    fig = go.Figure()
-    colors = {
-        '0050.TW': '#7f8c8d', '00631L.TW': '#e74c3c', '00675L.TW': '#3498db', 
-        '00663L.TW': '#2ecc71', '00685L.TW': '#f1c40f'
-    }
-    
-    for col in df_cum_returns.columns:
-        display_name = col.replace('.TW', '')
-        plot_df = df_cum_returns[col].dropna()  # 剔除未上市前的空值
-        fig.add_trace(go.Scatter(
-            x=plot_df.index,
-            y=plot_df.values,
-            mode='lines',
-            name=display_name,
-            line=dict(width=2, color=colors.get(col, '#000000')),
-            hovertemplate='%{x}<br><b>' + display_name + '</b>: %{y}%',
-        ))
-        
-    fig.update_layout(
-        title=f"0050 與四大正2 ETF 近五年累積報酬率走勢對比 (至 {latest_date_str})",
-        xaxis_title="日期",
-        yaxis_title="累積報酬率 (%)",
-        template="plotly_white",
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=10, r=10, t=70, b=10),
-        height=460
-    )
-
-    # 5. 建立自適應的 HTML 基金績效表格
+    # 3. 建立自適應的 HTML 基金績效表格
     columns_order = ['0050', '00631L', '00675L', '00663L', '00685L']
     periods_order = ['近一週', '近一月', '近三月', '今年以來', '近六月', '近一年', '近兩年', '近三年', '近五年']
     
@@ -165,8 +145,7 @@ def calculate_period_returns():
         table_html += '</tr>'
     table_html += "</tbody></table></div>"
 
-    # 6. 拼裝網頁
-    chart_html = fig.to_html(include_plotlyjs='cdn', full_html=False)
+    # 4. 拼裝網頁 (已移除 Plotly 圖表)
     full_page_html = f"""
     <!DOCTYPE html>
     <html lang="zh-TW">
@@ -174,28 +153,28 @@ def calculate_period_returns():
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body {{ margin: 0; padding: 5px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
+            body {{ margin: 0; padding: 20px; background-color: #f8f9fa; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }}
             .report-box {{ max-width: 980px; margin: 0 auto; }}
+            h2 {{ color: #2c3e50; font-size: 18px; margin-bottom: 15px; font-weight: 600; }}
         </style>
     </head>
     <body>
         <div class="report-box">
+            <h2>0050 與四大正2 ETF 期間績效對比表</h2>
             {table_html}
-            {chart_html}
         </div>
     </body>
     </html>
     """
 
-    # 7. 依照「多主題分類擴充方案」，將這張表儲存為專門的網頁名稱
+    # 5. 儲存網頁
     dist_path = os.path.join(base_dir, 'dist')
     os.makedirs(dist_path, exist_ok=True)
     
-    # 建議儲存成固定檔名，避免蓋掉以後其他國外大盤的回測網頁
     output_path = os.path.join(dist_path, 'tw_0050_leverage.html')
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(full_page_html)
-    print("✨ tw_0050_leverage.html 整合網頁生成成功！")
+    print("✨ tw_0050_leverage.html 績效表格網頁生成成功！（已移除圖表）")
 
 if __name__ == '__main__':
     calculate_period_returns()
