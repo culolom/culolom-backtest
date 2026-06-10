@@ -1,10 +1,46 @@
 import os
+import sys
+import datetime as dt
 import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="0050 凱利公式戰情室", layout="wide")
+# ======================================================
+# 1. ⚙️ Streamlit 頁面最優先設定
+# ======================================================
+st.set_page_config(
+    page_title="0050 凱利公式戰情室", 
+    layout="wide"
+)
+
+# ======================================================
+# 2. 🔒 驗證守門員 (必須放在 set_page_config 之後，sidebar 之前)
+# ======================================================
+# 讓 pages 資料夾能讀到根目錄的 auth.py
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+try:
+    import auth 
+    if not auth.check_password():
+        st.stop()  # 驗證沒過就停止執行
+except ImportError:
+    pass 
+
+# ======================================================
+# 3. 🏠 側邊欄與快速連結
+# ======================================================
+with st.sidebar:
+    st.page_link("https://hamr-lab.com/warroom/", label="回到戰情室", icon="🏠")
+    st.divider()
+    st.markdown("### 🔗 快速連結")
+    st.page_link("https://hamr-lab.com/", label="回到官網首頁", icon="🏠")
+    st.page_link("https://www.youtube.com/@hamr-lab", label="YouTube 頻道", icon="📺")
+    st.page_link("https://hamr-lab.com/contact", label="問題回報 / 許願", icon="📝")
+
+# ======================================================
+# 4. 📊 主網頁 UI 標題
+# ======================================================
 st.title("📊 0050 凱利公式動態戰情室")
 
 # 1. 讓使用者設定參數
@@ -84,7 +120,7 @@ else:
     fig.add_trace(go.Scatter(x=[half_kelly], y=[cagr_half], mode='markers+text', name='半凱利', 
                              marker=dict(color='purple', size=12, symbol='diamond'), text=["Half Kelly"], textposition="top left"))
 
-    # 區分顏色區域 (仿照您的第二張圖)
+    # 區分顏色區域
     # 積極區 (0 到 Full Kelly)
     fig.add_vrect(x0=0, x1=full_kelly, fillcolor="lightgreen", opacity=0.2, layer="below", line_width=0)
     # 低效區 (Full Kelly 以上)
