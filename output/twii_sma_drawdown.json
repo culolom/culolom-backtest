@@ -11,6 +11,19 @@
     "drawdown_primary_basis": "跌破日前252個交易日最高收盤價",
     "version": "1.0.0"
   },
+  "current_market": {
+    "date": "2026-07-31",
+    "close": 43119.75,
+    "sma200": 35015.93,
+    "distance_from_sma200_pct": 23.14,
+    "peak_252_date": "2026-06-22",
+    "peak_252_close": 47741.51,
+    "drawdown_from_252d_peak_pct": -9.68,
+    "below_sma200": false,
+    "eligible_for_bear_market_plan": false,
+    "triggered_drawdown_levels": [],
+    "current_trigger_level_pct": 0
+  },
   "summary": {
     "total_events": 107,
     "average_drawdown_from_cross_pct": -3.83,
@@ -91,6 +104,7 @@
     {
       "id": "conservative",
       "name": "保守版",
+      "description": "五等份平均投入",
       "initial_total": 1000000,
       "initial_leveraged_etf": 500000,
       "initial_cash": 500000,
@@ -120,6 +134,7 @@
     {
       "id": "cumulative",
       "name": "累積版",
+      "description": "跌得越深，投入金額線性增加",
       "initial_total": 1000000,
       "initial_leveraged_etf": 500000,
       "initial_cash": 500000,
@@ -145,6 +160,7 @@
     {
       "id": "martingale",
       "name": "馬丁版",
+      "description": "前段試單，後段集中投入",
       "initial_total": 1000000,
       "initial_leveraged_etf": 500000,
       "initial_cash": 500000,
