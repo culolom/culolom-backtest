@@ -170,6 +170,7 @@ def threshold_stats(events: pd.DataFrame, column: str) -> list[dict[str, Any]]:
 
 
 def analyze_fund_entries(df: pd.DataFrame) -> pd.DataFrame:
+    """分析國安基金進場後，首次站回200SMA所需時間與報酬。"""
     rows: list[dict[str, Any]] = []
 
     for item in NATIONAL_STABILIZATION_FUND:
@@ -179,24 +180,68 @@ def analyze_fund_entries(df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         idx = int(candidates[0])
-        row = df.loc[idx]
+        entry_row = df.loc[idx]
         history = df.loc[:idx]
 
         peak_252_window = history.tail(PEAK_LOOKBACK_DAYS)
         peak_252_idx = int(peak_252_window["Close"].idxmax())
+
+        entry_close = float(entry_row["Close"])
+        entry_sma200 = float(entry_row["SMA200"])
+
+        future = df.loc[idx:]
+        recovery_candidates = future.index[
+            future["Close"] >= future["SMA200"]
+        ]
+
+        recovered = len(recovery_candidates) > 0
+        recovery_idx = int(recovery_candidates[0]) if recovered else None
+
+        if recovered and recovery_idx is not None:
+            recovery_row = df.loc[recovery_idx]
+            tracking_window = df.loc[idx:recovery_idx]
+            recovery_date = recovery_row["Date"]
+            recovery_close = float(recovery_row["Close"])
+            recovery_sma200 = float(recovery_row["SMA200"])
+            trading_days_to_recovery = int(recovery_idx - idx)
+            calendar_days_to_recovery = int((recovery_date - entry_row["Date"]).days)
+            return_to_recovery = recovery_close / entry_close - 1
+        else:
+            tracking_window = df.loc[idx:]
+            recovery_date = pd.NaT
+            recovery_close = None
+            recovery_sma200 = None
+            trading_days_to_recovery = None
+            calendar_days_to_recovery = None
+            return_to_recovery = None
+
+        lowest_idx = int(tracking_window["Close"].idxmin())
+        lowest_close_after_entry = float(df.loc[lowest_idx, "Close"])
+        lowest_date_after_entry = df.loc[lowest_idx, "Date"]
+        max_drawdown_after_entry = lowest_close_after_entry / entry_close - 1
 
         rows.append(
             {
                 "id": item["id"],
                 "event": item["event"],
                 "execution_start": requested_date,
-                "matched_trade_date": row["Date"],
-                "close": float(row["Close"]),
-                "sma200": float(row["SMA200"]),
-                "distance_from_sma200": float(row["Close"] / row["SMA200"] - 1),
+                "matched_trade_date": entry_row["Date"],
+                "close": entry_close,
+                "sma200": entry_sma200,
+                "distance_from_sma200": float(entry_close / entry_sma200 - 1),
                 "peak_252_date": df.loc[peak_252_idx, "Date"],
                 "peak_252_close": float(df.loc[peak_252_idx, "Close"]),
-                "drawdown_from_252d_peak": float(row["Close"] / df.loc[peak_252_idx, "Close"] - 1),
+                "drawdown_from_252d_peak": float(entry_close / float(df.loc[peak_252_idx, "Close"]) - 1),
+                "recovered_to_sma200": bool(recovered),
+                "recovery_date": recovery_date,
+                "recovery_close": recovery_close,
+                "recovery_sma200": recovery_sma200,
+                "trading_days_to_recovery": trading_days_to_recovery,
+                "calendar_days_to_recovery": calendar_days_to_recovery,
+                "return_to_recovery": return_to_recovery,
+                "lowest_date_after_entry": lowest_date_after_entry,
+                "lowest_close_after_entry": lowest_close_after_entry,
+                "max_drawdown_after_entry": max_drawdown_after_entry,
             }
         )
 
@@ -312,7 +357,7 @@ def build_output(df: pd.DataFrame, events: pd.DataFrame, fund: pd.DataFrame) -> 
             "peak_lookback_days": PEAK_LOOKBACK_DAYS,
             "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
             "drawdown_primary_basis": "跌破日前252個交易日最高收盤價",
-            "version": "1.0.0",
+            "version": "1.1.0",
         },
         "current_market": current_market,
         "summary": {
@@ -332,12 +377,22 @@ def build_output(df: pd.DataFrame, events: pd.DataFrame, fund: pd.DataFrame) -> 
         },
         "national_stabilization_fund_summary": {
             "event_count": int(len(fund)),
+            "recovered_event_count": int(fund["recovered_to_sma200"].sum()),
+            "unrecovered_event_count": int((~fund["recovered_to_sma200"]).sum()),
             "average_distance_from_sma200_pct": round(float(fund_distance.mean()), 2),
             "median_distance_from_sma200_pct": round(float(fund_distance.median()), 2),
             "shallowest_distance_from_sma200_pct": round(float(fund_distance.max()), 2),
             "deepest_distance_from_sma200_pct": round(float(fund_distance.min()), 2),
             "average_drawdown_from_252d_peak_pct": round(float(fund_drawdown.mean()), 2),
             "median_drawdown_from_252d_peak_pct": round(float(fund_drawdown.median()), 2),
+            "average_trading_days_to_recovery": round(float(fund.loc[fund["recovered_to_sma200"], "trading_days_to_recovery"].mean()), 2),
+            "median_trading_days_to_recovery": round(float(fund.loc[fund["recovered_to_sma200"], "trading_days_to_recovery"].median()), 2),
+            "average_calendar_days_to_recovery": round(float(fund.loc[fund["recovered_to_sma200"], "calendar_days_to_recovery"].mean()), 2),
+            "median_calendar_days_to_recovery": round(float(fund.loc[fund["recovered_to_sma200"], "calendar_days_to_recovery"].median()), 2),
+            "average_return_to_recovery_pct": round(float(fund.loc[fund["recovered_to_sma200"], "return_to_recovery"].mean() * 100), 2),
+            "median_return_to_recovery_pct": round(float(fund.loc[fund["recovered_to_sma200"], "return_to_recovery"].median() * 100), 2),
+            "average_max_drawdown_after_entry_pct": round(float(fund["max_drawdown_after_entry"].mean() * 100), 2),
+            "deepest_max_drawdown_after_entry_pct": round(float(fund["max_drawdown_after_entry"].min() * 100), 2),
         },
         "strategies": STRATEGIES,
         "strategy_trigger_summary": strategy_trigger_summary(events),
