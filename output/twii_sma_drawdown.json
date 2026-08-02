@@ -9,7 +9,7 @@
     "peak_lookback_days": 252,
     "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
     "drawdown_primary_basis": "跌破日前252個交易日最高收盤價",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "current_market": {
     "date": "2026-07-31",
@@ -93,12 +93,22 @@
   },
   "national_stabilization_fund_summary": {
     "event_count": 9,
+    "recovered_event_count": 9,
+    "unrecovered_event_count": 0,
     "average_distance_from_sma200_pct": -15.86,
     "median_distance_from_sma200_pct": -16.89,
     "shallowest_distance_from_sma200_pct": 5.89,
     "deepest_distance_from_sma200_pct": -29.2,
     "average_drawdown_from_252d_peak_pct": -26.32,
-    "median_drawdown_from_252d_peak_pct": -23.82
+    "median_drawdown_from_252d_peak_pct": -23.82,
+    "average_trading_days_to_recovery": 88.78,
+    "median_trading_days_to_recovery": 48.0,
+    "average_calendar_days_to_recovery": 133.44,
+    "median_calendar_days_to_recovery": 73.0,
+    "average_return_to_recovery_pct": 6.93,
+    "median_return_to_recovery_pct": 5.54,
+    "average_max_drawdown_after_entry_pct": -9.65,
+    "deepest_max_drawdown_after_entry_pct": -43.9
   },
   "strategies": [
     {
@@ -3864,7 +3874,17 @@
       "distance_from_sma200": 0.05891562887478652,
       "peak_252_date": "2000-02-17",
       "peak_252_close": 10202.1533203125,
-      "drawdown_from_252d_peak": -0.14893263667433876
+      "drawdown_from_252d_peak": -0.14893263667433876,
+      "recovered_to_sma200": true,
+      "recovery_date": "2000-03-16",
+      "recovery_close": 8682.7197265625,
+      "recovery_sma200": 8199.633181152343,
+      "trading_days_to_recovery": 0,
+      "calendar_days_to_recovery": 0,
+      "return_to_recovery": 0.0,
+      "lowest_date_after_entry": "2000-03-16",
+      "lowest_close_after_entry": 8682.7197265625,
+      "max_drawdown_after_entry": 0.0
     },
     {
       "id": "NSF02",
@@ -3876,7 +3896,17 @@
       "distance_from_sma200": -0.28454034115004034,
       "peak_252_date": "2000-02-17",
       "peak_252_close": 10202.1533203125,
-      "drawdown_from_252d_peak": -0.39783181878442675
+      "drawdown_from_252d_peak": -0.39783181878442675,
+      "recovered_to_sma200": true,
+      "recovery_date": "2001-12-05",
+      "recovery_close": 4924.53759765625,
+      "recovery_sma200": 4765.378157958984,
+      "trading_days_to_recovery": 288,
+      "calendar_days_to_recovery": 428,
+      "return_to_recovery": -0.19840350769545756,
+      "lowest_date_after_entry": "2001-10-03",
+      "lowest_close_after_entry": 3446.244140625,
+      "max_drawdown_after_entry": -0.4390341915421976
     },
     {
       "id": "NSF03",
@@ -3888,7 +3918,17 @@
       "distance_from_sma200": -0.04536524625948102,
       "peak_252_date": "2004-03-04",
       "peak_252_close": 7034.068359375,
-      "drawdown_from_252d_peak": -0.17326596589200494
+      "drawdown_from_252d_peak": -0.17326596589200494,
+      "recovered_to_sma200": true,
+      "recovery_date": "2004-05-28",
+      "recovery_close": 6137.23193359375,
+      "recovery_sma200": 6114.124392089844,
+      "trading_days_to_recovery": 6,
+      "calendar_days_to_recovery": 8,
+      "return_to_recovery": 0.05535879786480691,
+      "lowest_date_after_entry": "2004-05-20",
+      "lowest_close_after_entry": 5815.3037109375,
+      "max_drawdown_after_entry": 0.0
     },
     {
       "id": "NSF04",
@@ -3900,7 +3940,17 @@
       "distance_from_sma200": -0.29203654795236034,
       "peak_252_date": "2007-10-29",
       "peak_252_close": 9809.8349609375,
-      "drawdown_from_252d_peak": -0.42487056844957194
+      "drawdown_from_252d_peak": -0.42487056844957194,
+      "recovered_to_sma200": true,
+      "recovery_date": "2009-04-07",
+      "recovery_close": 5576.8251953125,
+      "recovery_sma200": 5567.334499511719,
+      "trading_days_to_recovery": 131,
+      "calendar_days_to_recovery": 201,
+      "return_to_recovery": -0.011538546086419466,
+      "lowest_date_after_entry": "2008-11-20",
+      "lowest_close_after_entry": 4089.9111328125,
+      "max_drawdown_after_entry": -0.2750858484653208
     },
     {
       "id": "NSF05",
@@ -3912,7 +3962,17 @@
       "distance_from_sma200": -0.1350714086783572,
       "peak_252_date": "2011-01-28",
       "peak_252_close": 9145.3076171875,
-      "drawdown_from_252d_peak": -0.23824888852345405
+      "drawdown_from_252d_peak": -0.23824888852345405,
+      "recovered_to_sma200": true,
+      "recovery_date": "2012-02-09",
+      "recovery_close": 7910.74267578125,
+      "recovery_sma200": 7867.7889477539065,
+      "trading_days_to_recovery": 28,
+      "calendar_days_to_recovery": 50,
+      "return_to_recovery": 0.13554890537695807,
+      "lowest_date_after_entry": "2011-12-22",
+      "lowest_close_after_entry": 6966.318359375,
+      "max_drawdown_after_entry": -1.864405045215456e-05
     },
     {
       "id": "NSF06",
@@ -3924,7 +3984,17 @@
       "distance_from_sma200": -0.16967773001942044,
       "peak_252_date": "2015-04-27",
       "peak_252_close": 9973.07421875,
-      "drawdown_from_252d_peak": -0.23036720552644285
+      "drawdown_from_252d_peak": -0.23036720552644285,
+      "recovered_to_sma200": true,
+      "recovery_date": "2016-03-03",
+      "recovery_close": 8611.7626953125,
+      "recovery_sma200": 8564.707961425782,
+      "trading_days_to_recovery": 125,
+      "calendar_days_to_recovery": 191,
+      "return_to_recovery": 0.12196533266444609,
+      "lowest_date_after_entry": "2016-01-21",
+      "lowest_close_after_entry": 7663.974609375,
+      "max_drawdown_after_entry": -0.0015152383588452611
     },
     {
       "id": "NSF07",
@@ -3936,7 +4006,17 @@
       "distance_from_sma200": -0.16889801792527526,
       "peak_252_date": "2020-01-14",
       "peak_252_close": 12179.8095703125,
-      "drawdown_from_252d_peak": -0.24185269150204958
+      "drawdown_from_252d_peak": -0.24185269150204958,
+      "recovered_to_sma200": true,
+      "recovery_date": "2020-06-01",
+      "recovery_close": 11079.01953125,
+      "recovery_sma200": 11052.713881835938,
+      "trading_days_to_recovery": 48,
+      "calendar_days_to_recovery": 73,
+      "return_to_recovery": 0.1997955097598192,
+      "lowest_date_after_entry": "2020-03-23",
+      "lowest_close_after_entry": 8890.0302734375,
+      "max_drawdown_after_entry": -0.03725971656485161
     },
     {
       "id": "NSF08",
@@ -3948,7 +4028,17 @@
       "distance_from_sma200": -0.1596546918091004,
       "peak_252_date": "2022-01-04",
       "peak_252_close": 18526.349609375,
-      "drawdown_from_252d_peak": -0.22679426926871793
+      "drawdown_from_252d_peak": -0.22679426926871793,
+      "recovered_to_sma200": true,
+      "recovery_date": "2023-01-17",
+      "recovery_close": 14932.9296875,
+      "recovery_sma200": 14928.10572265625,
+      "trading_days_to_recovery": 131,
+      "calendar_days_to_recovery": 188,
+      "return_to_recovery": 0.04246168244381554,
+      "lowest_date_after_entry": "2022-10-25",
+      "lowest_close_after_entry": 12666.1201171875,
+      "max_drawdown_after_entry": -0.11578336175710735
     },
     {
       "id": "NSF09",
@@ -3960,7 +4050,17 @@
       "distance_from_sma200": -0.23134337552735118,
       "peak_252_date": "2024-07-11",
       "peak_252_close": 24390.029296875,
-      "drawdown_from_252d_peak": -0.28693157544286596
+      "drawdown_from_252d_peak": -0.28693157544286596,
+      "recovered_to_sma200": true,
+      "recovery_date": "2025-06-10",
+      "recovery_close": 22242.140625,
+      "recovery_sma200": 22201.005869140627,
+      "trading_days_to_recovery": 42,
+      "calendar_days_to_recovery": 62,
+      "return_to_recovery": 0.27888959626511345,
+      "lowest_date_after_entry": "2025-04-09",
+      "lowest_close_after_entry": 17391.759765625,
+      "max_drawdown_after_entry": 0.0
     }
   ]
 }
