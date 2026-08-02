@@ -1,490 +1,371 @@
+from __future__ import annotations
+
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import pandas as pd
 
 
-# ============================================================
-# 基本設定
-# ============================================================
-
-# 專案根目錄
 ROOT_DIR = Path(__file__).resolve().parents[1]
-
-# 台股加權指數資料位置
 DATA_PATH = ROOT_DIR / "data" / "^TWII.csv"
+OUTPUT_DIR = ROOT_DIR / "output"
+JSON_PATH = OUTPUT_DIR / "twii_sma_drawdown.json"
+EVENTS_CSV_PATH = OUTPUT_DIR / "twii_sma_events.csv"
+FUND_CSV_PATH = OUTPUT_DIR / "national_stabilization_fund_analysis.csv"
+
+SMA_DAYS = 200
+PEAK_LOOKBACK_DAYS = 252
+THRESHOLDS = [10, 20, 30, 40, 50]
+
+NATIONAL_STABILIZATION_FUND = [
+    {"id": "NSF01", "execution_start": "2000-03-16", "event": "首次政黨輪替"},
+    {"id": "NSF02", "execution_start": "2000-10-03", "event": "網路泡沫"},
+    {"id": "NSF03", "execution_start": "2004-05-20", "event": "三一九事件與兩岸緊張"},
+    {"id": "NSF04", "execution_start": "2008-09-18", "event": "金融海嘯"},
+    {"id": "NSF05", "execution_start": "2011-12-21", "event": "歐債危機"},
+    {"id": "NSF06", "execution_start": "2015-08-25", "event": "中國股災與人民幣貶值"},
+    {"id": "NSF07", "execution_start": "2020-03-20", "event": "COVID-19疫情"},
+    {"id": "NSF08", "execution_start": "2022-07-13", "event": "升息與俄烏戰爭"},
+    {"id": "NSF09", "execution_start": "2025-04-09", "event": "對等關稅衝擊"},
+]
+
+STRATEGIES = [
+    {
+        "id": "conservative",
+        "name": "保守版",
+        "description": "五等份平均投入",
+        "initial_total": 1_000_000,
+        "initial_leveraged_etf": 500_000,
+        "initial_cash": 500_000,
+        "rules": [
+            {"drawdown_from_peak_pct": -10, "cash_amount": 100_000},
+            {"drawdown_from_peak_pct": -20, "cash_amount": 100_000},
+            {"drawdown_from_peak_pct": -30, "cash_amount": 100_000},
+            {"drawdown_from_peak_pct": -40, "cash_amount": 100_000},
+            {"drawdown_from_peak_pct": -50, "cash_amount": 100_000},
+        ],
+    },
+    {
+        "id": "cumulative",
+        "name": "累積版",
+        "description": "跌得越深，投入金額線性增加",
+        "initial_total": 1_000_000,
+        "initial_leveraged_etf": 500_000,
+        "initial_cash": 500_000,
+        "rules": [
+            {"drawdown_from_peak_pct": -10, "cash_amount": 50_000},
+            {"drawdown_from_peak_pct": -20, "cash_amount": 100_000},
+            {"drawdown_from_peak_pct": -30, "cash_amount": 150_000},
+            {"drawdown_from_peak_pct": -40, "cash_amount": 200_000},
+        ],
+    },
+    {
+        "id": "martingale",
+        "name": "馬丁版",
+        "description": "前段試單，後段集中投入",
+        "initial_total": 1_000_000,
+        "initial_leveraged_etf": 500_000,
+        "initial_cash": 500_000,
+        "rules": [
+            {"drawdown_from_peak_pct": -10, "cash_amount": 50_000},
+            {"drawdown_from_peak_pct": -20, "cash_amount": 100_000},
+            {"drawdown_from_peak_pct": -30, "cash_amount": 200_000},
+            {"drawdown_from_peak_pct": -40, "cash_amount": 150_000},
+        ],
+    },
+]
 
 
-# ============================================================
-# 讀取與整理資料
-# ============================================================
+def load_data(path: Path = DATA_PATH) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"找不到資料：{path}")
 
-def load_twii_data(csv_path: Path = DATA_PATH) -> pd.DataFrame:
-    """
-    讀取台股加權指數歷史資料，進行基本清理，
-    並計算200日簡單移動平均線。
+    df = pd.read_csv(path)
+    required = {"Date", "Close"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"缺少必要欄位：{sorted(missing)}")
 
-    必要欄位：
-    - Date
-    - Close
-    """
-
-    if not csv_path.exists():
-        raise FileNotFoundError(f"找不到資料檔案：{csv_path}")
-
-    df = pd.read_csv(csv_path)
-
-    required_columns = {"Date", "Close"}
-    missing_columns = required_columns - set(df.columns)
-
-    if missing_columns:
-        raise ValueError(
-            f"CSV缺少必要欄位：{sorted(missing_columns)}；"
-            f"目前欄位為：{list(df.columns)}"
-        )
-
-    # 日期轉換
-    df["Date"] = pd.to_datetime(
-        df["Date"],
-        errors="coerce",
-    )
-
-    # 收盤價轉換
-    df["Close"] = pd.to_numeric(
-        df["Close"],
-        errors="coerce",
-    )
-
-    # 移除日期或收盤價無效的資料
-    df = df.dropna(
-        subset=["Date", "Close"]
-    ).copy()
-
-    # 日期由舊到新排序
-    df = df.sort_values("Date").reset_index(drop=True)
-
-    # 若有重複日期，只保留最後一筆
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
     df = (
-        df.drop_duplicates(
-            subset=["Date"],
-            keep="last",
-        )
+        df.dropna(subset=["Date", "Close"])
+        .sort_values("Date")
+        .drop_duplicates("Date", keep="last")
         .reset_index(drop=True)
     )
-
-    # 計算200日簡單移動平均線
-    df["SMA200"] = (
-        df["Close"]
-        .rolling(
-            window=200,
-            min_periods=200,
-        )
-        .mean()
-    )
-
-    # 收盤價距離200SMA的百分比
-    df["DistanceFromSMA200"] = (
-        df["Close"] / df["SMA200"] - 1
-    )
-
-    return df
+    df["SMA200"] = df["Close"].rolling(SMA_DAYS, min_periods=SMA_DAYS).mean()
+    df["BelowSMA200"] = df["Close"] < df["SMA200"]
+    return df.dropna(subset=["SMA200"]).reset_index(drop=True)
 
 
-# ============================================================
-# 顯示資料摘要
-# ============================================================
-
-def print_data_summary(df: pd.DataFrame) -> None:
-    """
-    顯示台股歷史資料的基本檢查結果。
-    """
-
-    print("=" * 80)
-    print("台股加權指數資料檢查")
-    print("=" * 80)
-
-    print(f"資料筆數：{len(df):,}")
-    print(f"起始日期：{df['Date'].min().date()}")
-    print(f"結束日期：{df['Date'].max().date()}")
-    print(f"最低收盤：{df['Close'].min():,.2f}")
-    print(f"最高收盤：{df['Close'].max():,.2f}")
-    print(f"重複日期：{df['Date'].duplicated().sum()}")
-    print(f"空白收盤價：{df['Close'].isna().sum()}")
-    print(f"可計算200SMA筆數：{df['SMA200'].notna().sum():,}")
-
-    print("\n最新5筆資料：")
-
-    display_columns = [
-        "Date",
-        "Close",
-        "SMA200",
-        "DistanceFromSMA200",
-    ]
-
-    latest = df[display_columns].tail(5).copy()
-
-    latest["Date"] = latest["Date"].dt.strftime("%Y-%m-%d")
-
-    latest["Close"] = latest["Close"].round(2)
-    latest["SMA200"] = latest["SMA200"].round(2)
-
-    latest["DistanceFromSMA200"] = (
-        latest["DistanceFromSMA200"] * 100
-    ).round(2)
-
-    latest = latest.rename(
-        columns={
-            "DistanceFromSMA200": "距離200SMA(%)",
-        }
-    )
-
-    print(latest.to_string(index=False))
-
-    print("=" * 80)
-
-
-# ============================================================
-# 找出跌破200SMA事件
-# ============================================================
-
-def find_below_sma_events(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    找出每一次跌破200SMA的完整事件。
-
-    事件開始：
-    - 前一交易日收盤在200SMA以上或等於200SMA
-    - 當日收盤跌到200SMA以下
-
-    事件結束：
-    - 收盤重新站回200SMA以上或等於200SMA
-
-    每一段均線下方期間只計算一次。
-    """
-
-    data = (
-        df.dropna(subset=["SMA200"])
-        .copy()
-        .reset_index(drop=True)
-    )
-
-    if data.empty:
-        return pd.DataFrame()
-
-    # 是否位於200SMA下方
-    data["BelowSMA200"] = (
-        data["Close"] < data["SMA200"]
-    )
-
-    # 前一日是否位於200SMA下方
-    data["PreviousBelowSMA200"] = (
-        data["BelowSMA200"]
-        .shift(1)
-        .fillna(False)
-        .astype(bool)
-    )
-
-    # 今天在均線下方，昨天不在均線下方
-    data["CrossBelow"] = (
-        data["BelowSMA200"]
-        & ~data["PreviousBelowSMA200"]
-    )
-
-    events: list[dict] = []
-
+def find_events(df: pd.DataFrame) -> pd.DataFrame:
+    events: list[dict[str, Any]] = []
+    i = 1
     event_id = 1
-    index = 0
 
-    while index < len(data):
-
-        if not bool(data.loc[index, "CrossBelow"]):
-            index += 1
+    while i < len(df):
+        crossed_below = bool(df.loc[i, "BelowSMA200"]) and not bool(df.loc[i - 1, "BelowSMA200"])
+        if not crossed_below:
+            i += 1
             continue
 
-        start_index = index
-        start_row = data.loc[start_index]
+        start = i
+        end = start
+        while end + 1 < len(df) and bool(df.loc[end + 1, "BelowSMA200"]):
+            end += 1
 
-        # 找到最後一個仍位於200SMA下方的交易日
-        end_index = start_index
+        segment = df.loc[start:end]
+        low_idx = int(segment["Close"].idxmin())
 
-        while (
-            end_index + 1 < len(data)
-            and bool(data.loc[end_index + 1, "BelowSMA200"])
-        ):
-            end_index += 1
+        peak_start = max(0, start - PEAK_LOOKBACK_DAYS)
+        peak_window = df.loc[peak_start:start]
+        peak_idx = int(peak_window["Close"].idxmax())
 
-        event_data = data.loc[
-            start_index:end_index
-        ].copy()
+        recovery_idx = end + 1 if end + 1 < len(df) else None
 
-        # 找出事件期間最低收盤價
-        lowest_index = event_data["Close"].idxmin()
-        lowest_row = data.loc[lowest_index]
-
-        cross_close = float(start_row["Close"])
-        cross_sma200 = float(start_row["SMA200"])
-        lowest_close = float(lowest_row["Close"])
-
-        # 從跌破200SMA當日收盤價算到最低點
-        drawdown_from_cross = (
-            lowest_close / cross_close - 1
-        )
-
-        # 找跌破日前200個交易日內的最高收盤價
-        previous_window_start = max(
-            0,
-            start_index - 200,
-        )
-
-        previous_data = data.loc[
-            previous_window_start:start_index,
-            ["Date", "Close"],
-        ].copy()
-
-        previous_high_index = (
-            previous_data["Close"].idxmax()
-        )
-
-        previous_high_row = data.loc[
-            previous_high_index
-        ]
-
-        previous_high_close = float(
-            previous_high_row["Close"]
-        )
-
-        # 從前波高點算到事件最低點
-        drawdown_from_previous_high = (
-            lowest_close / previous_high_close - 1
-        )
-
-        # 預設為尚未站回200SMA
-        recovery_date: Optional[pd.Timestamp] = None
-        recovery_close: Optional[float] = None
-        recovery_sma200: Optional[float] = None
-
-        # 若事件結束後還有下一筆資料，
-        # 下一筆就是重新站回200SMA的日期
-        if end_index + 1 < len(data):
-            recovery_row = data.loc[end_index + 1]
-
-            recovery_date = recovery_row["Date"]
-            recovery_close = float(
-                recovery_row["Close"]
-            )
-            recovery_sma200 = float(
-                recovery_row["SMA200"]
-            )
+        cross_close = float(df.loc[start, "Close"])
+        low_close = float(df.loc[low_idx, "Close"])
+        peak_close = float(df.loc[peak_idx, "Close"])
 
         events.append(
             {
-                "EventID": event_id,
-                "CrossBelowDate": start_row["Date"],
-                "CrossBelowClose": cross_close,
-                "CrossBelowSMA200": cross_sma200,
-                "DistanceFromSMAAtCross": (
-                    cross_close / cross_sma200 - 1
-                ),
-                "PreviousHighDate": previous_high_row["Date"],
-                "PreviousHighClose": previous_high_close,
-                "LowestDate": lowest_row["Date"],
-                "LowestClose": lowest_close,
-                "DrawdownFromCross": drawdown_from_cross,
-                "DrawdownFromPreviousHigh": (
-                    drawdown_from_previous_high
-                ),
-                "DaysBelowSMA": len(event_data),
-                "RecoveryDate": recovery_date,
-                "RecoveryClose": recovery_close,
-                "RecoverySMA200": recovery_sma200,
-                "Recovered": recovery_date is not None,
+                "event_id": event_id,
+                "cross_below_date": df.loc[start, "Date"],
+                "cross_below_close": cross_close,
+                "cross_below_sma200": float(df.loc[start, "SMA200"]),
+                "distance_from_sma_at_cross": cross_close / float(df.loc[start, "SMA200"]) - 1,
+                "peak_date": df.loc[peak_idx, "Date"],
+                "peak_close": peak_close,
+                "lowest_date": df.loc[low_idx, "Date"],
+                "lowest_close": low_close,
+                "drawdown_from_cross": low_close / cross_close - 1,
+                "drawdown_from_peak": low_close / peak_close - 1,
+                "days_below_sma": int(end - start + 1),
+                "recovery_date": df.loc[recovery_idx, "Date"] if recovery_idx is not None else pd.NaT,
+                "recovered": recovery_idx is not None,
             }
         )
 
         event_id += 1
-
-        # 跳到重新站回200SMA的交易日
-        index = end_index + 1
+        i = end + 1
 
     return pd.DataFrame(events)
 
 
-# ============================================================
-# 顯示跌破事件摘要
-# ============================================================
+def threshold_stats(events: pd.DataFrame, column: str) -> list[dict[str, Any]]:
+    total = len(events)
+    output = []
+    for threshold in THRESHOLDS:
+        count = int((events[column] <= -threshold / 100).sum())
+        output.append(
+            {
+                "threshold_pct": -threshold,
+                "count": count,
+                "probability_pct": round(count / total * 100, 2) if total else 0.0,
+            }
+        )
+    return output
 
-def print_event_summary(events: pd.DataFrame) -> None:
-    """
-    顯示跌破200SMA事件摘要。
-    """
 
-    print("\n" + "=" * 120)
-    print("跌破200SMA事件統計")
-    print("=" * 120)
+def analyze_fund_entries(df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
 
-    if events.empty:
-        print("沒有找到跌破200SMA事件。")
-        return
+    for item in NATIONAL_STABILIZATION_FUND:
+        requested_date = pd.Timestamp(item["execution_start"])
+        candidates = df.index[df["Date"] >= requested_date]
+        if len(candidates) == 0:
+            continue
 
-    print(f"事件總數：{len(events)}")
-    print(f"已重新站回200SMA：{events['Recovered'].sum()}")
-    print(
-        "尚未重新站回200SMA："
-        f"{(~events['Recovered']).sum()}"
-    )
+        idx = int(candidates[0])
+        row = df.loc[idx]
+        history = df.loc[:idx]
 
-    display = events.copy()
+        peak_252_window = history.tail(PEAK_LOOKBACK_DAYS)
+        peak_252_idx = int(peak_252_window["Close"].idxmax())
 
-    date_columns = [
-        "CrossBelowDate",
-        "PreviousHighDate",
-        "LowestDate",
-        "RecoveryDate",
+        rows.append(
+            {
+                "id": item["id"],
+                "event": item["event"],
+                "execution_start": requested_date,
+                "matched_trade_date": row["Date"],
+                "close": float(row["Close"]),
+                "sma200": float(row["SMA200"]),
+                "distance_from_sma200": float(row["Close"] / row["SMA200"] - 1),
+                "peak_252_date": df.loc[peak_252_idx, "Date"],
+                "peak_252_close": float(df.loc[peak_252_idx, "Close"]),
+                "drawdown_from_252d_peak": float(row["Close"] / df.loc[peak_252_idx, "Close"] - 1),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def strategy_trigger_summary(events: pd.DataFrame) -> list[dict[str, Any]]:
+    results = []
+
+    for strategy in STRATEGIES:
+        rows = []
+        cash_used_values = []
+
+        for _, event in events.iterrows():
+            drawdown_pct = float(event["drawdown_from_peak"] * 100)
+            used = sum(
+                rule["cash_amount"]
+                for rule in strategy["rules"]
+                if drawdown_pct <= rule["drawdown_from_peak_pct"]
+            )
+            used = min(used, strategy["initial_cash"])
+            cash_used_values.append(used)
+            rows.append(
+                {
+                    "event_id": int(event["event_id"]),
+                    "drawdown_from_peak_pct": round(drawdown_pct, 2),
+                    "cash_used": used,
+                    "cash_remaining": strategy["initial_cash"] - used,
+                }
+            )
+
+        results.append(
+            {
+                "strategy_id": strategy["id"],
+                "name": strategy["name"],
+                "average_cash_used": round(sum(cash_used_values) / len(cash_used_values), 2)
+                if cash_used_values
+                else 0,
+                "average_cash_used_pct": round(
+                    sum(cash_used_values) / len(cash_used_values) / strategy["initial_cash"] * 100, 2
+                )
+                if cash_used_values
+                else 0,
+                "events_using_all_cash": int(sum(v >= strategy["initial_cash"] for v in cash_used_values)),
+                "event_results": rows,
+            }
+        )
+
+    return results
+
+
+def serialize_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    clean = df.copy()
+    for col in clean.columns:
+        if pd.api.types.is_datetime64_any_dtype(clean[col]):
+            clean[col] = clean[col].dt.strftime("%Y-%m-%d")
+    clean = clean.where(pd.notna(clean), None)
+    return clean.to_dict(orient="records")
+
+
+
+def build_current_market(df: pd.DataFrame) -> dict[str, Any]:
+    latest = df.iloc[-1]
+    recent = df.tail(PEAK_LOOKBACK_DAYS)
+    peak_idx = int(recent["Close"].idxmax())
+    peak_row = df.loc[peak_idx]
+
+    close = float(latest["Close"])
+    sma200 = float(latest["SMA200"])
+    peak_close = float(peak_row["Close"])
+    distance_from_sma_pct = (close / sma200 - 1) * 100
+    drawdown_from_peak_pct = (close / peak_close - 1) * 100
+    below_sma = close < sma200
+
+    triggered_levels = [
+        threshold
+        for threshold in THRESHOLDS
+        if drawdown_from_peak_pct <= -threshold
     ]
 
-    for column in date_columns:
-        display[column] = pd.to_datetime(
-            display[column],
-            errors="coerce",
-        ).dt.strftime("%Y-%m-%d")
-
-    percentage_columns = [
-        "DistanceFromSMAAtCross",
-        "DrawdownFromCross",
-        "DrawdownFromPreviousHigh",
-    ]
-
-    for column in percentage_columns:
-        display[column] = (
-            display[column] * 100
-        ).round(2)
-
-    number_columns = [
-        "CrossBelowClose",
-        "CrossBelowSMA200",
-        "PreviousHighClose",
-        "LowestClose",
-        "RecoveryClose",
-        "RecoverySMA200",
-    ]
-
-    for column in number_columns:
-        display[column] = pd.to_numeric(
-            display[column],
-            errors="coerce",
-        ).round(2)
-
-    display_columns = [
-        "EventID",
-        "CrossBelowDate",
-        "CrossBelowClose",
-        "LowestDate",
-        "LowestClose",
-        "DrawdownFromCross",
-        "DrawdownFromPreviousHigh",
-        "DaysBelowSMA",
-        "RecoveryDate",
-    ]
-
-    display = display.rename(
-        columns={
-            "EventID": "事件",
-            "CrossBelowDate": "跌破日期",
-            "CrossBelowClose": "跌破收盤",
-            "LowestDate": "最低點日期",
-            "LowestClose": "最低收盤",
-            "DrawdownFromCross": "跌破後最大跌幅(%)",
-            "DrawdownFromPreviousHigh": "前高至最低跌幅(%)",
-            "DaysBelowSMA": "均線下天數",
-            "RecoveryDate": "站回日期",
-        }
-    )
-
-    renamed_display_columns = [
-        "事件",
-        "跌破日期",
-        "跌破收盤",
-        "最低點日期",
-        "最低收盤",
-        "跌破後最大跌幅(%)",
-        "前高至最低跌幅(%)",
-        "均線下天數",
-        "站回日期",
-    ]
-
-    print(
-        display[renamed_display_columns]
-        .to_string(index=False)
-    )
-
-    print("=" * 120)
+    return {
+        "date": latest["Date"].strftime("%Y-%m-%d"),
+        "close": round(close, 2),
+        "sma200": round(sma200, 2),
+        "distance_from_sma200_pct": round(distance_from_sma_pct, 2),
+        "peak_252_date": peak_row["Date"].strftime("%Y-%m-%d"),
+        "peak_252_close": round(peak_close, 2),
+        "drawdown_from_252d_peak_pct": round(drawdown_from_peak_pct, 2),
+        "below_sma200": bool(below_sma),
+        "eligible_for_bear_market_plan": bool(below_sma),
+        "triggered_drawdown_levels": triggered_levels,
+        "current_trigger_level_pct": max(triggered_levels) if triggered_levels else 0,
+    }
 
 
-# ============================================================
-# 顯示整體統計
-# ============================================================
+def build_output(df: pd.DataFrame, events: pd.DataFrame, fund: pd.DataFrame) -> dict[str, Any]:
+    drawdown_cross = events["drawdown_from_cross"] * 100
+    drawdown_peak = events["drawdown_from_peak"] * 100
 
-def print_drawdown_statistics(
-    events: pd.DataFrame,
-) -> None:
-    """
-    顯示跌破200SMA後最大跌幅的基本統計。
-    """
+    fund_distance = fund["distance_from_sma200"] * 100
+    fund_drawdown = fund["drawdown_from_252d_peak"] * 100
 
-    print("\n" + "=" * 80)
-    print("跌破200SMA後最大跌幅摘要")
-    print("=" * 80)
+    current_market = build_current_market(df)
 
-    if events.empty:
-        print("沒有事件可以統計。")
-        return
+    return {
+        "meta": {
+            "title": "台股跌破200SMA後跌幅與國安基金進場位置統計",
+            "market": "TAIEX",
+            "symbol": "^TWII",
+            "data_start": df["Date"].min().strftime("%Y-%m-%d"),
+            "data_end": df["Date"].max().strftime("%Y-%m-%d"),
+            "sma_days": SMA_DAYS,
+            "peak_lookback_days": PEAK_LOOKBACK_DAYS,
+            "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
+            "drawdown_primary_basis": "跌破日前252個交易日最高收盤價",
+            "version": "1.0.0",
+        },
+        "current_market": current_market,
+        "summary": {
+            "total_events": int(len(events)),
+            "average_drawdown_from_cross_pct": round(float(drawdown_cross.mean()), 2),
+            "median_drawdown_from_cross_pct": round(float(drawdown_cross.median()), 2),
+            "deepest_drawdown_from_cross_pct": round(float(drawdown_cross.min()), 2),
+            "average_drawdown_from_peak_pct": round(float(drawdown_peak.mean()), 2),
+            "median_drawdown_from_peak_pct": round(float(drawdown_peak.median()), 2),
+            "deepest_drawdown_from_peak_pct": round(float(drawdown_peak.min()), 2),
+            "average_days_below_sma": round(float(events["days_below_sma"].mean()), 2),
+            "median_days_below_sma": round(float(events["days_below_sma"].median()), 2),
+        },
+        "threshold_probability": {
+            "from_cross_date": threshold_stats(events, "drawdown_from_cross"),
+            "from_252d_peak": threshold_stats(events, "drawdown_from_peak"),
+        },
+        "national_stabilization_fund_summary": {
+            "event_count": int(len(fund)),
+            "average_distance_from_sma200_pct": round(float(fund_distance.mean()), 2),
+            "median_distance_from_sma200_pct": round(float(fund_distance.median()), 2),
+            "shallowest_distance_from_sma200_pct": round(float(fund_distance.max()), 2),
+            "deepest_distance_from_sma200_pct": round(float(fund_distance.min()), 2),
+            "average_drawdown_from_252d_peak_pct": round(float(fund_drawdown.mean()), 2),
+            "median_drawdown_from_252d_peak_pct": round(float(fund_drawdown.median()), 2),
+        },
+        "strategies": STRATEGIES,
+        "strategy_trigger_summary": strategy_trigger_summary(events),
+        "events": serialize_records(events),
+        "national_stabilization_fund": serialize_records(fund),
+    }
 
-    drawdowns = (
-        events["DrawdownFromCross"] * 100
-    )
-
-    print(f"平均跌幅：{drawdowns.mean():.2f}%")
-    print(f"中位數跌幅：{drawdowns.median():.2f}%")
-    print(f"最淺跌幅：{drawdowns.max():.2f}%")
-    print(f"最深跌幅：{drawdowns.min():.2f}%")
-    print(
-        "平均位於200SMA下方天數："
-        f"{events['DaysBelowSMA'].mean():.1f}天"
-    )
-    print(
-        "中位數位於200SMA下方天數："
-        f"{events['DaysBelowSMA'].median():.1f}天"
-    )
-
-    print("=" * 80)
-
-
-# ============================================================
-# 主程式
-# ============================================================
 
 def main() -> None:
-    try:
-        df = load_twii_data()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-        print_data_summary(df)
+    df = load_data()
+    events = find_events(df)
+    fund = analyze_fund_entries(df)
+    output = build_output(df, events, fund)
 
-        events = find_below_sma_events(df)
+    JSON_PATH.write_text(
+        json.dumps(output, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    events.to_csv(EVENTS_CSV_PATH, index=False, encoding="utf-8-sig")
+    fund.to_csv(FUND_CSV_PATH, index=False, encoding="utf-8-sig")
 
-        print_event_summary(events)
-
-        print_drawdown_statistics(events)
-
-    except FileNotFoundError as error:
-        print(f"錯誤：{error}")
-        raise SystemExit(1) from error
-
-    except ValueError as error:
-        print(f"資料格式錯誤：{error}")
-        raise SystemExit(1) from error
-
-    except Exception as error:
-        print(f"程式執行失敗：{error}")
-        raise
+    print(f"完成：{JSON_PATH}")
+    print(f"完成：{EVENTS_CSV_PATH}")
+    print(f"完成：{FUND_CSV_PATH}")
+    print(f"跌破200SMA事件：{len(events)} 次")
+    print(f"國安基金事件：{len(fund)} 次")
 
 
 if __name__ == "__main__":
