@@ -1,0 +1,3950 @@
+{
+  "meta": {
+    "title": "台股跌破200SMA後跌幅與國安基金進場位置統計",
+    "market": "TAIEX",
+    "symbol": "^TWII",
+    "data_start": "1998-04-30",
+    "data_end": "2026-07-31",
+    "sma_days": 200,
+    "peak_lookback_days": 252,
+    "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
+    "drawdown_primary_basis": "跌破日前252個交易日最高收盤價",
+    "version": "1.0.0"
+  },
+  "summary": {
+    "total_events": 107,
+    "average_drawdown_from_cross_pct": -3.83,
+    "median_drawdown_from_cross_pct": -0.29,
+    "deepest_drawdown_from_cross_pct": -59.6,
+    "average_drawdown_from_peak_pct": -14.6,
+    "median_drawdown_from_peak_pct": -12.54,
+    "deepest_drawdown_from_peak_pct": -66.22,
+    "average_days_below_sma": 20.21,
+    "median_days_below_sma": 3.0
+  },
+  "threshold_probability": {
+    "from_cross_date": [
+      {
+        "threshold_pct": -10,
+        "count": 13,
+        "probability_pct": 12.15
+      },
+      {
+        "threshold_pct": -20,
+        "count": 7,
+        "probability_pct": 6.54
+      },
+      {
+        "threshold_pct": -30,
+        "count": 2,
+        "probability_pct": 1.87
+      },
+      {
+        "threshold_pct": -40,
+        "count": 2,
+        "probability_pct": 1.87
+      },
+      {
+        "threshold_pct": -50,
+        "count": 2,
+        "probability_pct": 1.87
+      }
+    ],
+    "from_252d_peak": [
+      {
+        "threshold_pct": -10,
+        "count": 62,
+        "probability_pct": 57.94
+      },
+      {
+        "threshold_pct": -20,
+        "count": 19,
+        "probability_pct": 17.76
+      },
+      {
+        "threshold_pct": -30,
+        "count": 7,
+        "probability_pct": 6.54
+      },
+      {
+        "threshold_pct": -40,
+        "count": 4,
+        "probability_pct": 3.74
+      },
+      {
+        "threshold_pct": -50,
+        "count": 2,
+        "probability_pct": 1.87
+      }
+    ]
+  },
+  "national_stabilization_fund_summary": {
+    "event_count": 9,
+    "average_distance_from_sma200_pct": -15.86,
+    "median_distance_from_sma200_pct": -16.89,
+    "shallowest_distance_from_sma200_pct": 5.89,
+    "deepest_distance_from_sma200_pct": -29.2,
+    "average_drawdown_from_252d_peak_pct": -26.32,
+    "median_drawdown_from_252d_peak_pct": -23.82
+  },
+  "strategies": [
+    {
+      "id": "conservative",
+      "name": "保守版",
+      "initial_total": 1000000,
+      "initial_leveraged_etf": 500000,
+      "initial_cash": 500000,
+      "rules": [
+        {
+          "drawdown_from_peak_pct": -10,
+          "cash_amount": 100000
+        },
+        {
+          "drawdown_from_peak_pct": -20,
+          "cash_amount": 100000
+        },
+        {
+          "drawdown_from_peak_pct": -30,
+          "cash_amount": 100000
+        },
+        {
+          "drawdown_from_peak_pct": -40,
+          "cash_amount": 100000
+        },
+        {
+          "drawdown_from_peak_pct": -50,
+          "cash_amount": 100000
+        }
+      ]
+    },
+    {
+      "id": "cumulative",
+      "name": "累積版",
+      "initial_total": 1000000,
+      "initial_leveraged_etf": 500000,
+      "initial_cash": 500000,
+      "rules": [
+        {
+          "drawdown_from_peak_pct": -10,
+          "cash_amount": 50000
+        },
+        {
+          "drawdown_from_peak_pct": -20,
+          "cash_amount": 100000
+        },
+        {
+          "drawdown_from_peak_pct": -30,
+          "cash_amount": 150000
+        },
+        {
+          "drawdown_from_peak_pct": -40,
+          "cash_amount": 200000
+        }
+      ]
+    },
+    {
+      "id": "martingale",
+      "name": "馬丁版",
+      "initial_total": 1000000,
+      "initial_leveraged_etf": 500000,
+      "initial_cash": 500000,
+      "rules": [
+        {
+          "drawdown_from_peak_pct": -10,
+          "cash_amount": 50000
+        },
+        {
+          "drawdown_from_peak_pct": -20,
+          "cash_amount": 100000
+        },
+        {
+          "drawdown_from_peak_pct": -30,
+          "cash_amount": 200000
+        },
+        {
+          "drawdown_from_peak_pct": -40,
+          "cash_amount": 150000
+        }
+      ]
+    }
+  ],
+  "strategy_trigger_summary": [
+    {
+      "strategy_id": "conservative",
+      "name": "保守版",
+      "average_cash_used": 87850.47,
+      "average_cash_used_pct": 17.57,
+      "events_using_all_cash": 2,
+      "event_results": [
+        {
+          "event_id": 1,
+          "drawdown_from_peak_pct": -17.84,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 2,
+          "drawdown_from_peak_pct": -17.93,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 3,
+          "drawdown_from_peak_pct": -20.74,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 4,
+          "drawdown_from_peak_pct": -14.48,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 5,
+          "drawdown_from_peak_pct": -18.16,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 6,
+          "drawdown_from_peak_pct": -17.29,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 7,
+          "drawdown_from_peak_pct": -66.22,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 8,
+          "drawdown_from_peak_pct": -23.1,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 9,
+          "drawdown_from_peak_pct": -19.49,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 10,
+          "drawdown_from_peak_pct": -40.42,
+          "cash_used": 400000,
+          "cash_remaining": 100000
+        },
+        {
+          "event_id": 11,
+          "drawdown_from_peak_pct": -24.06,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 12,
+          "drawdown_from_peak_pct": -34.07,
+          "cash_used": 300000,
+          "cash_remaining": 200000
+        },
+        {
+          "event_id": 13,
+          "drawdown_from_peak_pct": -35.94,
+          "cash_used": 300000,
+          "cash_remaining": 200000
+        },
+        {
+          "event_id": 14,
+          "drawdown_from_peak_pct": -14.28,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 15,
+          "drawdown_from_peak_pct": -22.05,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 16,
+          "drawdown_from_peak_pct": -24.41,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 17,
+          "drawdown_from_peak_pct": -13.84,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 18,
+          "drawdown_from_peak_pct": -19.66,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 19,
+          "drawdown_from_peak_pct": -17.85,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 20,
+          "drawdown_from_peak_pct": -16.78,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 21,
+          "drawdown_from_peak_pct": -17.95,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 22,
+          "drawdown_from_peak_pct": -17.25,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 23,
+          "drawdown_from_peak_pct": -5.98,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 24,
+          "drawdown_from_peak_pct": -5.93,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 25,
+          "drawdown_from_peak_pct": -6.56,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 26,
+          "drawdown_from_peak_pct": -6.57,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 27,
+          "drawdown_from_peak_pct": -8.21,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 28,
+          "drawdown_from_peak_pct": -12.74,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 29,
+          "drawdown_from_peak_pct": -6.73,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 30,
+          "drawdown_from_peak_pct": -6.14,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 31,
+          "drawdown_from_peak_pct": -15.28,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 32,
+          "drawdown_from_peak_pct": -15.21,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 33,
+          "drawdown_from_peak_pct": -14.02,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 34,
+          "drawdown_from_peak_pct": -15.71,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 35,
+          "drawdown_from_peak_pct": -13.67,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 36,
+          "drawdown_from_peak_pct": -16.27,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 37,
+          "drawdown_from_peak_pct": -12.95,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 38,
+          "drawdown_from_peak_pct": -13.77,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 39,
+          "drawdown_from_peak_pct": -11.71,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 40,
+          "drawdown_from_peak_pct": -15.63,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 41,
+          "drawdown_from_peak_pct": -12.35,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 42,
+          "drawdown_from_peak_pct": -24.48,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 43,
+          "drawdown_from_peak_pct": -14.17,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 44,
+          "drawdown_from_peak_pct": -11.64,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 45,
+          "drawdown_from_peak_pct": -11.66,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 46,
+          "drawdown_from_peak_pct": -12.14,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 47,
+          "drawdown_from_peak_pct": -12.54,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 48,
+          "drawdown_from_peak_pct": -58.31,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 49,
+          "drawdown_from_peak_pct": -41.44,
+          "cash_used": 400000,
+          "cash_remaining": 100000
+        },
+        {
+          "event_id": 50,
+          "drawdown_from_peak_pct": -13.65,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 51,
+          "drawdown_from_peak_pct": -9.45,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 52,
+          "drawdown_from_peak_pct": -9.02,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 53,
+          "drawdown_from_peak_pct": -15.38,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 54,
+          "drawdown_from_peak_pct": -8.46,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 55,
+          "drawdown_from_peak_pct": -8.26,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 56,
+          "drawdown_from_peak_pct": -8.86,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 57,
+          "drawdown_from_peak_pct": -6.72,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 58,
+          "drawdown_from_peak_pct": -7.29,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 59,
+          "drawdown_from_peak_pct": -7.26,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 60,
+          "drawdown_from_peak_pct": -5.48,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 61,
+          "drawdown_from_peak_pct": -27.47,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 62,
+          "drawdown_from_peak_pct": -14.03,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 63,
+          "drawdown_from_peak_pct": -15.7,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 64,
+          "drawdown_from_peak_pct": -16.13,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 65,
+          "drawdown_from_peak_pct": -17.46,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 66,
+          "drawdown_from_peak_pct": -23.92,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 67,
+          "drawdown_from_peak_pct": -21.01,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 68,
+          "drawdown_from_peak_pct": -9.6,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 69,
+          "drawdown_from_peak_pct": -10.04,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 70,
+          "drawdown_from_peak_pct": -12.96,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 71,
+          "drawdown_from_peak_pct": -8.76,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 72,
+          "drawdown_from_peak_pct": -6.96,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 73,
+          "drawdown_from_peak_pct": -6.88,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 74,
+          "drawdown_from_peak_pct": -11.04,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 75,
+          "drawdown_from_peak_pct": -7.09,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 76,
+          "drawdown_from_peak_pct": -7.42,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 77,
+          "drawdown_from_peak_pct": -5.58,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 78,
+          "drawdown_from_peak_pct": -7.74,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 79,
+          "drawdown_from_peak_pct": -5.44,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 80,
+          "drawdown_from_peak_pct": -7.85,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 81,
+          "drawdown_from_peak_pct": -7.39,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 82,
+          "drawdown_from_peak_pct": -25.7,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 83,
+          "drawdown_from_peak_pct": -19.25,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 84,
+          "drawdown_from_peak_pct": -14.64,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 85,
+          "drawdown_from_peak_pct": -7.55,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 86,
+          "drawdown_from_peak_pct": -7.83,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 87,
+          "drawdown_from_peak_pct": -6.79,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 88,
+          "drawdown_from_peak_pct": -5.32,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 89,
+          "drawdown_from_peak_pct": -5.73,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 90,
+          "drawdown_from_peak_pct": -4.48,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 91,
+          "drawdown_from_peak_pct": -5.06,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 92,
+          "drawdown_from_peak_pct": -3.94,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 93,
+          "drawdown_from_peak_pct": -4.71,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 94,
+          "drawdown_from_peak_pct": -4.38,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 95,
+          "drawdown_from_peak_pct": -3.75,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 96,
+          "drawdown_from_peak_pct": -16.62,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        },
+        {
+          "event_id": 97,
+          "drawdown_from_peak_pct": -8.44,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 98,
+          "drawdown_from_peak_pct": -28.72,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 99,
+          "drawdown_from_peak_pct": -9.1,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 100,
+          "drawdown_from_peak_pct": -9.35,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 101,
+          "drawdown_from_peak_pct": -9.18,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 102,
+          "drawdown_from_peak_pct": -31.63,
+          "cash_used": 300000,
+          "cash_remaining": 200000
+        },
+        {
+          "event_id": 103,
+          "drawdown_from_peak_pct": -7.28,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 104,
+          "drawdown_from_peak_pct": -7.69,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 105,
+          "drawdown_from_peak_pct": -28.69,
+          "cash_used": 200000,
+          "cash_remaining": 300000
+        },
+        {
+          "event_id": 106,
+          "drawdown_from_peak_pct": -9.59,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 107,
+          "drawdown_from_peak_pct": -10.9,
+          "cash_used": 100000,
+          "cash_remaining": 400000
+        }
+      ]
+    },
+    {
+      "strategy_id": "cumulative",
+      "name": "累積版",
+      "average_cash_used": 64018.69,
+      "average_cash_used_pct": 12.8,
+      "events_using_all_cash": 4,
+      "event_results": [
+        {
+          "event_id": 1,
+          "drawdown_from_peak_pct": -17.84,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 2,
+          "drawdown_from_peak_pct": -17.93,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 3,
+          "drawdown_from_peak_pct": -20.74,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 4,
+          "drawdown_from_peak_pct": -14.48,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 5,
+          "drawdown_from_peak_pct": -18.16,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 6,
+          "drawdown_from_peak_pct": -17.29,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 7,
+          "drawdown_from_peak_pct": -66.22,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 8,
+          "drawdown_from_peak_pct": -23.1,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 9,
+          "drawdown_from_peak_pct": -19.49,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 10,
+          "drawdown_from_peak_pct": -40.42,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 11,
+          "drawdown_from_peak_pct": -24.06,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 12,
+          "drawdown_from_peak_pct": -34.07,
+          "cash_used": 300000,
+          "cash_remaining": 200000
+        },
+        {
+          "event_id": 13,
+          "drawdown_from_peak_pct": -35.94,
+          "cash_used": 300000,
+          "cash_remaining": 200000
+        },
+        {
+          "event_id": 14,
+          "drawdown_from_peak_pct": -14.28,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 15,
+          "drawdown_from_peak_pct": -22.05,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 16,
+          "drawdown_from_peak_pct": -24.41,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 17,
+          "drawdown_from_peak_pct": -13.84,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 18,
+          "drawdown_from_peak_pct": -19.66,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 19,
+          "drawdown_from_peak_pct": -17.85,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 20,
+          "drawdown_from_peak_pct": -16.78,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 21,
+          "drawdown_from_peak_pct": -17.95,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 22,
+          "drawdown_from_peak_pct": -17.25,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 23,
+          "drawdown_from_peak_pct": -5.98,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 24,
+          "drawdown_from_peak_pct": -5.93,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 25,
+          "drawdown_from_peak_pct": -6.56,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 26,
+          "drawdown_from_peak_pct": -6.57,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 27,
+          "drawdown_from_peak_pct": -8.21,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 28,
+          "drawdown_from_peak_pct": -12.74,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 29,
+          "drawdown_from_peak_pct": -6.73,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 30,
+          "drawdown_from_peak_pct": -6.14,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 31,
+          "drawdown_from_peak_pct": -15.28,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 32,
+          "drawdown_from_peak_pct": -15.21,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 33,
+          "drawdown_from_peak_pct": -14.02,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 34,
+          "drawdown_from_peak_pct": -15.71,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 35,
+          "drawdown_from_peak_pct": -13.67,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 36,
+          "drawdown_from_peak_pct": -16.27,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 37,
+          "drawdown_from_peak_pct": -12.95,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 38,
+          "drawdown_from_peak_pct": -13.77,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 39,
+          "drawdown_from_peak_pct": -11.71,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 40,
+          "drawdown_from_peak_pct": -15.63,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 41,
+          "drawdown_from_peak_pct": -12.35,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 42,
+          "drawdown_from_peak_pct": -24.48,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 43,
+          "drawdown_from_peak_pct": -14.17,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 44,
+          "drawdown_from_peak_pct": -11.64,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 45,
+          "drawdown_from_peak_pct": -11.66,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 46,
+          "drawdown_from_peak_pct": -12.14,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 47,
+          "drawdown_from_peak_pct": -12.54,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 48,
+          "drawdown_from_peak_pct": -58.31,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 49,
+          "drawdown_from_peak_pct": -41.44,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 50,
+          "drawdown_from_peak_pct": -13.65,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 51,
+          "drawdown_from_peak_pct": -9.45,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 52,
+          "drawdown_from_peak_pct": -9.02,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 53,
+          "drawdown_from_peak_pct": -15.38,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 54,
+          "drawdown_from_peak_pct": -8.46,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 55,
+          "drawdown_from_peak_pct": -8.26,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 56,
+          "drawdown_from_peak_pct": -8.86,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 57,
+          "drawdown_from_peak_pct": -6.72,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 58,
+          "drawdown_from_peak_pct": -7.29,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 59,
+          "drawdown_from_peak_pct": -7.26,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 60,
+          "drawdown_from_peak_pct": -5.48,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 61,
+          "drawdown_from_peak_pct": -27.47,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 62,
+          "drawdown_from_peak_pct": -14.03,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 63,
+          "drawdown_from_peak_pct": -15.7,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 64,
+          "drawdown_from_peak_pct": -16.13,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 65,
+          "drawdown_from_peak_pct": -17.46,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 66,
+          "drawdown_from_peak_pct": -23.92,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 67,
+          "drawdown_from_peak_pct": -21.01,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 68,
+          "drawdown_from_peak_pct": -9.6,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 69,
+          "drawdown_from_peak_pct": -10.04,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 70,
+          "drawdown_from_peak_pct": -12.96,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 71,
+          "drawdown_from_peak_pct": -8.76,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 72,
+          "drawdown_from_peak_pct": -6.96,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 73,
+          "drawdown_from_peak_pct": -6.88,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 74,
+          "drawdown_from_peak_pct": -11.04,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 75,
+          "drawdown_from_peak_pct": -7.09,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 76,
+          "drawdown_from_peak_pct": -7.42,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 77,
+          "drawdown_from_peak_pct": -5.58,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 78,
+          "drawdown_from_peak_pct": -7.74,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 79,
+          "drawdown_from_peak_pct": -5.44,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 80,
+          "drawdown_from_peak_pct": -7.85,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 81,
+          "drawdown_from_peak_pct": -7.39,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 82,
+          "drawdown_from_peak_pct": -25.7,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 83,
+          "drawdown_from_peak_pct": -19.25,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 84,
+          "drawdown_from_peak_pct": -14.64,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 85,
+          "drawdown_from_peak_pct": -7.55,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 86,
+          "drawdown_from_peak_pct": -7.83,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 87,
+          "drawdown_from_peak_pct": -6.79,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 88,
+          "drawdown_from_peak_pct": -5.32,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 89,
+          "drawdown_from_peak_pct": -5.73,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 90,
+          "drawdown_from_peak_pct": -4.48,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 91,
+          "drawdown_from_peak_pct": -5.06,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 92,
+          "drawdown_from_peak_pct": -3.94,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 93,
+          "drawdown_from_peak_pct": -4.71,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 94,
+          "drawdown_from_peak_pct": -4.38,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 95,
+          "drawdown_from_peak_pct": -3.75,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 96,
+          "drawdown_from_peak_pct": -16.62,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 97,
+          "drawdown_from_peak_pct": -8.44,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 98,
+          "drawdown_from_peak_pct": -28.72,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 99,
+          "drawdown_from_peak_pct": -9.1,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 100,
+          "drawdown_from_peak_pct": -9.35,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 101,
+          "drawdown_from_peak_pct": -9.18,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 102,
+          "drawdown_from_peak_pct": -31.63,
+          "cash_used": 300000,
+          "cash_remaining": 200000
+        },
+        {
+          "event_id": 103,
+          "drawdown_from_peak_pct": -7.28,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 104,
+          "drawdown_from_peak_pct": -7.69,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 105,
+          "drawdown_from_peak_pct": -28.69,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 106,
+          "drawdown_from_peak_pct": -9.59,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 107,
+          "drawdown_from_peak_pct": -10.9,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        }
+      ]
+    },
+    {
+      "strategy_id": "martingale",
+      "name": "馬丁版",
+      "average_cash_used": 65420.56,
+      "average_cash_used_pct": 13.08,
+      "events_using_all_cash": 4,
+      "event_results": [
+        {
+          "event_id": 1,
+          "drawdown_from_peak_pct": -17.84,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 2,
+          "drawdown_from_peak_pct": -17.93,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 3,
+          "drawdown_from_peak_pct": -20.74,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 4,
+          "drawdown_from_peak_pct": -14.48,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 5,
+          "drawdown_from_peak_pct": -18.16,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 6,
+          "drawdown_from_peak_pct": -17.29,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 7,
+          "drawdown_from_peak_pct": -66.22,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 8,
+          "drawdown_from_peak_pct": -23.1,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 9,
+          "drawdown_from_peak_pct": -19.49,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 10,
+          "drawdown_from_peak_pct": -40.42,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 11,
+          "drawdown_from_peak_pct": -24.06,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 12,
+          "drawdown_from_peak_pct": -34.07,
+          "cash_used": 350000,
+          "cash_remaining": 150000
+        },
+        {
+          "event_id": 13,
+          "drawdown_from_peak_pct": -35.94,
+          "cash_used": 350000,
+          "cash_remaining": 150000
+        },
+        {
+          "event_id": 14,
+          "drawdown_from_peak_pct": -14.28,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 15,
+          "drawdown_from_peak_pct": -22.05,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 16,
+          "drawdown_from_peak_pct": -24.41,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 17,
+          "drawdown_from_peak_pct": -13.84,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 18,
+          "drawdown_from_peak_pct": -19.66,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 19,
+          "drawdown_from_peak_pct": -17.85,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 20,
+          "drawdown_from_peak_pct": -16.78,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 21,
+          "drawdown_from_peak_pct": -17.95,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 22,
+          "drawdown_from_peak_pct": -17.25,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 23,
+          "drawdown_from_peak_pct": -5.98,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 24,
+          "drawdown_from_peak_pct": -5.93,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 25,
+          "drawdown_from_peak_pct": -6.56,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 26,
+          "drawdown_from_peak_pct": -6.57,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 27,
+          "drawdown_from_peak_pct": -8.21,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 28,
+          "drawdown_from_peak_pct": -12.74,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 29,
+          "drawdown_from_peak_pct": -6.73,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 30,
+          "drawdown_from_peak_pct": -6.14,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 31,
+          "drawdown_from_peak_pct": -15.28,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 32,
+          "drawdown_from_peak_pct": -15.21,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 33,
+          "drawdown_from_peak_pct": -14.02,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 34,
+          "drawdown_from_peak_pct": -15.71,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 35,
+          "drawdown_from_peak_pct": -13.67,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 36,
+          "drawdown_from_peak_pct": -16.27,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 37,
+          "drawdown_from_peak_pct": -12.95,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 38,
+          "drawdown_from_peak_pct": -13.77,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 39,
+          "drawdown_from_peak_pct": -11.71,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 40,
+          "drawdown_from_peak_pct": -15.63,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 41,
+          "drawdown_from_peak_pct": -12.35,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 42,
+          "drawdown_from_peak_pct": -24.48,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 43,
+          "drawdown_from_peak_pct": -14.17,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 44,
+          "drawdown_from_peak_pct": -11.64,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 45,
+          "drawdown_from_peak_pct": -11.66,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 46,
+          "drawdown_from_peak_pct": -12.14,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 47,
+          "drawdown_from_peak_pct": -12.54,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 48,
+          "drawdown_from_peak_pct": -58.31,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 49,
+          "drawdown_from_peak_pct": -41.44,
+          "cash_used": 500000,
+          "cash_remaining": 0
+        },
+        {
+          "event_id": 50,
+          "drawdown_from_peak_pct": -13.65,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 51,
+          "drawdown_from_peak_pct": -9.45,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 52,
+          "drawdown_from_peak_pct": -9.02,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 53,
+          "drawdown_from_peak_pct": -15.38,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 54,
+          "drawdown_from_peak_pct": -8.46,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 55,
+          "drawdown_from_peak_pct": -8.26,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 56,
+          "drawdown_from_peak_pct": -8.86,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 57,
+          "drawdown_from_peak_pct": -6.72,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 58,
+          "drawdown_from_peak_pct": -7.29,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 59,
+          "drawdown_from_peak_pct": -7.26,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 60,
+          "drawdown_from_peak_pct": -5.48,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 61,
+          "drawdown_from_peak_pct": -27.47,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 62,
+          "drawdown_from_peak_pct": -14.03,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 63,
+          "drawdown_from_peak_pct": -15.7,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 64,
+          "drawdown_from_peak_pct": -16.13,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 65,
+          "drawdown_from_peak_pct": -17.46,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 66,
+          "drawdown_from_peak_pct": -23.92,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 67,
+          "drawdown_from_peak_pct": -21.01,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 68,
+          "drawdown_from_peak_pct": -9.6,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 69,
+          "drawdown_from_peak_pct": -10.04,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 70,
+          "drawdown_from_peak_pct": -12.96,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 71,
+          "drawdown_from_peak_pct": -8.76,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 72,
+          "drawdown_from_peak_pct": -6.96,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 73,
+          "drawdown_from_peak_pct": -6.88,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 74,
+          "drawdown_from_peak_pct": -11.04,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 75,
+          "drawdown_from_peak_pct": -7.09,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 76,
+          "drawdown_from_peak_pct": -7.42,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 77,
+          "drawdown_from_peak_pct": -5.58,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 78,
+          "drawdown_from_peak_pct": -7.74,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 79,
+          "drawdown_from_peak_pct": -5.44,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 80,
+          "drawdown_from_peak_pct": -7.85,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 81,
+          "drawdown_from_peak_pct": -7.39,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 82,
+          "drawdown_from_peak_pct": -25.7,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 83,
+          "drawdown_from_peak_pct": -19.25,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 84,
+          "drawdown_from_peak_pct": -14.64,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 85,
+          "drawdown_from_peak_pct": -7.55,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 86,
+          "drawdown_from_peak_pct": -7.83,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 87,
+          "drawdown_from_peak_pct": -6.79,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 88,
+          "drawdown_from_peak_pct": -5.32,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 89,
+          "drawdown_from_peak_pct": -5.73,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 90,
+          "drawdown_from_peak_pct": -4.48,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 91,
+          "drawdown_from_peak_pct": -5.06,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 92,
+          "drawdown_from_peak_pct": -3.94,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 93,
+          "drawdown_from_peak_pct": -4.71,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 94,
+          "drawdown_from_peak_pct": -4.38,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 95,
+          "drawdown_from_peak_pct": -3.75,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 96,
+          "drawdown_from_peak_pct": -16.62,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        },
+        {
+          "event_id": 97,
+          "drawdown_from_peak_pct": -8.44,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 98,
+          "drawdown_from_peak_pct": -28.72,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 99,
+          "drawdown_from_peak_pct": -9.1,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 100,
+          "drawdown_from_peak_pct": -9.35,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 101,
+          "drawdown_from_peak_pct": -9.18,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 102,
+          "drawdown_from_peak_pct": -31.63,
+          "cash_used": 350000,
+          "cash_remaining": 150000
+        },
+        {
+          "event_id": 103,
+          "drawdown_from_peak_pct": -7.28,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 104,
+          "drawdown_from_peak_pct": -7.69,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 105,
+          "drawdown_from_peak_pct": -28.69,
+          "cash_used": 150000,
+          "cash_remaining": 350000
+        },
+        {
+          "event_id": 106,
+          "drawdown_from_peak_pct": -9.59,
+          "cash_used": 0,
+          "cash_remaining": 500000
+        },
+        {
+          "event_id": 107,
+          "drawdown_from_peak_pct": -10.9,
+          "cash_used": 50000,
+          "cash_remaining": 450000
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "event_id": 1,
+      "cross_below_date": "1999-03-23",
+      "cross_below_close": 6945.4482421875,
+      "cross_below_sma200": 6972.333095703125,
+      "distance_from_sma_at_cross": -0.003855933608822193,
+      "peak_date": "1998-05-22",
+      "peak_close": 8384.8701171875,
+      "lowest_date": "1999-03-24",
+      "lowest_close": 6889.38818359375,
+      "drawdown_from_cross": -0.008071481730039354,
+      "drawdown_from_peak": -0.17835481202365633,
+      "days_below_sma": 3,
+      "recovery_date": "1999-03-26",
+      "recovered": true
+    },
+    {
+      "event_id": 2,
+      "cross_below_date": "1999-03-29",
+      "cross_below_close": 6901.6484375,
+      "cross_below_sma200": 6955.163186035156,
+      "distance_from_sma_at_cross": -0.007694247727013104,
+      "peak_date": "1998-05-22",
+      "peak_close": 8384.8701171875,
+      "lowest_date": "1999-03-31",
+      "lowest_close": 6881.6884765625,
+      "drawdown_from_cross": -0.0028920570380038813,
+      "drawdown_from_peak": -0.17927309780788891,
+      "days_below_sma": 3,
+      "recovery_date": "1999-04-01",
+      "recovered": true
+    },
+    {
+      "event_id": 3,
+      "cross_below_date": "1999-08-04",
+      "cross_below_close": 7110.767578125,
+      "cross_below_sma200": 7120.390031738281,
+      "distance_from_sma_at_cross": -0.0013513941750930014,
+      "peak_date": "1999-06-22",
+      "peak_close": 8608.8701171875,
+      "lowest_date": "1999-08-06",
+      "lowest_close": 6823.48876953125,
+      "drawdown_from_cross": -0.04040053418107936,
+      "drawdown_from_peak": -0.20738857984298764,
+      "days_below_sma": 4,
+      "recovery_date": "1999-08-10",
+      "recovered": true
+    },
+    {
+      "event_id": 4,
+      "cross_below_date": "1999-11-09",
+      "cross_below_close": 7362.65625,
+      "cross_below_sma200": 7402.394953613281,
+      "distance_from_sma_at_cross": -0.005368357654826794,
+      "peak_date": "1999-06-22",
+      "peak_close": 8608.8701171875,
+      "lowest_date": "1999-11-09",
+      "lowest_close": 7362.65625,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.1447592831839163,
+      "days_below_sma": 2,
+      "recovery_date": "1999-11-11",
+      "recovered": true
+    },
+    {
+      "event_id": 5,
+      "cross_below_date": "2000-05-11",
+      "cross_below_close": 8349.8701171875,
+      "cross_below_sma200": 8418.473837890626,
+      "distance_from_sma_at_cross": -0.008149187373410638,
+      "peak_date": "2000-02-17",
+      "peak_close": 10202.1533203125,
+      "lowest_date": "2000-05-11",
+      "lowest_close": 8349.8701171875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.18155806377042993,
+      "days_below_sma": 1,
+      "recovery_date": "2000-05-12",
+      "recovered": true
+    },
+    {
+      "event_id": 6,
+      "cross_below_date": "2000-05-25",
+      "cross_below_close": 8438.0595703125,
+      "cross_below_sma200": 8468.778701171876,
+      "distance_from_sma_at_cross": -0.0036273389520882215,
+      "peak_date": "2000-02-17",
+      "peak_close": 10202.1533203125,
+      "lowest_date": "2000-05-25",
+      "lowest_close": 8438.0595703125,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.17291386382987273,
+      "days_below_sma": 1,
+      "recovery_date": "2000-05-26",
+      "recovered": true
+    },
+    {
+      "event_id": 7,
+      "cross_below_date": "2000-06-26",
+      "cross_below_close": 8529.51953125,
+      "cross_below_sma200": 8606.906420898438,
+      "distance_from_sma_at_cross": -0.008991254913674362,
+      "peak_date": "2000-02-17",
+      "peak_close": 10202.1533203125,
+      "lowest_date": "2001-10-03",
+      "lowest_close": 3446.244140625,
+      "drawdown_from_cross": -0.5959626884024553,
+      "drawdown_from_peak": -0.6622042393968415,
+      "days_below_sma": 357,
+      "recovery_date": "2001-12-05",
+      "recovered": true
+    },
+    {
+      "event_id": 8,
+      "cross_below_date": "2002-06-26",
+      "cross_below_close": 5123.01611328125,
+      "cross_below_sma200": 5213.3521337890625,
+      "distance_from_sma_at_cross": -0.017327818683553264,
+      "peak_date": "2002-04-22",
+      "peak_close": 6462.27001953125,
+      "lowest_date": "2002-07-01",
+      "lowest_close": 4969.296875,
+      "drawdown_from_cross": -0.030005612881587096,
+      "drawdown_from_peak": -0.2310292111005824,
+      "days_below_sma": 7,
+      "recovery_date": "2002-07-05",
+      "recovered": true
+    },
+    {
+      "event_id": 9,
+      "cross_below_date": "2002-07-11",
+      "cross_below_close": 5202.56591796875,
+      "cross_below_sma200": 5261.52506225586,
+      "distance_from_sma_at_cross": -0.01120571385472624,
+      "peak_date": "2002-04-22",
+      "peak_close": 6462.27001953125,
+      "lowest_date": "2002-07-11",
+      "lowest_close": 5202.56591796875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.1949321365023795,
+      "days_below_sma": 1,
+      "recovery_date": "2002-07-12",
+      "recovered": true
+    },
+    {
+      "event_id": 10,
+      "cross_below_date": "2002-07-17",
+      "cross_below_close": 5250.7958984375,
+      "cross_below_sma200": 5294.184213867187,
+      "distance_from_sma_at_cross": -0.008195467644673049,
+      "peak_date": "2002-04-22",
+      "peak_close": 6462.27001953125,
+      "lowest_date": "2002-10-11",
+      "lowest_close": 3850.0224609375,
+      "drawdown_from_cross": -0.2667735453051667,
+      "drawdown_from_peak": -0.40423064197234415,
+      "days_below_sma": 127,
+      "recovery_date": "2003-01-15",
+      "recovered": true
+    },
+    {
+      "event_id": 11,
+      "cross_below_date": "2003-01-16",
+      "cross_below_close": 4943.267578125,
+      "cross_below_sma200": 5008.018879394531,
+      "distance_from_sma_at_cross": -0.012929524194876696,
+      "peak_date": "2002-04-22",
+      "peak_close": 6462.27001953125,
+      "lowest_date": "2003-01-17",
+      "lowest_close": 4907.75732421875,
+      "drawdown_from_cross": -0.007183558920295985,
+      "drawdown_from_peak": -0.24055211104058116,
+      "days_below_sma": 4,
+      "recovery_date": "2003-01-22",
+      "recovered": true
+    },
+    {
+      "event_id": 12,
+      "cross_below_date": "2003-02-06",
+      "cross_below_close": 4833.55810546875,
+      "cross_below_sma200": 4952.756843261719,
+      "distance_from_sma_at_cross": -0.024067149178773062,
+      "peak_date": "2002-04-22",
+      "peak_close": 6462.27001953125,
+      "lowest_date": "2003-03-11",
+      "lowest_close": 4260.43017578125,
+      "drawdown_from_cross": -0.11857267817657047,
+      "drawdown_from_peak": -0.34072235253173677,
+      "days_below_sma": 50,
+      "recovery_date": "2003-04-18",
+      "recovered": true
+    },
+    {
+      "event_id": 13,
+      "cross_below_date": "2003-04-21",
+      "cross_below_close": 4648.09912109375,
+      "cross_below_sma200": 4651.816088867187,
+      "distance_from_sma_at_cross": -0.0007990358394289743,
+      "peak_date": "2002-04-22",
+      "peak_close": 6462.27001953125,
+      "lowest_date": "2003-04-28",
+      "lowest_close": 4139.47998046875,
+      "drawdown_from_cross": -0.1094251924010855,
+      "drawdown_from_peak": -0.3594387161233147,
+      "days_below_sma": 28,
+      "recovery_date": "2003-05-30",
+      "recovered": true
+    },
+    {
+      "event_id": 14,
+      "cross_below_date": "2004-05-03",
+      "cross_below_close": 6029.7421875,
+      "cross_below_sma200": 6058.164008789063,
+      "distance_from_sma_at_cross": -0.00469149089523313,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2004-05-03",
+      "lowest_close": 6029.7421875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.14278026890887907,
+      "days_below_sma": 1,
+      "recovery_date": "2004-05-04",
+      "recovered": true
+    },
+    {
+      "event_id": 15,
+      "cross_below_date": "2004-05-05",
+      "cross_below_close": 5854.203125,
+      "cross_below_sma200": 6064.808974609375,
+      "distance_from_sma_at_cross": -0.034725883451743766,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2004-05-17",
+      "lowest_close": 5482.93505859375,
+      "drawdown_from_cross": -0.06341906122470764,
+      "drawdown_from_peak": -0.2205172343419013,
+      "days_below_sma": 17,
+      "recovery_date": "2004-05-28",
+      "recovered": true
+    },
+    {
+      "event_id": 16,
+      "cross_below_date": "2004-05-31",
+      "cross_below_close": 5977.8125,
+      "cross_below_sma200": 6117.737373046875,
+      "distance_from_sma_at_cross": -0.022871997360224605,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2004-08-04",
+      "lowest_close": 5316.84619140625,
+      "drawdown_from_cross": -0.11056992981860003,
+      "drawdown_from_peak": -0.24412929761764934,
+      "days_below_sma": 86,
+      "recovery_date": "2004-10-04",
+      "recovered": true
+    },
+    {
+      "event_id": 17,
+      "cross_below_date": "2004-10-06",
+      "cross_below_close": 6060.58203125,
+      "cross_below_sma200": 6061.275607910156,
+      "distance_from_sma_at_cross": -0.00011442750751200492,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2004-10-06",
+      "lowest_close": 6060.58203125,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.1383959151928824,
+      "days_below_sma": 1,
+      "recovery_date": "2004-10-07",
+      "recovered": true
+    },
+    {
+      "event_id": 18,
+      "cross_below_date": "2004-10-12",
+      "cross_below_close": 5979.53271484375,
+      "cross_below_sma200": 6067.070029296875,
+      "distance_from_sma_at_cross": -0.014428268345415773,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2004-10-27",
+      "lowest_close": 5650.94482421875,
+      "drawdown_from_cross": -0.05495210182717203,
+      "drawdown_from_peak": -0.19663208608327276,
+      "days_below_sma": 26,
+      "recovery_date": "2004-11-18",
+      "recovered": true
+    },
+    {
+      "event_id": 19,
+      "cross_below_date": "2004-11-19",
+      "cross_below_close": 6026.52197265625,
+      "cross_below_sma200": 6026.711528320313,
+      "distance_from_sma_at_cross": -3.145258623582503e-05,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2004-11-26",
+      "lowest_close": 5778.6240234375,
+      "drawdown_from_cross": -0.04113449686959103,
+      "drawdown_from_peak": -0.17848054238259503,
+      "days_below_sma": 18,
+      "recovery_date": "2004-12-15",
+      "recovered": true
+    },
+    {
+      "event_id": 20,
+      "cross_below_date": "2005-01-12",
+      "cross_below_close": 5879.05322265625,
+      "cross_below_sma200": 5896.875708007812,
+      "distance_from_sma_at_cross": -0.0030223606930293023,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2005-01-13",
+      "lowest_close": 5853.9130859375,
+      "drawdown_from_cross": -0.004276221998104512,
+      "drawdown_from_peak": -0.16777705491937533,
+      "days_below_sma": 3,
+      "recovery_date": "2005-01-17",
+      "recovered": true
+    },
+    {
+      "event_id": 21,
+      "cross_below_date": "2005-01-21",
+      "cross_below_close": 5848.88330078125,
+      "cross_below_sma200": 5871.512834472656,
+      "distance_from_sma_at_cross": -0.003854123175639601,
+      "peak_date": "2004-03-04",
+      "peak_close": 7034.068359375,
+      "lowest_date": "2005-01-24",
+      "lowest_close": 5771.4541015625,
+      "drawdown_from_cross": -0.013238287590454645,
+      "drawdown_from_peak": -0.17949985602993024,
+      "days_below_sma": 5,
+      "recovery_date": "2005-01-28",
+      "recovered": true
+    },
+    {
+      "event_id": 22,
+      "cross_below_date": "2005-04-18",
+      "cross_below_close": 5715.134765625,
+      "cross_below_sma200": 5862.074692382813,
+      "distance_from_sma_at_cross": -0.025066198311793353,
+      "peak_date": "2004-04-14",
+      "peak_close": 6880.1484375,
+      "lowest_date": "2005-04-20",
+      "lowest_close": 5692.984375,
+      "drawdown_from_cross": -0.0038757424861139977,
+      "drawdown_from_peak": -0.17254919327458185,
+      "days_below_sma": 12,
+      "recovery_date": "2005-05-05",
+      "recovered": true
+    },
+    {
+      "event_id": 23,
+      "cross_below_date": "2005-05-23",
+      "cross_below_close": 5885.42333984375,
+      "cross_below_sma200": 5893.072973632812,
+      "distance_from_sma_at_cross": -0.0012980721303280651,
+      "peak_date": "2005-03-01",
+      "peak_close": 6259.66064453125,
+      "lowest_date": "2005-05-23",
+      "lowest_close": 5885.42333984375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.05978555802612917,
+      "days_below_sma": 1,
+      "recovery_date": "2005-05-24",
+      "recovered": true
+    },
+    {
+      "event_id": 24,
+      "cross_below_date": "2005-05-25",
+      "cross_below_close": 5888.5029296875,
+      "cross_below_sma200": 5898.209948730469,
+      "distance_from_sma_at_cross": -0.0016457567850832744,
+      "peak_date": "2005-03-01",
+      "peak_close": 6259.66064453125,
+      "lowest_date": "2005-05-25",
+      "lowest_close": 5888.5029296875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.059293584096769214,
+      "days_below_sma": 1,
+      "recovery_date": "2005-05-26",
+      "recovered": true
+    },
+    {
+      "event_id": 25,
+      "cross_below_date": "2005-08-29",
+      "cross_below_close": 6049.412109375,
+      "cross_below_sma200": 6062.676701660156,
+      "distance_from_sma_at_cross": -0.002187910214893063,
+      "peak_date": "2005-08-03",
+      "peak_close": 6455.5400390625,
+      "lowest_date": "2005-08-30",
+      "lowest_close": 6032.09228515625,
+      "drawdown_from_cross": -0.0028630590717912963,
+      "drawdown_from_peak": -0.06559447410192887,
+      "days_below_sma": 3,
+      "recovery_date": "2005-09-02",
+      "recovered": true
+    },
+    {
+      "event_id": 26,
+      "cross_below_date": "2005-09-16",
+      "cross_below_close": 6031.21240234375,
+      "cross_below_sma200": 6074.083041992188,
+      "distance_from_sma_at_cross": -0.007057960741079561,
+      "peak_date": "2005-08-03",
+      "peak_close": 6455.5400390625,
+      "lowest_date": "2005-09-16",
+      "lowest_close": 6031.21240234375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.06573077297191898,
+      "days_below_sma": 2,
+      "recovery_date": "2005-09-20",
+      "recovered": true
+    },
+    {
+      "event_id": 27,
+      "cross_below_date": "2005-09-21",
+      "cross_below_close": 6067.31201171875,
+      "cross_below_sma200": 6078.028666992188,
+      "distance_from_sma_at_cross": -0.0017631794551474789,
+      "peak_date": "2005-08-03",
+      "peak_close": 6455.5400390625,
+      "lowest_date": "2005-09-23",
+      "lowest_close": 5925.5126953125,
+      "drawdown_from_cross": -0.023371027587236415,
+      "drawdown_from_peak": -0.08210426092051204,
+      "days_below_sma": 7,
+      "recovery_date": "2005-09-30",
+      "recovered": true
+    },
+    {
+      "event_id": 28,
+      "cross_below_date": "2005-10-07",
+      "cross_below_close": 6081.81201171875,
+      "cross_below_sma200": 6086.294875488281,
+      "distance_from_sma_at_cross": -0.0007365505387497695,
+      "peak_date": "2005-08-03",
+      "peak_close": 6455.5400390625,
+      "lowest_date": "2005-10-28",
+      "lowest_close": 5632.94482421875,
+      "drawdown_from_cross": -0.07380484412130783,
+      "drawdown_from_peak": -0.12742469411795498,
+      "days_below_sma": 24,
+      "recovery_date": "2005-11-11",
+      "recovered": true
+    },
+    {
+      "event_id": 29,
+      "cross_below_date": "2005-11-15",
+      "cross_below_close": 6030.71240234375,
+      "cross_below_sma200": 6069.628034667969,
+      "distance_from_sma_at_cross": -0.00641153495765201,
+      "peak_date": "2005-08-03",
+      "peak_close": 6455.5400390625,
+      "lowest_date": "2005-11-17",
+      "lowest_close": 6020.912109375,
+      "drawdown_from_cross": -0.0016250638921102567,
+      "drawdown_from_peak": -0.0673263471464145,
+      "days_below_sma": 3,
+      "recovery_date": "2005-11-18",
+      "recovered": true
+    },
+    {
+      "event_id": 30,
+      "cross_below_date": "2005-11-22",
+      "cross_below_close": 6059.162109375,
+      "cross_below_sma200": 6075.9041015625,
+      "distance_from_sma_at_cross": -0.0027554734090017297,
+      "peak_date": "2005-08-03",
+      "peak_close": 6455.5400390625,
+      "lowest_date": "2005-11-22",
+      "lowest_close": 6059.162109375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.061401203817033956,
+      "days_below_sma": 1,
+      "recovery_date": "2005-11-23",
+      "recovered": true
+    },
+    {
+      "event_id": 31,
+      "cross_below_date": "2006-06-08",
+      "cross_below_close": 6331.7802734375,
+      "cross_below_sma200": 6439.702299804688,
+      "distance_from_sma_at_cross": -0.016758853335574364,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-06-08",
+      "lowest_close": 6331.7802734375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.1528275305903578,
+      "days_below_sma": 1,
+      "recovery_date": "2006-06-09",
+      "recovered": true
+    },
+    {
+      "event_id": 32,
+      "cross_below_date": "2006-06-13",
+      "cross_below_close": 6337.18017578125,
+      "cross_below_sma200": 6442.796235351562,
+      "distance_from_sma_at_cross": -0.01639289148876044,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-06-13",
+      "lowest_close": 6337.18017578125,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.1521050404840102,
+      "days_below_sma": 1,
+      "recovery_date": "2006-06-14",
+      "recovered": true
+    },
+    {
+      "event_id": 33,
+      "cross_below_date": "2006-06-15",
+      "cross_below_close": 6426.3603515625,
+      "cross_below_sma200": 6445.264074707031,
+      "distance_from_sma_at_cross": -0.002932963323987625,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-06-15",
+      "lowest_close": 6426.3603515625,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.1401730108689062,
+      "days_below_sma": 1,
+      "recovery_date": "2006-06-16",
+      "recovered": true
+    },
+    {
+      "event_id": 34,
+      "cross_below_date": "2006-06-20",
+      "cross_below_close": 6363.52001953125,
+      "cross_below_sma200": 6451.008588867187,
+      "distance_from_sma_at_cross": -0.013561998582193868,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-06-21",
+      "lowest_close": 6299.560546875,
+      "drawdown_from_cross": -0.010050958032652102,
+      "drawdown_from_peak": -0.15713842960088809,
+      "days_below_sma": 2,
+      "recovery_date": "2006-06-22",
+      "recovered": true
+    },
+    {
+      "event_id": 35,
+      "cross_below_date": "2006-06-23",
+      "cross_below_close": 6452.2802734375,
+      "cross_below_sma200": 6456.618659667969,
+      "distance_from_sma_at_cross": -0.0006719285215912585,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-06-23",
+      "lowest_close": 6452.2802734375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.1367050060940299,
+      "days_below_sma": 1,
+      "recovery_date": "2006-06-26",
+      "recovered": true
+    },
+    {
+      "event_id": 36,
+      "cross_below_date": "2006-07-14",
+      "cross_below_close": 6428.0,
+      "cross_below_sma200": 6495.572514648437,
+      "distance_from_sma_at_cross": -0.010402857407264987,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-07-17",
+      "lowest_close": 6257.7705078125,
+      "drawdown_from_cross": -0.026482497228920376,
+      "drawdown_from_peak": -0.16272980660078562,
+      "days_below_sma": 18,
+      "recovery_date": "2006-08-09",
+      "recovered": true
+    },
+    {
+      "event_id": 37,
+      "cross_below_date": "2006-08-21",
+      "cross_below_close": 6505.8896484375,
+      "cross_below_sma200": 6571.023303222656,
+      "distance_from_sma_at_cross": -0.009912254420588074,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-08-21",
+      "lowest_close": 6505.8896484375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.12953223877726372,
+      "days_below_sma": 1,
+      "recovery_date": "2006-08-22",
+      "recovered": true
+    },
+    {
+      "event_id": 38,
+      "cross_below_date": "2006-08-23",
+      "cross_below_close": 6556.2998046875,
+      "cross_below_sma200": 6578.412014160156,
+      "distance_from_sma_at_cross": -0.0033613293641473474,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-08-28",
+      "lowest_close": 6444.72998046875,
+      "drawdown_from_cross": -0.017017193774296557,
+      "drawdown_from_peak": -0.1377152117649273,
+      "days_below_sma": 6,
+      "recovery_date": "2006-08-31",
+      "recovered": true
+    },
+    {
+      "event_id": 39,
+      "cross_below_date": "2006-09-14",
+      "cross_below_close": 6598.83984375,
+      "cross_below_sma200": 6627.345561523438,
+      "distance_from_sma_at_cross": -0.004301227015976683,
+      "peak_date": "2006-05-08",
+      "peak_close": 7474.015625,
+      "lowest_date": "2006-09-14",
+      "lowest_close": 6598.83984375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.11709579229706257,
+      "days_below_sma": 1,
+      "recovery_date": "2006-09-15",
+      "recovered": true
+    },
+    {
+      "event_id": 40,
+      "cross_below_date": "2007-11-21",
+      "cross_below_close": 8484.0703125,
+      "cross_below_sma200": 8585.71724609375,
+      "distance_from_sma_at_cross": -0.011839073041917003,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2007-11-28",
+      "lowest_close": 8276.2197265625,
+      "drawdown_from_cross": -0.024498923073664747,
+      "drawdown_from_peak": -0.15633445827394798,
+      "days_below_sma": 9,
+      "recovery_date": "2007-12-04",
+      "recovered": true
+    },
+    {
+      "event_id": 41,
+      "cross_below_date": "2007-12-10",
+      "cross_below_close": 8597.990234375,
+      "cross_below_sma200": 8632.857941894532,
+      "distance_from_sma_at_cross": -0.00403895300423307,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2007-12-10",
+      "lowest_close": 8597.990234375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.12353365080942069,
+      "days_below_sma": 1,
+      "recovery_date": "2007-12-11",
+      "recovered": true
+    },
+    {
+      "event_id": 42,
+      "cross_below_date": "2007-12-12",
+      "cross_below_close": 8490.7998046875,
+      "cross_below_sma200": 8640.32430419922,
+      "distance_from_sma_at_cross": -0.01730542676957736,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2008-01-23",
+      "lowest_close": 7408.36572265625,
+      "drawdown_from_cross": -0.12748317083552863,
+      "drawdown_from_peak": -0.24480220593351842,
+      "days_below_sma": 65,
+      "recovery_date": "2008-03-24",
+      "recovered": true
+    },
+    {
+      "event_id": 43,
+      "cross_below_date": "2008-03-27",
+      "cross_below_close": 8605.91015625,
+      "cross_below_sma200": 8706.479877929687,
+      "distance_from_sma_at_cross": -0.011551134682413311,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2008-04-01",
+      "lowest_close": 8419.6796875,
+      "drawdown_from_cross": -0.021639834180089745,
+      "drawdown_from_peak": -0.14171036301559214,
+      "days_below_sma": 6,
+      "recovery_date": "2008-04-07",
+      "recovered": true
+    },
+    {
+      "event_id": 44,
+      "cross_below_date": "2008-04-08",
+      "cross_below_close": 8672.8095703125,
+      "cross_below_sma200": 8716.18748046875,
+      "distance_from_sma_at_cross": -0.004976706874817882,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2008-04-09",
+      "lowest_close": 8667.8896484375,
+      "drawdown_from_cross": -0.0005672812062934574,
+      "drawdown_from_peak": -0.11640820839975352,
+      "days_below_sma": 2,
+      "recovery_date": "2008-04-10",
+      "recovered": true
+    },
+    {
+      "event_id": 45,
+      "cross_below_date": "2008-05-28",
+      "cross_below_close": 8665.6904296875,
+      "cross_below_sma200": 8682.450126953125,
+      "distance_from_sma_at_cross": -0.0019302958290077221,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2008-05-28",
+      "lowest_close": 8665.6904296875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.11663239349142496,
+      "days_below_sma": 1,
+      "recovery_date": "2008-05-29",
+      "recovered": true
+    },
+    {
+      "event_id": 46,
+      "cross_below_date": "2008-05-30",
+      "cross_below_close": 8619.0400390625,
+      "cross_below_sma200": 8678.972387695312,
+      "distance_from_sma_at_cross": -0.006905465987860682,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2008-05-30",
+      "lowest_close": 8619.0400390625,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.12138786499637488,
+      "days_below_sma": 1,
+      "recovery_date": "2008-06-02",
+      "recovered": true
+    },
+    {
+      "event_id": 47,
+      "cross_below_date": "2008-06-03",
+      "cross_below_close": 8579.3896484375,
+      "cross_below_sma200": 8675.683046875,
+      "distance_from_sma_at_cross": -0.01109922964188792,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2008-06-03",
+      "lowest_close": 8579.3896484375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.12542976690225682,
+      "days_below_sma": 2,
+      "recovery_date": "2008-06-05",
+      "recovered": true
+    },
+    {
+      "event_id": 48,
+      "cross_below_date": "2008-06-09",
+      "cross_below_close": 8587.919921875,
+      "cross_below_sma200": 8669.36162109375,
+      "distance_from_sma_at_cross": -0.009394197955774675,
+      "peak_date": "2007-10-29",
+      "peak_close": 9809.8349609375,
+      "lowest_date": "2008-11-20",
+      "lowest_close": 4089.9111328125,
+      "drawdown_from_cross": -0.523759982624576,
+      "drawdown_from_peak": -0.5830805361049991,
+      "days_below_sma": 203,
+      "recovery_date": "2009-04-07",
+      "recovered": true
+    },
+    {
+      "event_id": 49,
+      "cross_below_date": "2009-04-08",
+      "cross_below_close": 5443.53515625,
+      "cross_below_sma200": 5554.0244140625,
+      "distance_from_sma_at_cross": -0.0198935491771961,
+      "peak_date": "2008-05-19",
+      "peak_close": 9295.158203125,
+      "lowest_date": "2009-04-08",
+      "lowest_close": 5443.53515625,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.41436874582512195,
+      "days_below_sma": 1,
+      "recovery_date": "2009-04-09",
+      "recovered": true
+    },
+    {
+      "event_id": 50,
+      "cross_below_date": "2010-02-05",
+      "cross_below_close": 7217.796875,
+      "cross_below_sma200": 7228.286557617187,
+      "distance_from_sma_at_cross": -0.0014511990543779607,
+      "peak_date": "2010-01-15",
+      "peak_close": 8356.849609375,
+      "lowest_date": "2010-02-08",
+      "lowest_close": 7215.8466796875,
+      "drawdown_from_cross": -0.00027019260118765764,
+      "drawdown_from_peak": -0.13653505603445149,
+      "days_below_sma": 2,
+      "recovery_date": "2010-02-09",
+      "recovered": true
+    },
+    {
+      "event_id": 51,
+      "cross_below_date": "2010-05-06",
+      "cross_below_close": 7579.44482421875,
+      "cross_below_sma200": 7600.751647949219,
+      "distance_from_sma_at_cross": -0.0028032521936455224,
+      "peak_date": "2010-01-15",
+      "peak_close": 8356.849609375,
+      "lowest_date": "2010-05-07",
+      "lowest_close": 7567.06494140625,
+      "drawdown_from_cross": -0.0016333495525875374,
+      "drawdown_from_peak": -0.09450746452140801,
+      "days_below_sma": 2,
+      "recovery_date": "2010-05-10",
+      "recovered": true
+    },
+    {
+      "event_id": 52,
+      "cross_below_date": "2010-05-11",
+      "cross_below_close": 7608.40478515625,
+      "cross_below_sma200": 7611.236997070312,
+      "distance_from_sma_at_cross": -0.0003721092793658176,
+      "peak_date": "2010-01-15",
+      "peak_close": 8356.849609375,
+      "lowest_date": "2010-05-12",
+      "lowest_close": 7602.6650390625,
+      "drawdown_from_cross": -0.0007543954686727306,
+      "drawdown_from_peak": -0.09024747429538882,
+      "days_below_sma": 2,
+      "recovery_date": "2010-05-13",
+      "recovered": true
+    },
+    {
+      "event_id": 53,
+      "cross_below_date": "2010-05-17",
+      "cross_below_close": 7598.68505859375,
+      "cross_below_sma200": 7625.117976074219,
+      "distance_from_sma_at_cross": -0.003466558493050109,
+      "peak_date": "2010-01-15",
+      "peak_close": 8356.849609375,
+      "lowest_date": "2010-06-09",
+      "lowest_close": 7071.63818359375,
+      "drawdown_from_cross": -0.0693602736441794,
+      "drawdown_from_peak": -0.1537913790310952,
+      "days_below_sma": 41,
+      "recovery_date": "2010-07-14",
+      "recovered": true
+    },
+    {
+      "event_id": 54,
+      "cross_below_date": "2010-07-16",
+      "cross_below_close": 7664.53466796875,
+      "cross_below_sma200": 7698.834519042969,
+      "distance_from_sma_at_cross": -0.004455200457858743,
+      "peak_date": "2010-01-15",
+      "peak_close": 8356.849609375,
+      "lowest_date": "2010-07-19",
+      "lowest_close": 7649.794921875,
+      "drawdown_from_cross": -0.0019231103690285911,
+      "drawdown_from_peak": -0.08460780324523276,
+      "days_below_sma": 2,
+      "recovery_date": "2010-07-20",
+      "recovered": true
+    },
+    {
+      "event_id": 55,
+      "cross_below_date": "2010-07-21",
+      "cross_below_close": 7701.2548828125,
+      "cross_below_sma200": 7703.031452636718,
+      "distance_from_sma_at_cross": -0.00023063255487687506,
+      "peak_date": "2010-01-15",
+      "peak_close": 8356.849609375,
+      "lowest_date": "2010-07-22",
+      "lowest_close": 7666.3046875,
+      "drawdown_from_cross": -0.004538246797999301,
+      "drawdown_from_peak": -0.08263220641189029,
+      "days_below_sma": 2,
+      "recovery_date": "2010-07-23",
+      "recovered": true
+    },
+    {
+      "event_id": 56,
+      "cross_below_date": "2010-08-25",
+      "cross_below_close": 7736.9443359375,
+      "cross_below_sma200": 7742.56267578125,
+      "distance_from_sma_at_cross": -0.0007256434437816761,
+      "peak_date": "2010-01-15",
+      "peak_close": 8356.849609375,
+      "lowest_date": "2010-08-31",
+      "lowest_close": 7616.24462890625,
+      "drawdown_from_cross": -0.015600436269214146,
+      "drawdown_from_peak": -0.08862250908977876,
+      "days_below_sma": 7,
+      "recovery_date": "2010-09-03",
+      "recovered": true
+    },
+    {
+      "event_id": 57,
+      "cross_below_date": "2011-06-20",
+      "cross_below_close": 8530.6396484375,
+      "cross_below_sma200": 8598.079895019531,
+      "distance_from_sma_at_cross": -0.007843640371508531,
+      "peak_date": "2011-01-28",
+      "peak_close": 9145.3076171875,
+      "lowest_date": "2011-06-20",
+      "lowest_close": 8530.6396484375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.06721129506839174,
+      "days_below_sma": 2,
+      "recovery_date": "2011-06-22",
+      "recovered": true
+    },
+    {
+      "event_id": 58,
+      "cross_below_date": "2011-06-23",
+      "cross_below_close": 8567.240234375,
+      "cross_below_sma200": 8611.607575683594,
+      "distance_from_sma_at_cross": -0.005152039374607953,
+      "peak_date": "2011-01-28",
+      "peak_close": 9145.3076171875,
+      "lowest_date": "2011-06-28",
+      "lowest_close": 8478.8203125,
+      "drawdown_from_cross": -0.010320700652262094,
+      "drawdown_from_peak": -0.0728775162723797,
+      "days_below_sma": 5,
+      "recovery_date": "2011-06-30",
+      "recovered": true
+    },
+    {
+      "event_id": 59,
+      "cross_below_date": "2011-07-12",
+      "cross_below_close": 8490.9697265625,
+      "cross_below_sma200": 8658.225769042969,
+      "distance_from_sma_at_cross": -0.019317588492377302,
+      "peak_date": "2011-01-28",
+      "peak_close": 9145.3076171875,
+      "lowest_date": "2011-07-14",
+      "lowest_close": 8481.3095703125,
+      "drawdown_from_cross": -0.0011376976436248132,
+      "drawdown_from_peak": -0.07260532665157116,
+      "days_below_sma": 6,
+      "recovery_date": "2011-07-20",
+      "recovered": true
+    },
+    {
+      "event_id": 60,
+      "cross_below_date": "2011-07-29",
+      "cross_below_close": 8644.1396484375,
+      "cross_below_sma200": 8686.385122070313,
+      "distance_from_sma_at_cross": -0.0048634124597440875,
+      "peak_date": "2011-01-28",
+      "peak_close": 9145.3076171875,
+      "lowest_date": "2011-07-29",
+      "lowest_close": 8644.1396484375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.054800558901716534,
+      "days_below_sma": 1,
+      "recovery_date": "2011-08-01",
+      "recovered": true
+    },
+    {
+      "event_id": 61,
+      "cross_below_date": "2011-08-02",
+      "cross_below_close": 8584.6796875,
+      "cross_below_sma200": 8690.710856933594,
+      "distance_from_sma_at_cross": -0.012200517446625314,
+      "peak_date": "2011-01-28",
+      "peak_close": 9145.3076171875,
+      "lowest_date": "2011-12-19",
+      "lowest_close": 6633.29931640625,
+      "drawdown_from_cross": -0.22730963089224177,
+      "drawdown_from_peak": -0.27467728871801256,
+      "days_below_sma": 127,
+      "recovery_date": "2012-02-09",
+      "recovered": true
+    },
+    {
+      "event_id": 62,
+      "cross_below_date": "2012-02-10",
+      "cross_below_close": 7862.2333984375,
+      "cross_below_sma200": 7863.033913574219,
+      "distance_from_sma_at_cross": -0.00010180741244636415,
+      "peak_date": "2011-01-28",
+      "peak_close": 9145.3076171875,
+      "lowest_date": "2012-02-10",
+      "lowest_close": 7862.2333984375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.14029863974598478,
+      "days_below_sma": 1,
+      "recovery_date": "2012-02-13",
+      "recovered": true
+    },
+    {
+      "event_id": 63,
+      "cross_below_date": "2012-04-05",
+      "cross_below_close": 7639.78466796875,
+      "cross_below_sma200": 7689.584001464844,
+      "distance_from_sma_at_cross": -0.00647620644843816,
+      "peak_date": "2011-06-01",
+      "peak_close": 9062.3076171875,
+      "lowest_date": "2012-04-05",
+      "lowest_close": 7639.78466796875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.15697138182782544,
+      "days_below_sma": 1,
+      "recovery_date": "2012-04-06",
+      "recovered": true
+    },
+    {
+      "event_id": 64,
+      "cross_below_date": "2012-04-09",
+      "cross_below_close": 7600.8349609375,
+      "cross_below_sma200": 7677.816398925781,
+      "distance_from_sma_at_cross": -0.010026475496216825,
+      "peak_date": "2011-06-01",
+      "peak_close": 9062.3076171875,
+      "lowest_date": "2012-04-09",
+      "lowest_close": 7600.8349609375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.16126937177437928,
+      "days_below_sma": 4,
+      "recovery_date": "2012-04-13",
+      "recovered": true
+    },
+    {
+      "event_id": 65,
+      "cross_below_date": "2012-04-17",
+      "cross_below_close": 7585.8349609375,
+      "cross_below_sma200": 7650.102145996094,
+      "distance_from_sma_at_cross": -0.008400827051993076,
+      "peak_date": "2011-06-01",
+      "peak_close": 9062.3076171875,
+      "lowest_date": "2012-04-27",
+      "lowest_close": 7480.4658203125,
+      "drawdown_from_cross": -0.013890249546370081,
+      "drawdown_from_peak": -0.1745517658079595,
+      "days_below_sma": 10,
+      "recovery_date": "2012-05-02",
+      "recovered": true
+    },
+    {
+      "event_id": 66,
+      "cross_below_date": "2012-05-07",
+      "cross_below_close": 7538.04541015625,
+      "cross_below_sma200": 7579.181591796875,
+      "distance_from_sma_at_cross": -0.005427522898402093,
+      "peak_date": "2011-06-01",
+      "peak_close": 9062.3076171875,
+      "lowest_date": "2012-06-04",
+      "lowest_close": 6894.62841796875,
+      "drawdown_from_cross": -0.08535594536490898,
+      "drawdown_from_peak": -0.23919726528677387,
+      "days_below_sma": 41,
+      "recovery_date": "2012-07-03",
+      "recovered": true
+    },
+    {
+      "event_id": 67,
+      "cross_below_date": "2012-07-05",
+      "cross_below_close": 7387.74560546875,
+      "cross_below_sma200": 7412.487766113281,
+      "distance_from_sma_at_cross": -0.0033379023919124506,
+      "peak_date": "2011-07-06",
+      "peak_close": 8824.400390625,
+      "lowest_date": "2012-07-26",
+      "lowest_close": 6970.658203125,
+      "drawdown_from_cross": -0.05645665465727501,
+      "drawdown_from_peak": -0.21007004503891358,
+      "days_below_sma": 24,
+      "recovery_date": "2012-08-09",
+      "recovered": true
+    },
+    {
+      "event_id": 68,
+      "cross_below_date": "2012-08-28",
+      "cross_below_close": 7361.90625,
+      "cross_below_sma200": 7401.71783203125,
+      "distance_from_sma_at_cross": -0.005378694910384674,
+      "peak_date": "2012-03-02",
+      "peak_close": 8144.00244140625,
+      "lowest_date": "2012-08-28",
+      "lowest_close": 7361.90625,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.09603339353508389,
+      "days_below_sma": 4,
+      "recovery_date": "2012-09-03",
+      "recovered": true
+    },
+    {
+      "event_id": 69,
+      "cross_below_date": "2012-09-05",
+      "cross_below_close": 7367.40625,
+      "cross_below_sma200": 7398.544848632812,
+      "distance_from_sma_at_cross": -0.004208746350786274,
+      "peak_date": "2012-03-02",
+      "peak_close": 8144.00244140625,
+      "lowest_date": "2012-09-06",
+      "lowest_close": 7326.6865234375,
+      "drawdown_from_cross": -0.005527009802466121,
+      "drawdown_from_peak": -0.10035801485192353,
+      "days_below_sma": 2,
+      "recovery_date": "2012-09-07",
+      "recovered": true
+    },
+    {
+      "event_id": 70,
+      "cross_below_date": "2012-10-11",
+      "cross_below_close": 7451.68603515625,
+      "cross_below_sma200": 7474.21490234375,
+      "distance_from_sma_at_cross": -0.003014211857948479,
+      "peak_date": "2012-03-02",
+      "peak_close": 8144.00244140625,
+      "lowest_date": "2012-11-21",
+      "lowest_close": 7088.4580078125,
+      "drawdown_from_cross": -0.0487444083969828,
+      "drawdown_from_peak": -0.12961003403278526,
+      "days_below_sma": 35,
+      "recovery_date": "2012-11-29",
+      "recovered": true
+    },
+    {
+      "event_id": 71,
+      "cross_below_date": "2013-06-25",
+      "cross_below_close": 7663.19482421875,
+      "cross_below_sma200": 7750.6726586914065,
+      "distance_from_sma_at_cross": -0.011286482906043172,
+      "peak_date": "2013-05-22",
+      "peak_close": 8398.7998046875,
+      "lowest_date": "2013-06-25",
+      "lowest_close": 7663.19482421875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.08758453559735968,
+      "days_below_sma": 1,
+      "recovery_date": "2013-06-26",
+      "recovered": true
+    },
+    {
+      "event_id": 72,
+      "cross_below_date": "2013-08-20",
+      "cross_below_close": 7832.61376953125,
+      "cross_below_sma200": 7847.221193847657,
+      "distance_from_sma_at_cross": -0.0018614773249744365,
+      "peak_date": "2013-05-22",
+      "peak_close": 8398.7998046875,
+      "lowest_date": "2013-08-22",
+      "lowest_close": 7814.34423828125,
+      "drawdown_from_cross": -0.0023324948462374318,
+      "drawdown_from_peak": -0.0695879863787271,
+      "days_below_sma": 2,
+      "recovery_date": "2013-08-23",
+      "recovered": true
+    },
+    {
+      "event_id": 73,
+      "cross_below_date": "2013-08-27",
+      "cross_below_close": 7820.8037109375,
+      "cross_below_sma200": 7860.886625976563,
+      "distance_from_sma_at_cross": -0.005099032328822473,
+      "peak_date": "2013-05-22",
+      "peak_close": 8398.7998046875,
+      "lowest_date": "2013-08-27",
+      "lowest_close": 7820.8037109375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.06881889165013932,
+      "days_below_sma": 2,
+      "recovery_date": "2013-08-29",
+      "recovered": true
+    },
+    {
+      "event_id": 74,
+      "cross_below_date": "2014-10-08",
+      "cross_below_close": 8955.138671875,
+      "cross_below_sma200": 8969.28505859375,
+      "distance_from_sma_at_cross": -0.0015772033809089425,
+      "peak_date": "2014-07-15",
+      "peak_close": 9569.1259765625,
+      "lowest_date": "2014-10-17",
+      "lowest_close": 8512.83984375,
+      "drawdown_from_cross": -0.0493905057566677,
+      "drawdown_from_peak": -0.11038480791240957,
+      "days_below_sma": 17,
+      "recovery_date": "2014-11-03",
+      "recovered": true
+    },
+    {
+      "event_id": 75,
+      "cross_below_date": "2014-11-04",
+      "cross_below_close": 8989.138671875,
+      "cross_below_sma200": 8993.954833984375,
+      "distance_from_sma_at_cross": -0.0005354888031210425,
+      "peak_date": "2014-07-15",
+      "peak_close": 9569.1259765625,
+      "lowest_date": "2014-11-06",
+      "lowest_close": 8890.978515625,
+      "drawdown_from_cross": -0.010919862273025216,
+      "drawdown_from_peak": -0.070868276015853,
+      "days_below_sma": 4,
+      "recovery_date": "2014-11-10",
+      "recovered": true
+    },
+    {
+      "event_id": 76,
+      "cross_below_date": "2014-11-12",
+      "cross_below_close": 8918.9091796875,
+      "cross_below_sma200": 9005.0685546875,
+      "distance_from_sma_at_cross": -0.009567875522185743,
+      "peak_date": "2014-07-15",
+      "peak_close": 9569.1259765625,
+      "lowest_date": "2014-11-18",
+      "lowest_close": 8859.0302734375,
+      "drawdown_from_cross": -0.006713702880434269,
+      "drawdown_from_peak": -0.07420695525006415,
+      "days_below_sma": 6,
+      "recovery_date": "2014-11-20",
+      "recovered": true
+    },
+    {
+      "event_id": 77,
+      "cross_below_date": "2014-12-02",
+      "cross_below_close": 9034.7490234375,
+      "cross_below_sma200": 9045.209658203124,
+      "distance_from_sma_at_cross": -0.001156483394073482,
+      "peak_date": "2014-07-15",
+      "peak_close": 9569.1259765625,
+      "lowest_date": "2014-12-02",
+      "lowest_close": 9034.7490234375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.05584386227476157,
+      "days_below_sma": 1,
+      "recovery_date": "2014-12-03",
+      "recovered": true
+    },
+    {
+      "event_id": 78,
+      "cross_below_date": "2014-12-10",
+      "cross_below_close": 9032.119140625,
+      "cross_below_sma200": 9063.006303710938,
+      "distance_from_sma_at_cross": -0.003408048284518017,
+      "peak_date": "2014-07-15",
+      "peak_close": 9569.1259765625,
+      "lowest_date": "2014-12-17",
+      "lowest_close": 8828.3203125,
+      "drawdown_from_cross": -0.022563788735729395,
+      "drawdown_from_peak": -0.07741623068574321,
+      "days_below_sma": 8,
+      "recovery_date": "2014-12-22",
+      "recovered": true
+    },
+    {
+      "event_id": 79,
+      "cross_below_date": "2015-01-06",
+      "cross_below_close": 9048.298828125,
+      "cross_below_sma200": 9099.897026367187,
+      "distance_from_sma_at_cross": -0.005670195837676029,
+      "peak_date": "2014-07-15",
+      "peak_close": 9569.1259765625,
+      "lowest_date": "2015-01-06",
+      "lowest_close": 9048.298828125,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.05442787039413555,
+      "days_below_sma": 2,
+      "recovery_date": "2015-01-08",
+      "recovered": true
+    },
+    {
+      "event_id": 80,
+      "cross_below_date": "2015-06-09",
+      "cross_below_close": 9191.828125,
+      "cross_below_sma200": 9317.80041015625,
+      "distance_from_sma_at_cross": -0.01351953031950992,
+      "peak_date": "2015-04-27",
+      "peak_close": 9973.07421875,
+      "lowest_date": "2015-06-17",
+      "lowest_close": 9189.7880859375,
+      "drawdown_from_cross": -0.00022194051441748464,
+      "drawdown_from_peak": -0.07854008860576545,
+      "days_below_sma": 8,
+      "recovery_date": "2015-06-22",
+      "recovered": true
+    },
+    {
+      "event_id": 81,
+      "cross_below_date": "2015-06-29",
+      "cross_below_close": 9236.0576171875,
+      "cross_below_sma200": 9316.033920898437,
+      "distance_from_sma_at_cross": -0.00858480168599729,
+      "peak_date": "2015-04-27",
+      "peak_close": 9973.07421875,
+      "lowest_date": "2015-06-29",
+      "lowest_close": 9236.0576171875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.07390064341212488,
+      "days_below_sma": 1,
+      "recovery_date": "2015-06-30",
+      "recovered": true
+    },
+    {
+      "event_id": 82,
+      "cross_below_date": "2015-07-06",
+      "cross_below_close": 9255.91796875,
+      "cross_below_sma200": 9313.883979492188,
+      "distance_from_sma_at_cross": -0.0062236131424677765,
+      "peak_date": "2015-04-27",
+      "peak_close": 9973.07421875,
+      "lowest_date": "2015-08-24",
+      "lowest_close": 7410.3056640625,
+      "drawdown_from_cross": -0.19939808357406474,
+      "drawdown_from_peak": -0.2569687639413467,
+      "days_below_sma": 160,
+      "recovery_date": "2016-03-03",
+      "recovered": true
+    },
+    {
+      "event_id": 83,
+      "cross_below_date": "2016-04-29",
+      "cross_below_close": 8377.873046875,
+      "cross_below_sma200": 8402.160275878907,
+      "distance_from_sma_at_cross": -0.0028905933957997787,
+      "peak_date": "2015-04-27",
+      "peak_close": 9973.07421875,
+      "lowest_date": "2016-05-13",
+      "lowest_close": 8053.66455078125,
+      "drawdown_from_cross": -0.038698186792730405,
+      "drawdown_from_peak": -0.19245917816997093,
+      "days_below_sma": 15,
+      "recovery_date": "2016-05-23",
+      "recovered": true
+    },
+    {
+      "event_id": 84,
+      "cross_below_date": "2016-05-24",
+      "cross_below_close": 8300.6328125,
+      "cross_below_sma200": 8339.197785644532,
+      "distance_from_sma_at_cross": -0.004624542328390269,
+      "peak_date": "2015-05-13",
+      "peak_close": 9724.0654296875,
+      "lowest_date": "2016-05-24",
+      "lowest_close": 8300.6328125,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.14638245983431686,
+      "days_below_sma": 1,
+      "recovery_date": "2016-05-25",
+      "recovered": true
+    },
+    {
+      "event_id": 85,
+      "cross_below_date": "2018-02-06",
+      "cross_below_close": 10404.0,
+      "cross_below_sma200": 10500.302329101563,
+      "distance_from_sma_at_cross": -0.009171386316626506,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-02-06",
+      "lowest_close": 10404.0,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.07545561405114987,
+      "days_below_sma": 1,
+      "recovery_date": "2018-02-07",
+      "recovered": true
+    },
+    {
+      "event_id": 86,
+      "cross_below_date": "2018-02-09",
+      "cross_below_close": 10371.75,
+      "cross_below_sma200": 10510.480927734376,
+      "distance_from_sma_at_cross": -0.01319929398932651,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-02-09",
+      "lowest_close": 10371.75,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.07832148837322317,
+      "days_below_sma": 2,
+      "recovery_date": "2018-02-21",
+      "recovered": true
+    },
+    {
+      "event_id": 87,
+      "cross_below_date": "2018-04-24",
+      "cross_below_close": 10579.5,
+      "cross_below_sma200": 10668.440102539062,
+      "distance_from_sma_at_cross": -0.008336748548449346,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-04-26",
+      "lowest_close": 10488.580078125,
+      "drawdown_from_cross": -0.008593971536934641,
+      "drawdown_from_peak": -0.06793946291758746,
+      "days_below_sma": 9,
+      "recovery_date": "2018-05-08",
+      "recovered": true
+    },
+    {
+      "event_id": 88,
+      "cross_below_date": "2018-06-26",
+      "cross_below_close": 10742.169921875,
+      "cross_below_sma200": 10766.647294921875,
+      "distance_from_sma_at_cross": -0.0022734443115286496,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-06-28",
+      "lowest_close": 10654.2802734375,
+      "drawdown_from_cross": -0.008181740661030168,
+      "drawdown_from_peak": -0.05321462772662244,
+      "days_below_sma": 3,
+      "recovery_date": "2018-06-29",
+      "recovered": true
+    },
+    {
+      "event_id": 89,
+      "cross_below_date": "2018-07-03",
+      "cross_below_close": 10715.7197265625,
+      "cross_below_sma200": 10770.9944921875,
+      "distance_from_sma_at_cross": -0.005131816348535989,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-07-06",
+      "lowest_close": 10608.5703125,
+      "drawdown_from_cross": -0.009999273664921815,
+      "drawdown_from_peak": -0.05727661232549852,
+      "days_below_sma": 8,
+      "recovery_date": "2018-07-13",
+      "recovered": true
+    },
+    {
+      "event_id": 90,
+      "cross_below_date": "2018-08-13",
+      "cross_below_close": 10748.919921875,
+      "cross_below_sma200": 10821.646538085937,
+      "distance_from_sma_at_cross": -0.006720476034306033,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-08-13",
+      "lowest_close": 10748.919921875,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.044804539717100744,
+      "days_below_sma": 1,
+      "recovery_date": "2018-08-14",
+      "recovered": true
+    },
+    {
+      "event_id": 91,
+      "cross_below_date": "2018-08-15",
+      "cross_below_close": 10716.75,
+      "cross_below_sma200": 10821.905590820312,
+      "distance_from_sma_at_cross": -0.009716919995080175,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-08-16",
+      "lowest_close": 10683.900390625,
+      "drawdown_from_cross": -0.0030652585322042958,
+      "drawdown_from_peak": -0.050582456152530764,
+      "days_below_sma": 6,
+      "recovery_date": "2018-08-23",
+      "recovered": true
+    },
+    {
+      "event_id": 92,
+      "cross_below_date": "2018-08-24",
+      "cross_below_close": 10809.349609375,
+      "cross_below_sma200": 10822.499038085938,
+      "distance_from_sma_at_cross": -0.001215008535890183,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-08-24",
+      "lowest_close": 10809.349609375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.039434496625715854,
+      "days_below_sma": 1,
+      "recovery_date": "2018-08-27",
+      "recovered": true
+    },
+    {
+      "event_id": 93,
+      "cross_below_date": "2018-09-10",
+      "cross_below_close": 10725.7998046875,
+      "cross_below_sma200": 10834.038989257813,
+      "distance_from_sma_at_cross": -0.00999065857872905,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-09-12",
+      "lowest_close": 10722.5703125,
+      "drawdown_from_cross": -0.00030109569881109355,
+      "drawdown_from_peak": -0.04714607983816976,
+      "days_below_sma": 4,
+      "recovery_date": "2018-09-14",
+      "recovered": true
+    },
+    {
+      "event_id": 94,
+      "cross_below_date": "2018-09-17",
+      "cross_below_close": 10828.6103515625,
+      "cross_below_sma200": 10835.567944335937,
+      "distance_from_sma_at_cross": -0.0006421068843994737,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-09-18",
+      "lowest_close": 10760.2099609375,
+      "drawdown_from_cross": -0.006316636059873537,
+      "drawdown_from_peak": -0.0438012580723125,
+      "days_below_sma": 2,
+      "recovery_date": "2018-09-19",
+      "recovered": true
+    },
+    {
+      "event_id": 95,
+      "cross_below_date": "2018-09-20",
+      "cross_below_close": 10831.41015625,
+      "cross_below_sma200": 10835.514443359374,
+      "distance_from_sma_at_cross": -0.0003787810104289857,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2018-09-20",
+      "lowest_close": 10831.41015625,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.037474101127422665,
+      "days_below_sma": 1,
+      "recovery_date": "2018-09-21",
+      "recovered": true
+    },
+    {
+      "event_id": 96,
+      "cross_below_date": "2018-10-04",
+      "cross_below_close": 10718.91015625,
+      "cross_below_sma200": 10853.377294921875,
+      "distance_from_sma_at_cross": -0.012389428195294538,
+      "peak_date": "2018-01-23",
+      "peak_close": 11253.1103515625,
+      "lowest_date": "2019-01-04",
+      "lowest_close": 9382.509765625,
+      "drawdown_from_cross": -0.12467689076074295,
+      "drawdown_from_peak": -0.16622964918119432,
+      "days_below_sma": 104,
+      "recovery_date": "2019-03-15",
+      "recovered": true
+    },
+    {
+      "event_id": 97,
+      "cross_below_date": "2019-05-23",
+      "cross_below_close": 10308.3701171875,
+      "cross_below_sma200": 10349.802944335937,
+      "distance_from_sma_at_cross": -0.004003247923779263,
+      "peak_date": "2018-06-07",
+      "peak_close": 11251.75,
+      "lowest_date": "2019-05-29",
+      "lowest_close": 10301.7802734375,
+      "drawdown_from_cross": -0.000639271162665378,
+      "drawdown_from_peak": -0.08442862013131291,
+      "days_below_sma": 5,
+      "recovery_date": "2019-05-30",
+      "recovered": true
+    },
+    {
+      "event_id": 98,
+      "cross_below_date": "2020-03-09",
+      "cross_below_close": 10977.6396484375,
+      "cross_below_sma200": 11137.585405273438,
+      "distance_from_sma_at_cross": -0.014360900591631531,
+      "peak_date": "2020-01-14",
+      "peak_close": 12179.8095703125,
+      "lowest_date": "2020-03-19",
+      "lowest_close": 8681.33984375,
+      "drawdown_from_cross": -0.20917973974617976,
+      "drawdown_from_peak": -0.28723517443899893,
+      "days_below_sma": 57,
+      "recovery_date": "2020-06-01",
+      "recovered": true
+    },
+    {
+      "event_id": 99,
+      "cross_below_date": "2021-10-04",
+      "cross_below_close": 16408.349609375,
+      "cross_below_sma200": 16548.4712109375,
+      "distance_from_sma_at_cross": -0.008467344190071668,
+      "peak_date": "2021-07-15",
+      "peak_close": 18034.189453125,
+      "lowest_date": "2021-10-06",
+      "lowest_close": 16393.16015625,
+      "drawdown_from_cross": -0.0009257148638716073,
+      "drawdown_from_peak": -0.09099545622166227,
+      "days_below_sma": 3,
+      "recovery_date": "2021-10-07",
+      "recovered": true
+    },
+    {
+      "event_id": 100,
+      "cross_below_date": "2021-10-12",
+      "cross_below_close": 16462.83984375,
+      "cross_below_sma200": 16604.2348046875,
+      "distance_from_sma_at_cross": -0.008515596328328545,
+      "peak_date": "2021-07-15",
+      "peak_close": 18034.189453125,
+      "lowest_date": "2021-10-13",
+      "lowest_close": 16347.990234375,
+      "drawdown_from_cross": -0.006976293911928111,
+      "drawdown_from_peak": -0.09350013889633457,
+      "days_below_sma": 3,
+      "recovery_date": "2021-10-15",
+      "recovered": true
+    },
+    {
+      "event_id": 101,
+      "cross_below_date": "2022-03-07",
+      "cross_below_close": 17178.689453125,
+      "cross_below_sma200": 17424.85919433594,
+      "distance_from_sma_at_cross": -0.014127502464465147,
+      "peak_date": "2022-01-04",
+      "peak_close": 18526.349609375,
+      "lowest_date": "2022-03-08",
+      "lowest_close": 16825.25,
+      "drawdown_from_cross": -0.02057429666502908,
+      "drawdown_from_peak": -0.09182054993252331,
+      "days_below_sma": 10,
+      "recovery_date": "2022-03-21",
+      "recovered": true
+    },
+    {
+      "event_id": 102,
+      "cross_below_date": "2022-04-07",
+      "cross_below_close": 17178.630859375,
+      "cross_below_sma200": 17510.013442382813,
+      "distance_from_sma_at_cross": -0.018925318595456098,
+      "peak_date": "2022-01-04",
+      "peak_close": 18526.349609375,
+      "lowest_date": "2022-10-25",
+      "lowest_close": 12666.1201171875,
+      "drawdown_from_cross": -0.26268162923617744,
+      "drawdown_from_peak": -0.31631862810264644,
+      "days_below_sma": 198,
+      "recovery_date": "2023-01-17",
+      "recovered": true
+    },
+    {
+      "event_id": 103,
+      "cross_below_date": "2023-10-26",
+      "cross_below_close": 16073.740234375,
+      "cross_below_sma200": 16126.328286132812,
+      "distance_from_sma_at_cross": -0.003261005904427239,
+      "peak_date": "2023-06-15",
+      "peak_close": 17334.98046875,
+      "lowest_date": "2023-10-26",
+      "lowest_close": 16073.740234375,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.07275694579804426,
+      "days_below_sma": 2,
+      "recovery_date": "2023-10-30",
+      "recovered": true
+    },
+    {
+      "event_id": 104,
+      "cross_below_date": "2023-10-31",
+      "cross_below_close": 16001.26953125,
+      "cross_below_sma200": 16152.757583007813,
+      "distance_from_sma_at_cross": -0.009378463768760725,
+      "peak_date": "2023-06-15",
+      "peak_close": 17334.98046875,
+      "lowest_date": "2023-10-31",
+      "lowest_close": 16001.26953125,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.07693755063089336,
+      "days_below_sma": 2,
+      "recovery_date": "2023-11-02",
+      "recovered": true
+    },
+    {
+      "event_id": 105,
+      "cross_below_date": "2025-03-07",
+      "cross_below_close": 22576.0703125,
+      "cross_below_sma200": 22616.03306640625,
+      "distance_from_sma_at_cross": -0.0017670098813928892,
+      "peak_date": "2024-07-11",
+      "peak_close": 24390.029296875,
+      "lowest_date": "2025-04-09",
+      "lowest_close": 17391.759765625,
+      "drawdown_from_cross": -0.22963742029118916,
+      "drawdown_from_peak": -0.28693157544286596,
+      "days_below_sma": 63,
+      "recovery_date": "2025-06-10",
+      "recovered": true
+    },
+    {
+      "event_id": 106,
+      "cross_below_date": "2025-06-13",
+      "cross_below_close": 22072.94921875,
+      "cross_below_sma200": 22209.966064453125,
+      "distance_from_sma_at_cross": -0.006169160515846928,
+      "peak_date": "2024-07-11",
+      "peak_close": 24390.029296875,
+      "lowest_date": "2025-06-16",
+      "lowest_close": 22049.900390625,
+      "drawdown_from_cross": -0.0010442115322505385,
+      "drawdown_from_peak": -0.09594612936975155,
+      "days_below_sma": 3,
+      "recovery_date": "2025-06-18",
+      "recovered": true
+    },
+    {
+      "event_id": 107,
+      "cross_below_date": "2025-06-19",
+      "cross_below_close": 22003.5,
+      "cross_below_sma200": 22209.667763671874,
+      "distance_from_sma_at_cross": -0.009282793685419288,
+      "peak_date": "2024-07-11",
+      "peak_close": 24390.029296875,
+      "lowest_date": "2025-06-23",
+      "lowest_close": 21732.01953125,
+      "drawdown_from_cross": -0.012338058433885468,
+      "drawdown_from_peak": -0.10897935928127644,
+      "days_below_sma": 4,
+      "recovery_date": "2025-06-25",
+      "recovered": true
+    }
+  ],
+  "national_stabilization_fund": [
+    {
+      "id": "NSF01",
+      "event": "首次政黨輪替",
+      "execution_start": "2000-03-16",
+      "matched_trade_date": "2000-03-16",
+      "close": 8682.7197265625,
+      "sma200": 8199.633181152343,
+      "distance_from_sma200": 0.05891562887478652,
+      "peak_252_date": "2000-02-17",
+      "peak_252_close": 10202.1533203125,
+      "drawdown_from_252d_peak": -0.14893263667433876
+    },
+    {
+      "id": "NSF02",
+      "event": "網路泡沫",
+      "execution_start": "2000-10-03",
+      "matched_trade_date": "2000-10-03",
+      "close": 6143.412109375,
+      "sma200": 8586.664577636719,
+      "distance_from_sma200": -0.28454034115004034,
+      "peak_252_date": "2000-02-17",
+      "peak_252_close": 10202.1533203125,
+      "drawdown_from_252d_peak": -0.39783181878442675
+    },
+    {
+      "id": "NSF03",
+      "event": "三一九事件與兩岸緊張",
+      "execution_start": "2004-05-20",
+      "matched_trade_date": "2004-05-20",
+      "close": 5815.3037109375,
+      "sma200": 6091.653051757812,
+      "distance_from_sma200": -0.04536524625948102,
+      "peak_252_date": "2004-03-04",
+      "peak_252_close": 7034.068359375,
+      "drawdown_from_252d_peak": -0.17326596589200494
+    },
+    {
+      "id": "NSF04",
+      "event": "金融海嘯",
+      "execution_start": "2008-09-18",
+      "matched_trade_date": "2008-09-18",
+      "close": 5641.9248046875,
+      "sma200": 7969.231728515625,
+      "distance_from_sma200": -0.29203654795236034,
+      "peak_252_date": "2007-10-29",
+      "peak_252_close": 9809.8349609375,
+      "drawdown_from_252d_peak": -0.42487056844957194
+    },
+    {
+      "id": "NSF05",
+      "event": "歐債危機",
+      "execution_start": "2011-12-21",
+      "matched_trade_date": "2011-12-21",
+      "close": 6966.4482421875,
+      "sma200": 8054.3623046875,
+      "distance_from_sma200": -0.1350714086783572,
+      "peak_252_date": "2011-01-28",
+      "peak_252_close": 9145.3076171875,
+      "drawdown_from_252d_peak": -0.23824888852345405
+    },
+    {
+      "id": "NSF06",
+      "event": "中國股災與人民幣貶值",
+      "execution_start": "2015-08-25",
+      "matched_trade_date": "2015-08-25",
+      "close": 7675.60498046875,
+      "sma200": 9244.127561035157,
+      "distance_from_sma200": -0.16967773001942044,
+      "peak_252_date": "2015-04-27",
+      "peak_252_close": 9973.07421875,
+      "drawdown_from_252d_peak": -0.23036720552644285
+    },
+    {
+      "id": "NSF07",
+      "event": "COVID-19疫情",
+      "execution_start": "2020-03-20",
+      "matched_trade_date": "2020-03-20",
+      "close": 9234.08984375,
+      "sma200": 11110.65794921875,
+      "distance_from_sma200": -0.16889801792527526,
+      "peak_252_date": "2020-01-14",
+      "peak_252_close": 12179.8095703125,
+      "drawdown_from_252d_peak": -0.24185269150204958
+    },
+    {
+      "id": "NSF08",
+      "event": "升息與俄烏戰爭",
+      "execution_start": "2022-07-13",
+      "matched_trade_date": "2022-07-13",
+      "close": 14324.6796875,
+      "sma200": 17046.182739257812,
+      "distance_from_sma200": -0.1596546918091004,
+      "peak_252_date": "2022-01-04",
+      "peak_252_close": 18526.349609375,
+      "drawdown_from_252d_peak": -0.22679426926871793
+    },
+    {
+      "id": "NSF09",
+      "event": "對等關稅衝擊",
+      "execution_start": "2025-04-09",
+      "matched_trade_date": "2025-04-09",
+      "close": 17391.759765625,
+      "sma200": 22626.17560546875,
+      "distance_from_sma200": -0.23134337552735118,
+      "peak_252_date": "2024-07-11",
+      "peak_252_close": 24390.029296875,
+      "drawdown_from_252d_peak": -0.28693157544286596
+    }
+  ]
+}
