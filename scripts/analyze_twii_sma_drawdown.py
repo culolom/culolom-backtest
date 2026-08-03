@@ -376,7 +376,7 @@ def analyze_fund_entries(
     8. 進場到退場的報酬與持有天數
 
     「打平」定義：
-    進場日之後，收盤價首次大於或等於進場收盤價。
+    護盤期間最低點之後，收盤價首次大於或等於進場收盤價。
 
     「最低點」統計區間：
     實際進場交易日至實際退場交易日。
@@ -480,15 +480,20 @@ def analyze_fund_entries(
             (lowest_date - entry_date).days
         )
 
-        # 進場後首次回到進場收盤價。
-        # 排除進場當天，避免所有事件都顯示0天。
-        after_entry_window = df.loc[
-            entry_idx + 1:exit_idx
+        # 從最低點之後開始尋找首次回到進場收盤價。
+        #
+        # 這裡的「打平」定義是：
+        # 國安基金進場後，市場先經歷護盤期間最低點，
+        # 接著首次收盤價重新大於或等於進場收盤價。
+        #
+        # 若最低點就是退場日，代表護盤期間沒有機會打平。
+        after_low_window = df.loc[
+            lowest_idx + 1:exit_idx
         ]
 
         breakeven_candidates = (
-            after_entry_window.index[
-                after_entry_window["Close"]
+            after_low_window.index[
+                after_low_window["Close"]
                 >= entry_close
             ]
         )
@@ -1197,7 +1202,8 @@ def build_output(
                 ),
             "breakeven_definition":
                 (
-                    "進場日之後，收盤價首次大於或等於進場收盤價"
+                    "護盤期間最低點之後，"
+                    "收盤價首次大於或等於進場收盤價"
                 ),
             "fund_date_matching":
                 (
@@ -1207,7 +1213,7 @@ def build_output(
             "drawdown_primary_basis":
                 "跌破日前252個交易日最高收盤價",
             "version":
-                "2.0.0",
+                "2.0.1",
         },
 
         "current_market":
