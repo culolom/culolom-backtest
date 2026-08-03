@@ -829,6 +829,12 @@ def strategy_trigger_summary(
 def serialize_records(
     df: pd.DataFrame,
 ) -> list[dict[str, Any]]:
+    """
+    將 DataFrame 轉成瀏覽器可嚴格解析的 JSON records。
+
+    所有 NaN、NaT、Infinity、-Infinity
+    都會轉成 None，最後輸出為 JSON null。
+    """
     clean = df.copy()
 
     for col in clean.columns:
@@ -839,14 +845,46 @@ def serialize_records(
                 "%Y-%m-%d"
             )
 
-    clean = clean.where(
-        pd.notna(clean),
-        None,
-    )
-
-    return clean.to_dict(
+    records = clean.to_dict(
         orient="records"
     )
+
+    def normalize_value(
+        value: Any,
+    ) -> Any:
+        if value is None:
+            return None
+
+        if isinstance(value, pd.Timestamp):
+            if pd.isna(value):
+                return None
+
+            return value.strftime(
+                "%Y-%m-%d"
+            )
+
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+
+        if isinstance(value, float):
+            if value == float("inf"):
+                return None
+
+            if value == float("-inf"):
+                return None
+
+        return value
+
+    return [
+        {
+            key: normalize_value(value)
+            for key, value in row.items()
+        }
+        for row in records
+    ]
 
 
 def safe_mean(
@@ -1213,7 +1251,7 @@ def build_output(
             "drawdown_primary_basis":
                 "跌破日前252個交易日最高收盤價",
             "version":
-                "2.0.1",
+                "2.0.2",
         },
 
         "current_market":
@@ -1335,6 +1373,7 @@ def main() -> None:
             output,
             ensure_ascii=False,
             indent=2,
+            allow_nan=False,
         ),
         encoding="utf-8",
     )
