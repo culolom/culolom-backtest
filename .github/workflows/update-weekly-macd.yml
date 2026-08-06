@@ -1,0 +1,72 @@
+name: Update TWII Weekly MACD Backtest
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # UTC 10:30 = 台灣時間 18:30
+    # 週一至週五每日執行
+    - cron: "30 10 * * 1-5"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-twii-weekly-macd
+  cancel-in-progress: false
+
+jobs:
+  run-backtest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Run weekly MACD backtest
+        run: |
+          python scripts/weekly_macd_backtest.py
+
+      - name: Verify output files
+        run: |
+          test -f output/twii_weekly_macd.json
+          test -f output/twii_weekly_macd_trades.csv
+          test -f output/twii_weekly_macd_equity.csv
+
+          python -m json.tool \
+            output/twii_weekly_macd.json \
+            > /dev/null
+
+          echo "Output files verified successfully."
+
+      - name: Commit updated results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            output/twii_weekly_macd.json \
+            output/twii_weekly_macd_trades.csv \
+            output/twii_weekly_macd_equity.csv
+
+          if git diff --cached --quiet; then
+            echo "No output changes to commit."
+            exit 0
+          fi
+
+          git commit -m "更新台股週線 MACD 回測資料"
+          git push
