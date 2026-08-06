@@ -1,72 +1,60 @@
-name: Update TWII Weekly MACD Backtest
+name: Update Weekly MACD Backtests
 
 on:
   workflow_dispatch:
 
   schedule:
-    # UTC 10:30 = 台灣時間 18:30
-    # 週一至週五每日執行
+    # GitHub Actions 使用 UTC。
+    # 10:30 UTC = 台灣時間 18:30。
     - cron: "30 10 * * 1-5"
 
 permissions:
   contents: write
 
-concurrency:
-  group: update-twii-weekly-macd
-  cancel-in-progress: false
-
 jobs:
-  run-backtest:
+  update-backtests:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          cache: "pip"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install pandas numpy
 
-      - name: Run weekly MACD backtest
-        run: |
-          python scripts/weekly_macd_backtest.py
+      # 保留你原本的資料更新步驟。
+      # 若目前 workflow 已經會更新 data/^TWII.csv 與 data/00631L.TW.csv，
+      # 請把那一段放在這裡，不要重複新增。
+      #
+      # 範例：
+      # - name: Update market data
+      #   run: python scripts/update_market_data.py
 
-      - name: Verify output files
-        run: |
-          test -f output/twii_weekly_macd.json
-          test -f output/twii_weekly_macd_trades.csv
-          test -f output/twii_weekly_macd_equity.csv
+      - name: Run original weekly MACD backtest
+        run: python scripts/weekly_macd_backtest.py
 
-          python -m json.tool \
-            output/twii_weekly_macd.json \
-            > /dev/null
+      - name: Run fixed-weight leveraged ETF rebalance backtest
+        run: python scripts/weekly_macd_fixed_rebalance.py
 
-          echo "Output files verified successfully."
-
-      - name: Commit updated results
+      - name: Commit updated outputs
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add \
-            output/twii_weekly_macd.json \
-            output/twii_weekly_macd_trades.csv \
-            output/twii_weekly_macd_equity.csv
+          git add output/
 
           if git diff --cached --quiet; then
             echo "No output changes to commit."
             exit 0
           fi
 
-          git commit -m "更新台股週線 MACD 回測資料"
+          git commit -m "Update weekly MACD backtest outputs"
           git push
