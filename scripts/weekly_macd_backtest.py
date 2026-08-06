@@ -76,14 +76,20 @@ def convert_to_weekly(daily_df: pd.DataFrame) -> pd.DataFrame:
     將日線轉成週線。
 
     每週使用該週最後一個交易日的收盤價。
-    若星期五休市，會使用星期四或該週最後交易日。
+    尚未結束的本週不納入 MACD 計算。
     """
 
     source = daily_df.reset_index().copy()
-    source["week_period"] = source["Date"].dt.to_period("W-FRI")
+
+    source["week_period"] = (
+        source["Date"].dt.to_period("W-FRI")
+    )
 
     weekly = (
-        source.groupby("week_period", observed=True)
+        source.groupby(
+            "week_period",
+            observed=True,
+        )
         .agg(
             signal_date=("Date", "max"),
             Close=("Close", "last"),
@@ -103,8 +109,19 @@ def convert_to_weekly(daily_df: pd.DataFrame) -> pd.DataFrame:
         .set_index("week_end")
     )
 
-    return weekly
+    # 原始資料最新日期
+    latest_daily_date = (
+        daily_df.index.max().normalize()
+    )
 
+    # 只保留已經完成的週線
+    # 例如資料更新到星期四，
+    # 本週標籤是星期五，因此先排除。
+    weekly = weekly.loc[
+        weekly.index <= latest_daily_date
+    ].copy()
+
+    return weekly
 
 # ============================================================
 # MACD 計算
