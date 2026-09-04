@@ -5,10 +5,10 @@
     "source_file": "data/^TWII.csv",
     "price_type": "price_index",
     "includes_dividends": false,
-    "generated_at": "2026-09-03T14:39:33+00:00",
+    "generated_at": "2026-09-04T14:26:29+00:00",
     "data_start_date": "1997-07-02",
-    "data_end_date": "2026-09-01",
-    "daily_row_count": 7147,
+    "data_end_date": "2026-09-02",
+    "daily_row_count": 7149,
     "weekly_row_count": 1501,
     "macd_parameters": {
       "fast": 12,
@@ -26,44 +26,44 @@
   "current_status": {
     "status": "cash",
     "status_zh": "持有現金",
-    "latest_week_signal_date": "2026-08-27",
-    "latest_close": 45975.21875,
-    "macd": 2983.315207,
-    "signal_line": 3330.045023,
-    "histogram": -346.729816,
+    "latest_week_signal_date": "2026-08-28",
+    "latest_close": 46331.449219,
+    "macd": 3011.732452,
+    "signal_line": 3335.728472,
+    "histogram": -323.99602,
     "current_week_signal": "none",
     "last_cross_type": "death_cross",
     "last_cross_date": "2026-07-17",
-    "weeks_since_last_cross": 5
+    "weeks_since_last_cross": 6
   },
   "performance": {
     "buy_and_hold": {
       "start_date": "1998-02-27",
-      "end_date": "2026-09-01",
-      "years": 28.5092,
-      "total_return_pct": 410.172552,
-      "cagr_pct": 5.882486,
+      "end_date": "2026-09-02",
+      "years": 28.512,
+      "total_return_pct": 401.653144,
+      "cagr_pct": 5.819386,
       "max_drawdown_pct": -66.220424,
-      "annual_volatility_pct": 21.488848,
-      "sharpe_ratio": 0.380987,
-      "sortino_ratio": 0.611732,
-      "calmar_ratio": 0.088832,
+      "annual_volatility_pct": 21.488777,
+      "sharpe_ratio": 0.378085,
+      "sortino_ratio": 0.607067,
+      "calmar_ratio": 0.087879,
       "exposure_pct": 100.0,
       "positive_days": 3672,
-      "negative_days": 3315
+      "negative_days": 3317
     },
     "weekly_macd": {
       "start_date": "1998-02-27",
-      "end_date": "2026-09-01",
-      "years": 28.5092,
+      "end_date": "2026-09-02",
+      "years": 28.512,
       "total_return_pct": 267.024447,
-      "cagr_pct": 4.666436,
+      "cagr_pct": 4.665978,
       "max_drawdown_pct": -48.994376,
-      "annual_volatility_pct": 13.841743,
-      "sharpe_ratio": 0.40802,
-      "sortino_ratio": 0.607456,
-      "calmar_ratio": 0.095244,
-      "exposure_pct": 51.137176,
+      "annual_volatility_pct": 13.839765,
+      "sharpe_ratio": 0.407962,
+      "sortino_ratio": 0.607358,
+      "calmar_ratio": 0.095235,
+      "exposure_pct": 51.122551,
       "positive_days": 1914,
       "negative_days": 1658
     }
@@ -17603,11 +17603,11 @@
     },
     {
       "week_end": "2026-08-28",
-      "signal_date": "2026-08-27",
-      "Close": 45975.21875,
-      "macd": 2983.315207,
-      "signal": 3330.045023,
-      "histogram": -346.729816,
+      "signal_date": "2026-08-28",
+      "Close": 46331.449219,
+      "macd": 3011.732452,
+      "signal": 3335.728472,
+      "histogram": -323.99602,
       "golden_cross": false,
       "death_cross": false,
       "signal_type": "none"
@@ -80516,6 +80516,15 @@
       "macd_drawdown": -0.110843
     },
     {
+      "date": "2026-08-28",
+      "Close": 46331.449219,
+      "position_for_return": 0.0,
+      "buy_hold_equity": 5.034649,
+      "macd_equity": 3.670244,
+      "buy_hold_drawdown": -0.029535,
+      "macd_drawdown": -0.110843
+    },
+    {
       "date": "2026-08-31",
       "Close": 46128.46875,
       "position_for_return": 0.0,
@@ -80531,6 +80540,15 @@
       "buy_hold_equity": 5.101726,
       "macd_equity": 3.670244,
       "buy_hold_drawdown": -0.016606,
+      "macd_drawdown": -0.110843
+    },
+    {
+      "date": "2026-09-02",
+      "Close": 46164.71875,
+      "position_for_return": 0.0,
+      "buy_hold_equity": 5.016531,
+      "macd_equity": 3.670244,
+      "buy_hold_drawdown": -0.033028,
       "macd_drawdown": -0.110843
     }
   ]
