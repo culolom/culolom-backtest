@@ -5,10 +5,10 @@
     "source_file": "data/^TWII.csv",
     "price_type": "price_index",
     "includes_dividends": false,
-    "generated_at": "2026-09-17T15:06:45+00:00",
+    "generated_at": "2026-09-18T14:34:12+00:00",
     "data_start_date": "1997-07-02",
-    "data_end_date": "2026-09-15",
-    "daily_row_count": 7158,
+    "data_end_date": "2026-09-16",
+    "daily_row_count": 7159,
     "weekly_row_count": 1503,
     "macd_parameters": {
       "fast": 12,
@@ -39,31 +39,31 @@
   "performance": {
     "buy_and_hold": {
       "start_date": "1998-02-27",
-      "end_date": "2026-09-15",
-      "years": 28.5476,
-      "total_return_pct": 394.554755,
-      "cagr_pct": 5.759115,
+      "end_date": "2026-09-16",
+      "years": 28.5503,
+      "total_return_pct": 398.221254,
+      "cagr_pct": 5.785912,
       "max_drawdown_pct": -66.220424,
-      "annual_volatility_pct": 21.48315,
-      "sharpe_ratio": 0.375391,
-      "sortino_ratio": 0.602841,
-      "calmar_ratio": 0.086969,
+      "annual_volatility_pct": 21.482037,
+      "sharpe_ratio": 0.376599,
+      "sortino_ratio": 0.604779,
+      "calmar_ratio": 0.087374,
       "exposure_pct": 100.0,
-      "positive_days": 3675,
+      "positive_days": 3676,
       "negative_days": 3323
     },
     "weekly_macd": {
       "start_date": "1998-02-27",
-      "end_date": "2026-09-15",
-      "years": 28.5476,
+      "end_date": "2026-09-16",
+      "years": 28.5503,
       "total_return_pct": 267.024447,
-      "cagr_pct": 4.660027,
+      "cagr_pct": 4.65957,
       "max_drawdown_pct": -48.994376,
-      "annual_volatility_pct": 13.830874,
-      "sharpe_ratio": 0.407699,
-      "sortino_ratio": 0.606918,
-      "calmar_ratio": 0.095114,
-      "exposure_pct": 51.056841,
+      "annual_volatility_pct": 13.829887,
+      "sharpe_ratio": 0.40767,
+      "sortino_ratio": 0.60687,
+      "calmar_ratio": 0.095104,
+      "exposure_pct": 51.04955,
       "positive_days": 1914,
       "negative_days": 1658
     }
@@ -80652,6 +80652,15 @@
       "buy_hold_equity": 4.945548,
       "macd_equity": 3.670244,
       "buy_hold_drawdown": -0.04671,
+      "macd_drawdown": -0.110843
+    },
+    {
+      "date": "2026-09-16",
+      "Close": 45848.898438,
+      "position_for_return": 0.0,
+      "buy_hold_equity": 4.982213,
+      "macd_equity": 3.670244,
+      "buy_hold_drawdown": -0.039643,
       "macd_drawdown": -0.110843
     }
   ]
