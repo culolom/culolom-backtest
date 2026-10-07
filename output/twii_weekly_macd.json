@@ -5,7 +5,7 @@
     "source_file": "data/^TWII.csv",
     "price_type": "price_index",
     "includes_dividends": false,
-    "generated_at": "2026-10-06T16:52:25+00:00",
+    "generated_at": "2026-10-07T17:29:04+00:00",
     "data_start_date": "1997-07-02",
     "data_end_date": "2026-10-06",
     "daily_row_count": 7171,
@@ -41,16 +41,16 @@
       "start_date": "1998-02-27",
       "end_date": "2026-10-06",
       "years": 28.6051,
-      "total_return_pct": 439.288523,
-      "cagr_pct": 6.067815,
+      "total_return_pct": 441.401311,
+      "cagr_pct": 6.082315,
       "max_drawdown_pct": -66.220424,
-      "annual_volatility_pct": 21.475802,
-      "sharpe_ratio": 0.389437,
-      "sortino_ratio": 0.625618,
-      "calmar_ratio": 0.091631,
+      "annual_volatility_pct": 21.475798,
+      "sharpe_ratio": 0.390091,
+      "sortino_ratio": 0.626661,
+      "calmar_ratio": 0.09185,
       "exposure_pct": 100.0,
-      "positive_days": 3685,
-      "negative_days": 3326
+      "positive_days": 3686,
+      "negative_days": 3325
     },
     "weekly_macd": {
       "start_date": "1998-02-27",
@@ -80797,11 +80797,11 @@
     },
     {
       "date": "2026-10-06",
-      "Close": 49628.121094,
+      "Close": 49822.550781,
       "position_for_return": 0.0,
-      "buy_hold_equity": 5.392885,
+      "buy_hold_equity": 5.414013,
       "macd_equity": 3.670244,
-      "buy_hold_drawdown": -0.001688,
+      "buy_hold_drawdown": 0.0,
       "macd_drawdown": -0.110843
     }
   ]
