@@ -5,7 +5,7 @@
     "source_file": "data/^TWII.csv",
     "price_type": "price_index",
     "includes_dividends": false,
-    "generated_at": "2026-10-19T17:03:09+00:00",
+    "generated_at": "2026-10-20T15:14:30+00:00",
     "data_start_date": "1997-07-02",
     "data_end_date": "2026-10-16",
     "daily_row_count": 7178,
