@@ -4,7 +4,7 @@
     "market": "TAIEX",
     "symbol": "^TWII",
     "data_start": "1998-04-30",
-    "data_end": "2026-10-29",
+    "data_end": "2026-10-30",
     "sma_days": 200,
     "peak_lookback_days": 252,
     "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
@@ -15,17 +15,19 @@
     "version": "2.0.2"
   },
   "current_market": {
-    "date": "2026-10-29",
-    "close": 46833.6,
-    "sma200": 40520.18,
-    "distance_from_sma200_pct": 15.58,
+    "date": "2026-10-30",
+    "close": 44804.94,
+    "sma200": 40602.44,
+    "distance_from_sma200_pct": 10.35,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -6.0,
+    "drawdown_from_252d_peak_pct": -10.07,
     "below_sma200": false,
     "eligible_for_bear_market_plan": false,
-    "triggered_drawdown_levels": [],
-    "current_trigger_level_pct": 0
+    "triggered_drawdown_levels": [
+      10
+    ],
+    "current_trigger_level_pct": 10
   },
   "summary": {
     "total_events": 107,
