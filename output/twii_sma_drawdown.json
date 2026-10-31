@@ -16,18 +16,16 @@
   },
   "current_market": {
     "date": "2026-10-30",
-    "close": 44804.94,
-    "sma200": 40602.44,
-    "distance_from_sma200_pct": 10.35,
+    "close": 45211.83,
+    "sma200": 40692.26,
+    "distance_from_sma200_pct": 11.11,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -10.07,
+    "drawdown_from_252d_peak_pct": -9.25,
     "below_sma200": false,
     "eligible_for_bear_market_plan": false,
-    "triggered_drawdown_levels": [
-      10
-    ],
-    "current_trigger_level_pct": 10
+    "triggered_drawdown_levels": [],
+    "current_trigger_level_pct": 0
   },
   "summary": {
     "total_events": 107,
