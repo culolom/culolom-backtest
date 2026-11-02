@@ -5,10 +5,10 @@
     "source_file": "data/^TWII.csv",
     "price_type": "price_index",
     "includes_dividends": false,
-    "generated_at": "2026-10-30T16:45:22+00:00",
+    "generated_at": "2026-11-02T20:26:19+00:00",
     "data_start_date": "1997-07-02",
     "data_end_date": "2026-10-30",
-    "daily_row_count": 7185,
+    "daily_row_count": 7186,
     "weekly_row_count": 1510,
     "macd_parameters": {
       "fast": 12,
@@ -27,10 +27,10 @@
     "status": "cash",
     "status_zh": "持有現金",
     "latest_week_signal_date": "2026-10-30",
-    "latest_close": 44804.941406,
-    "macd": 2167.936087,
-    "signal_line": 2723.376263,
-    "histogram": -555.440176,
+    "latest_close": 45211.828125,
+    "macd": 2200.394286,
+    "signal_line": 2729.867903,
+    "histogram": -529.473617,
     "current_week_signal": "none",
     "last_cross_type": "death_cross",
     "last_cross_date": "2026-07-17",
@@ -41,16 +41,16 @@
       "start_date": "1998-02-27",
       "end_date": "2026-10-30",
       "years": 28.6708,
-      "total_return_pct": 386.876999,
-      "cagr_pct": 5.675986,
+      "total_return_pct": 391.298471,
+      "cagr_pct": 5.709312,
       "max_drawdown_pct": -66.220424,
-      "annual_volatility_pct": 21.496737,
-      "sharpe_ratio": 0.371658,
-      "sortino_ratio": 0.596234,
-      "calmar_ratio": 0.085714,
+      "annual_volatility_pct": 21.483273,
+      "sharpe_ratio": 0.373222,
+      "sortino_ratio": 0.599207,
+      "calmar_ratio": 0.086217,
       "exposure_pct": 100.0,
       "positive_days": 3691,
-      "negative_days": 3334
+      "negative_days": 3335
     },
     "weekly_macd": {
       "start_date": "1998-02-27",
@@ -59,11 +59,11 @@
       "total_return_pct": 267.024447,
       "cagr_pct": 4.639545,
       "max_drawdown_pct": -48.994376,
-      "annual_volatility_pct": 13.804302,
-      "sharpe_ratio": 0.406915,
-      "sortino_ratio": 0.605604,
+      "annual_volatility_pct": 13.803321,
+      "sharpe_ratio": 0.406886,
+      "sortino_ratio": 0.605556,
       "calmar_ratio": 0.094695,
-      "exposure_pct": 50.86072,
+      "exposure_pct": 50.853485,
       "positive_days": 1914,
       "negative_days": 1658
     }
@@ -17703,10 +17703,10 @@
     {
       "week_end": "2026-10-30",
       "signal_date": "2026-10-30",
-      "Close": 44804.941406,
-      "macd": 2167.936087,
-      "signal": 2723.376263,
-      "histogram": -555.440176,
+      "Close": 45211.828125,
+      "macd": 2200.394286,
+      "signal": 2729.867903,
+      "histogram": -529.473617,
       "golden_cross": false,
       "death_cross": false,
       "signal_type": "none"
@@ -80966,12 +80966,21 @@
       "macd_drawdown": -0.110843
     },
     {
-      "date": "2026-10-30",
-      "Close": 44804.941406,
+      "date": "2026-10-29",
+      "Close": 46368.328125,
       "position_for_return": 0.0,
-      "buy_hold_equity": 4.86877,
+      "buy_hold_equity": 5.038657,
       "macd_equity": 3.670244,
-      "buy_hold_drawdown": -0.10071,
+      "buy_hold_drawdown": -0.069331,
+      "macd_drawdown": -0.110843
+    },
+    {
+      "date": "2026-10-30",
+      "Close": 45211.828125,
+      "position_for_return": 0.0,
+      "buy_hold_equity": 4.912985,
+      "macd_equity": 3.670244,
+      "buy_hold_drawdown": -0.092543,
       "macd_drawdown": -0.110843
     }
   ]
