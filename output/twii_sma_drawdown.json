@@ -4,7 +4,7 @@
     "market": "TAIEX",
     "symbol": "^TWII",
     "data_start": "1998-04-30",
-    "data_end": "2026-11-05",
+    "data_end": "2026-11-06",
     "sma_days": 200,
     "peak_lookback_days": 252,
     "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
@@ -15,29 +15,30 @@
     "version": "2.0.2"
   },
   "current_market": {
-    "date": "2026-11-05",
-    "close": 42153.49,
-    "sma200": 40909.06,
-    "distance_from_sma200_pct": 3.04,
+    "date": "2026-11-06",
+    "close": 38397.83,
+    "sma200": 40954.51,
+    "distance_from_sma200_pct": -6.24,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -15.39,
-    "below_sma200": false,
-    "eligible_for_bear_market_plan": false,
+    "drawdown_from_252d_peak_pct": -22.93,
+    "below_sma200": true,
+    "eligible_for_bear_market_plan": true,
     "triggered_drawdown_levels": [
-      10
+      10,
+      20
     ],
-    "current_trigger_level_pct": 10
+    "current_trigger_level_pct": 20
   },
   "summary": {
-    "total_events": 107,
-    "average_drawdown_from_cross_pct": -3.83,
-    "median_drawdown_from_cross_pct": -0.29,
+    "total_events": 108,
+    "average_drawdown_from_cross_pct": -3.8,
+    "median_drawdown_from_cross_pct": -0.26,
     "deepest_drawdown_from_cross_pct": -59.6,
-    "average_drawdown_from_peak_pct": -14.6,
-    "median_drawdown_from_peak_pct": -12.54,
+    "average_drawdown_from_peak_pct": -14.68,
+    "median_drawdown_from_peak_pct": -12.64,
     "deepest_drawdown_from_peak_pct": -66.22,
-    "average_days_below_sma": 20.21,
+    "average_days_below_sma": 20.04,
     "median_days_below_sma": 3.0
   },
   "threshold_probability": {
@@ -45,54 +46,54 @@
       {
         "threshold_pct": -10,
         "count": 13,
-        "probability_pct": 12.15
+        "probability_pct": 12.04
       },
       {
         "threshold_pct": -20,
         "count": 7,
-        "probability_pct": 6.54
+        "probability_pct": 6.48
       },
       {
         "threshold_pct": -30,
         "count": 2,
-        "probability_pct": 1.87
+        "probability_pct": 1.85
       },
       {
         "threshold_pct": -40,
         "count": 2,
-        "probability_pct": 1.87
+        "probability_pct": 1.85
       },
       {
         "threshold_pct": -50,
         "count": 2,
-        "probability_pct": 1.87
+        "probability_pct": 1.85
       }
     ],
     "from_252d_peak": [
       {
         "threshold_pct": -10,
-        "count": 62,
-        "probability_pct": 57.94
+        "count": 63,
+        "probability_pct": 58.33
       },
       {
         "threshold_pct": -20,
-        "count": 19,
-        "probability_pct": 17.76
+        "count": 20,
+        "probability_pct": 18.52
       },
       {
         "threshold_pct": -30,
         "count": 7,
-        "probability_pct": 6.54
+        "probability_pct": 6.48
       },
       {
         "threshold_pct": -40,
         "count": 4,
-        "probability_pct": 3.74
+        "probability_pct": 3.7
       },
       {
         "threshold_pct": -50,
         "count": 2,
-        "probability_pct": 1.87
+        "probability_pct": 1.85
       }
     ]
   },
@@ -208,8 +209,8 @@
     {
       "strategy_id": "conservative",
       "name": "保守版",
-      "average_cash_used": 87850.47,
-      "average_cash_used_pct": 17.57,
+      "average_cash_used": 88888.89,
+      "average_cash_used_pct": 17.78,
       "events_using_all_cash": 2,
       "event_results": [
         {
@@ -853,14 +854,20 @@
           "drawdown_from_peak_pct": -10.9,
           "cash_used": 100000,
           "cash_remaining": 400000
+        },
+        {
+          "event_id": 108,
+          "drawdown_from_peak_pct": -22.93,
+          "cash_used": 200000,
+          "cash_remaining": 300000
         }
       ]
     },
     {
       "strategy_id": "cumulative",
       "name": "累積版",
-      "average_cash_used": 64018.69,
-      "average_cash_used_pct": 12.8,
+      "average_cash_used": 64814.81,
+      "average_cash_used_pct": 12.96,
       "events_using_all_cash": 4,
       "event_results": [
         {
@@ -1504,14 +1511,20 @@
           "drawdown_from_peak_pct": -10.9,
           "cash_used": 50000,
           "cash_remaining": 450000
+        },
+        {
+          "event_id": 108,
+          "drawdown_from_peak_pct": -22.93,
+          "cash_used": 150000,
+          "cash_remaining": 350000
         }
       ]
     },
     {
       "strategy_id": "martingale",
       "name": "馬丁版",
-      "average_cash_used": 65420.56,
-      "average_cash_used_pct": 13.08,
+      "average_cash_used": 66203.7,
+      "average_cash_used_pct": 13.24,
       "events_using_all_cash": 4,
       "event_results": [
         {
@@ -2155,6 +2168,12 @@
           "drawdown_from_peak_pct": -10.9,
           "cash_used": 50000,
           "cash_remaining": 450000
+        },
+        {
+          "event_id": 108,
+          "drawdown_from_peak_pct": -22.93,
+          "cash_used": 150000,
+          "cash_remaining": 350000
         }
       ]
     }
@@ -3871,6 +3890,22 @@
       "days_below_sma": 4,
       "recovery_date": "2025-06-25",
       "recovered": true
+    },
+    {
+      "event_id": 108,
+      "cross_below_date": "2026-11-06",
+      "cross_below_close": 38397.828125,
+      "cross_below_sma200": 40954.5051171875,
+      "distance_from_sma_at_cross": -0.062427246645315515,
+      "peak_date": "2026-10-06",
+      "peak_close": 49822.55078125,
+      "lowest_date": "2026-11-06",
+      "lowest_close": 38397.828125,
+      "drawdown_from_cross": 0.0,
+      "drawdown_from_peak": -0.229308264573028,
+      "days_below_sma": 1,
+      "recovery_date": null,
+      "recovered": false
     }
   ],
   "national_stabilization_fund": [
