@@ -16,12 +16,12 @@
   },
   "current_market": {
     "date": "2026-11-06",
-    "close": 38397.83,
-    "sma200": 40954.51,
-    "distance_from_sma200_pct": -6.24,
+    "close": 39701.64,
+    "sma200": 41016.02,
+    "distance_from_sma200_pct": -3.2,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -22.93,
+    "drawdown_from_252d_peak_pct": -20.31,
     "below_sma200": true,
     "eligible_for_bear_market_plan": true,
     "triggered_drawdown_levels": [
@@ -35,7 +35,7 @@
     "average_drawdown_from_cross_pct": -3.8,
     "median_drawdown_from_cross_pct": -0.26,
     "deepest_drawdown_from_cross_pct": -59.6,
-    "average_drawdown_from_peak_pct": -14.68,
+    "average_drawdown_from_peak_pct": -14.65,
     "median_drawdown_from_peak_pct": -12.64,
     "deepest_drawdown_from_peak_pct": -66.22,
     "average_days_below_sma": 20.04,
@@ -857,7 +857,7 @@
         },
         {
           "event_id": 108,
-          "drawdown_from_peak_pct": -22.93,
+          "drawdown_from_peak_pct": -20.31,
           "cash_used": 200000,
           "cash_remaining": 300000
         }
@@ -1514,7 +1514,7 @@
         },
         {
           "event_id": 108,
-          "drawdown_from_peak_pct": -22.93,
+          "drawdown_from_peak_pct": -20.31,
           "cash_used": 150000,
           "cash_remaining": 350000
         }
@@ -2171,7 +2171,7 @@
         },
         {
           "event_id": 108,
-          "drawdown_from_peak_pct": -22.93,
+          "drawdown_from_peak_pct": -20.31,
           "cash_used": 150000,
           "cash_remaining": 350000
         }
@@ -3894,15 +3894,15 @@
     {
       "event_id": 108,
       "cross_below_date": "2026-11-06",
-      "cross_below_close": 38397.828125,
-      "cross_below_sma200": 40954.5051171875,
-      "distance_from_sma_at_cross": -0.062427246645315515,
+      "cross_below_close": 39701.640625,
+      "cross_below_sma200": 41016.01626953125,
+      "distance_from_sma_at_cross": -0.03204542430191182,
       "peak_date": "2026-10-06",
       "peak_close": 49822.55078125,
       "lowest_date": "2026-11-06",
-      "lowest_close": 38397.828125,
+      "lowest_close": 39701.640625,
       "drawdown_from_cross": 0.0,
-      "drawdown_from_peak": -0.229308264573028,
+      "drawdown_from_peak": -0.20313914076151351,
       "days_below_sma": 1,
       "recovery_date": null,
       "recovered": false
