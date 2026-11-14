@@ -16,12 +16,12 @@
   },
   "current_market": {
     "date": "2026-11-13",
-    "close": 44398.35,
-    "sma200": 41272.9,
-    "distance_from_sma200_pct": 7.57,
+    "close": 43675.12,
+    "sma200": 41331.21,
+    "distance_from_sma200_pct": 5.67,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -10.89,
+    "drawdown_from_252d_peak_pct": -12.34,
     "below_sma200": false,
     "eligible_for_bear_market_plan": false,
     "triggered_drawdown_levels": [
