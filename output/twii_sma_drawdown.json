@@ -4,7 +4,7 @@
     "market": "TAIEX",
     "symbol": "^TWII",
     "data_start": "1998-04-30",
-    "data_end": "2026-11-17",
+    "data_end": "2026-11-18",
     "sma_days": 200,
     "peak_lookback_days": 252,
     "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
@@ -15,29 +15,30 @@
     "version": "2.0.2"
   },
   "current_market": {
-    "date": "2026-11-17",
-    "close": 40529.73,
-    "sma200": 41430.29,
-    "distance_from_sma200_pct": -2.17,
+    "date": "2026-11-18",
+    "close": 39827.97,
+    "sma200": 41470.2,
+    "distance_from_sma200_pct": -3.96,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -18.65,
+    "drawdown_from_252d_peak_pct": -20.06,
     "below_sma200": true,
     "eligible_for_bear_market_plan": true,
     "triggered_drawdown_levels": [
-      10
+      10,
+      20
     ],
-    "current_trigger_level_pct": 10
+    "current_trigger_level_pct": 20
   },
   "summary": {
     "total_events": 109,
-    "average_drawdown_from_cross_pct": -3.77,
+    "average_drawdown_from_cross_pct": -3.79,
     "median_drawdown_from_cross_pct": -0.29,
     "deepest_drawdown_from_cross_pct": -59.6,
-    "average_drawdown_from_peak_pct": -14.69,
+    "average_drawdown_from_peak_pct": -14.7,
     "median_drawdown_from_peak_pct": -12.74,
     "deepest_drawdown_from_peak_pct": -66.22,
-    "average_days_below_sma": 19.87,
+    "average_days_below_sma": 19.88,
     "median_days_below_sma": 3.0
   },
   "threshold_probability": {
@@ -76,8 +77,8 @@
       },
       {
         "threshold_pct": -20,
-        "count": 20,
-        "probability_pct": 18.35
+        "count": 21,
+        "probability_pct": 19.27
       },
       {
         "threshold_pct": -30,
@@ -208,8 +209,8 @@
     {
       "strategy_id": "conservative",
       "name": "保守版",
-      "average_cash_used": 88990.83,
-      "average_cash_used_pct": 17.8,
+      "average_cash_used": 89908.26,
+      "average_cash_used_pct": 17.98,
       "events_using_all_cash": 2,
       "event_results": [
         {
@@ -862,17 +863,17 @@
         },
         {
           "event_id": 109,
-          "drawdown_from_peak_pct": -18.65,
-          "cash_used": 100000,
-          "cash_remaining": 400000
+          "drawdown_from_peak_pct": -20.06,
+          "cash_used": 200000,
+          "cash_remaining": 300000
         }
       ]
     },
     {
       "strategy_id": "cumulative",
       "name": "累積版",
-      "average_cash_used": 64678.9,
-      "average_cash_used_pct": 12.94,
+      "average_cash_used": 65596.33,
+      "average_cash_used_pct": 13.12,
       "events_using_all_cash": 4,
       "event_results": [
         {
@@ -1525,17 +1526,17 @@
         },
         {
           "event_id": 109,
-          "drawdown_from_peak_pct": -18.65,
-          "cash_used": 50000,
-          "cash_remaining": 450000
+          "drawdown_from_peak_pct": -20.06,
+          "cash_used": 150000,
+          "cash_remaining": 350000
         }
       ]
     },
     {
       "strategy_id": "martingale",
       "name": "馬丁版",
-      "average_cash_used": 66055.05,
-      "average_cash_used_pct": 13.21,
+      "average_cash_used": 66972.48,
+      "average_cash_used_pct": 13.39,
       "events_using_all_cash": 4,
       "event_results": [
         {
@@ -2188,9 +2189,9 @@
         },
         {
           "event_id": 109,
-          "drawdown_from_peak_pct": -18.65,
-          "cash_used": 50000,
-          "cash_remaining": 450000
+          "drawdown_from_peak_pct": -20.06,
+          "cash_used": 150000,
+          "cash_remaining": 350000
         }
       ]
     }
@@ -3932,11 +3933,11 @@
       "distance_from_sma_at_cross": -0.008255363932956672,
       "peak_date": "2026-10-06",
       "peak_close": 49822.55078125,
-      "lowest_date": "2026-11-17",
-      "lowest_close": 40529.73046875,
-      "drawdown_from_cross": -0.0124353480686753,
-      "drawdown_from_peak": -0.18651835698458896,
-      "days_below_sma": 2,
+      "lowest_date": "2026-11-18",
+      "lowest_close": 39827.96875,
+      "drawdown_from_cross": -0.029534772602239023,
+      "drawdown_from_peak": -0.2006035795945501,
+      "days_below_sma": 3,
       "recovery_date": null,
       "recovered": false
     }
