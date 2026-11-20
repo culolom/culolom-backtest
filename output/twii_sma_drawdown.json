@@ -4,7 +4,7 @@
     "market": "TAIEX",
     "symbol": "^TWII",
     "data_start": "1998-04-30",
-    "data_end": "2026-11-19",
+    "data_end": "2026-11-20",
     "sma_days": 200,
     "peak_lookback_days": 252,
     "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
@@ -15,13 +15,13 @@
     "version": "2.0.2"
   },
   "current_market": {
-    "date": "2026-11-19",
-    "close": 38733.47,
-    "sma200": 41507.51,
-    "distance_from_sma200_pct": -6.68,
+    "date": "2026-11-20",
+    "close": 36245.97,
+    "sma200": 41528.41,
+    "distance_from_sma200_pct": -12.72,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -22.26,
+    "drawdown_from_252d_peak_pct": -27.25,
     "below_sma200": true,
     "eligible_for_bear_market_plan": true,
     "triggered_drawdown_levels": [
@@ -32,21 +32,21 @@
   },
   "summary": {
     "total_events": 109,
-    "average_drawdown_from_cross_pct": -3.81,
+    "average_drawdown_from_cross_pct": -3.87,
     "median_drawdown_from_cross_pct": -0.29,
     "deepest_drawdown_from_cross_pct": -59.6,
-    "average_drawdown_from_peak_pct": -14.72,
+    "average_drawdown_from_peak_pct": -14.77,
     "median_drawdown_from_peak_pct": -12.74,
     "deepest_drawdown_from_peak_pct": -66.22,
-    "average_days_below_sma": 19.89,
+    "average_days_below_sma": 19.9,
     "median_days_below_sma": 3.0
   },
   "threshold_probability": {
     "from_cross_date": [
       {
         "threshold_pct": -10,
-        "count": 13,
-        "probability_pct": 11.93
+        "count": 14,
+        "probability_pct": 12.84
       },
       {
         "threshold_pct": -20,
@@ -863,7 +863,7 @@
         },
         {
           "event_id": 109,
-          "drawdown_from_peak_pct": -22.26,
+          "drawdown_from_peak_pct": -27.25,
           "cash_used": 200000,
           "cash_remaining": 300000
         }
@@ -1526,7 +1526,7 @@
         },
         {
           "event_id": 109,
-          "drawdown_from_peak_pct": -22.26,
+          "drawdown_from_peak_pct": -27.25,
           "cash_used": 150000,
           "cash_remaining": 350000
         }
@@ -2189,7 +2189,7 @@
         },
         {
           "event_id": 109,
-          "drawdown_from_peak_pct": -22.26,
+          "drawdown_from_peak_pct": -27.25,
           "cash_used": 150000,
           "cash_remaining": 350000
         }
@@ -3933,11 +3933,11 @@
       "distance_from_sma_at_cross": -0.008255363932956672,
       "peak_date": "2026-10-06",
       "peak_close": 49822.55078125,
-      "lowest_date": "2026-11-19",
-      "lowest_close": 38733.46875,
-      "drawdown_from_cross": -0.056203825148054554,
-      "drawdown_from_peak": -0.22257154355539777,
-      "days_below_sma": 4,
+      "lowest_date": "2026-11-20",
+      "lowest_close": 36245.96875,
+      "drawdown_from_cross": -0.11681530820672625,
+      "drawdown_from_peak": -0.272498734375506,
+      "days_below_sma": 5,
       "recovery_date": null,
       "recovered": false
     }
