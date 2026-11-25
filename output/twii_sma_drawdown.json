@@ -4,7 +4,7 @@
     "market": "TAIEX",
     "symbol": "^TWII",
     "data_start": "1998-04-30",
-    "data_end": "2026-11-24",
+    "data_end": "2026-11-25",
     "sma_days": 200,
     "peak_lookback_days": 252,
     "event_definition": "收盤價由200SMA上方跌到下方，直到首次收盤站回200SMA為一個事件",
@@ -15,19 +15,20 @@
     "version": "2.0.2"
   },
   "current_market": {
-    "date": "2026-11-24",
-    "close": 40119.2,
-    "sma200": 41597.04,
-    "distance_from_sma200_pct": -3.55,
+    "date": "2026-11-25",
+    "close": 38376.08,
+    "sma200": 41629.12,
+    "distance_from_sma200_pct": -7.81,
     "peak_252_date": "2026-10-06",
     "peak_252_close": 49822.55,
-    "drawdown_from_252d_peak_pct": -19.48,
+    "drawdown_from_252d_peak_pct": -22.97,
     "below_sma200": true,
     "eligible_for_bear_market_plan": true,
     "triggered_drawdown_levels": [
-      10
+      10,
+      20
     ],
-    "current_trigger_level_pct": 10
+    "current_trigger_level_pct": 20
   },
   "summary": {
     "total_events": 109,
@@ -37,7 +38,7 @@
     "average_drawdown_from_peak_pct": -14.77,
     "median_drawdown_from_peak_pct": -12.74,
     "deepest_drawdown_from_peak_pct": -66.22,
-    "average_days_below_sma": 19.92,
+    "average_days_below_sma": 19.93,
     "median_days_below_sma": 3.0
   },
   "threshold_probability": {
@@ -3936,7 +3937,7 @@
       "lowest_close": 36033.2890625,
       "drawdown_from_cross": -0.12199755193570305,
       "drawdown_from_peak": -0.2767674778293244,
-      "days_below_sma": 7,
+      "days_below_sma": 8,
       "recovery_date": null,
       "recovered": false
     }
